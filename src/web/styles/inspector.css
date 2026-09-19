@@ -1,0 +1,325 @@
+/* Tool inspector */
+
+.tool-inspector {
+  display: grid;
+  min-width: 0;
+  height: 100dvh;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  animation: inspector-in 140ms ease-out;
+}
+
+@keyframes inspector-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+.inspector-header {
+  display: grid;
+  height: var(--header-height);
+  min-height: var(--header-height);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector-header > div {
+  min-width: 0;
+}
+
+.inspector-header small {
+  display: block;
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.inspector-header h2 {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-content {
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.inspector-content > pre,
+.inspector-group pre,
+.file-change pre {
+  margin: 0;
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.inspector-content > pre,
+.inspector-group pre {
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+.inspector-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.inspector-group {
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+.inspector-group > summary {
+  display: grid;
+  min-height: var(--toolbar-height);
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 620;
+  list-style: none;
+  user-select: none;
+}
+
+.inspector-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inspector-group > summary > .ui-icon,
+.tool-group > summary > .ui-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--text-faint);
+  transition: transform 100ms ease;
+}
+.inspector-group[open] > summary > .ui-icon,
+.tool-group[open] > summary > .ui-icon {
+  transform: rotate(90deg);
+}
+
+.inspector-group > summary small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-code);
+  font-size: 0.62rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-group-content {
+  min-width: 0;
+  padding: 10px;
+  border-top: 0;
+}
+
+.inspector-properties {
+  margin: 0;
+}
+
+.inspector-properties > div {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.75fr) minmax(0, 1.25fr);
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 0;
+}
+
+.inspector-properties > div:first-child {
+  padding-top: 1px;
+}
+
+.inspector-properties > div:last-child {
+  padding-bottom: 1px;
+  border-bottom: 0;
+}
+
+.inspector-properties dt {
+  color: var(--text-faint);
+  font-size: 0.66rem;
+}
+
+.inspector-properties dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+  text-align: right;
+}
+
+.inspector-subfield {
+  margin-top: 10px;
+}
+
+.inspector-subfield > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-faint);
+  font-size: 0.65rem;
+}
+
+.command-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.command-actions article {
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+}
+
+.command-actions header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 0;
+  background: var(--surface-subtle);
+  font-size: 0.63rem;
+}
+
+.command-actions header span {
+  color: var(--text-faint);
+}
+
+.command-actions pre {
+  border: 0;
+  border-radius: 0;
+}
+
+.inspector-path {
+  display: block;
+  padding: 9px 10px;
+  overflow-wrap: anywhere;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.inspector-empty {
+  margin: 8px 0;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+}
+
+.file-changes {
+  display: grid;
+  gap: 14px;
+}
+
+.file-change {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.file-change > header {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
+}
+
+.file-change > header code {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-change > p {
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.file-change-kind {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-active);
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.file-change-kind-add {
+  color: var(--success);
+}
+
+.file-change-kind-delete {
+  color: var(--danger);
+}
+
+.file-change-kind-update {
+  color: var(--warning);
+}
+
+.file-change pre {
+  border: 0;
+  border-radius: 0;
+}
+
+.file-diff {
+  padding: 8px 0;
+  white-space: pre;
+}
+
+.diff-line {
+  display: block;
+  min-width: max-content;
+  padding: 0 10px;
+}
+
+.diff-line-added {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: color-mix(in srgb, var(--success) 78%, var(--text));
+}
+
+.diff-line-removed {
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+  color: color-mix(in srgb, var(--danger) 78%, var(--text));
+}
+
+.diff-line-hunk {
+  color: var(--accent);
+}

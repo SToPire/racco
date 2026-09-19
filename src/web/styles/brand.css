@@ -1,0 +1,49 @@
+.racco-logo {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.racco-logo img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.sidebar-logo {
+  width: 112px;
+}
+
+.new-session-brand {
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.new-session-brand h1 {
+  margin: 0;
+}
+
+.new-session-brand .racco-logo {
+  width: clamp(180px, 22vw, 266px);
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .new-session-brand {
+    margin-bottom: 24px;
+  }
+}
+
+@media (max-height: 600px) {
+  .new-session-brand {
+    margin-bottom: 12px;
+  }
+
+  .new-session-brand .racco-logo {
+    width: 150px;
+  }
+
+  .new-session-content {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+}

@@ -1,0 +1,148 @@
+.project-sessions {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+.native-session-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px 6px;
+}
+.native-session-toolbar .provider-logo {
+  stroke: none;
+}
+.native-session-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.native-session-search label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+}
+.native-session-search input {
+  min-width: 0;
+  width: 100%;
+  height: var(--input-height);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+.native-session-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+.native-session-list {
+  list-style: none;
+  padding: 4px 8px;
+  margin: 0;
+}
+.native-session-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 9px;
+  border-bottom: 1px solid var(--border);
+}
+.native-session-list li:hover {
+  background: var(--surface-subtle);
+}
+/* Delete button, shown on hover of its row, always visible on narrow viewports. */
+.native-session-list li .row-delete-button {
+  opacity: 0;
+}
+.native-session-list li:hover .row-delete-button,
+.native-session-list li .row-delete-button:focus-visible {
+  opacity: 1;
+}
+@media (hover: none), (max-width: 760px) {
+  .native-session-list li .row-delete-button {
+    opacity: 0.4;
+  }
+  .native-session-list li:hover .row-delete-button {
+    opacity: 0.4;
+  }
+  .native-session-list li .row-delete-button:active {
+    opacity: 1;
+    color: var(--danger);
+  }
+}
+.native-session-copy {
+  flex: 1;
+  min-width: 0;
+}
+.native-session-copy strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 550;
+}
+.native-session-copy > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.native-session-copy small {
+  color: var(--success);
+  font-size: inherit;
+}
+.native-session-action,
+.native-session-more,
+.native-session-error button {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--selection-text);
+  font-size: 11px;
+}
+.native-session-action:hover:not(:disabled),
+.native-session-more:hover:not(:disabled) {
+  background: var(--selection-bg);
+}
+.native-session-more {
+  display: block;
+  margin: 14px auto;
+}
+.native-session-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 18px;
+  margin: 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.native-session-error {
+  margin: 12px;
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.native-session-error p {
+  margin: 0 0 8px;
+}

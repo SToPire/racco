@@ -1,0 +1,23 @@
+# Agent Note: {{title}}
+
+Status: proposed
+
+## Problem
+
+{{project_problem_and_decision_driving_constraints}}
+
+## Proposal
+
+{{chosen_approach_why_it_fits_and_scope}}
+
+## Alternatives considered
+
+**{{genuine_alternative}}:** {{decisive_reason_not_selected}}
+
+## Acceptance criteria
+
+{{observable_project_outcomes}}
+
+## Risks
+
+{{material_tradeoffs_or_unresolved_project_constraints}}

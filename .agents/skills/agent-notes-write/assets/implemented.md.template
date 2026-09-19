@@ -1,0 +1,19 @@
+# Agent Note: {{title}}
+
+Status: implemented
+
+## Problem
+
+{{project_problem_and_decision_driving_constraints}}
+
+## Decision
+
+{{chosen_approach_and_decisive_rationale}}
+
+## Alternatives considered
+
+**{{genuine_alternative}}:** {{decisive_reason_not_selected}}
+
+## Consequences
+
+{{benefits_costs_and_durable_constraints}}

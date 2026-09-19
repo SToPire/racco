@@ -1,0 +1,3 @@
+interface:
+  display_name: "Write Agent Notes"
+  short_description: "Record concise project decisions and durable trade-offs"

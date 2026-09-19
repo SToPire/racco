@@ -1,0 +1,164 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: var(--text);
+  background: var(--app-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --app-bg: #fefeff;
+  --sidebar-bg: #f8fafd;
+  --surface: #fdfeff;
+  --surface-subtle: #f4f7fc;
+  --surface-hover: #edf3fa;
+  --surface-active: #e7effa;
+  --text: #202d3e;
+  --text-muted: #53667e;
+  --text-faint: #5d7089;
+  --border: #e5ebf3;
+  --border-strong: #d6e0ee;
+  --primary: #284c7d;
+  --primary-text: #ffffff;
+  --accent: #4b76c8;
+  --selection-bg: #eaf2fc;
+  --selection-text: #254b7b;
+  --selection-border: #d5e2f3;
+  --header-height: 44px;
+  --toolbar-height: 36px;
+  --tab-height: 28px;
+  --control-size: 28px;
+  --input-height: 32px;
+  --radius-control: 8px;
+  --radius-pill: 999px;
+  --shadow-subtle: 0 1px 3px rgb(39 66 110 / 7%);
+  --success: #1f9d72;
+  --warning: #c47b20;
+  --danger: #d14a4a;
+  --codex: #5e6ad2;
+  --claude: #c66f42;
+  --font-code:
+    "Cascadia Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono", ui-monospace,
+    monospace;
+  --shadow: 0 8px 28px rgb(39 66 110 / 8%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  overflow: hidden;
+  background: var(--app-bg);
+  color: var(--text);
+}
+
+button,
+textarea,
+select,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ui-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-size);
+  height: var(--control-size);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.icon-button > .ui-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.6;
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app-layout {
+  --project-panel-size: 40px;
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr) var(--project-panel-size);
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--app-bg);
+}
+
+.app-layout.inspector-open {
+  grid-template-columns: 288px minmax(0, 1fr) minmax(320px, 380px) var(
+      --project-panel-size
+    );
+}

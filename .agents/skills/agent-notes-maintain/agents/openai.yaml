@@ -1,0 +1,3 @@
+interface:
+  display_name: "Maintain Agent Notes"
+  short_description: "Maintain decision lifecycles and preserve sealed history"

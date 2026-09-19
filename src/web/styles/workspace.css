@@ -1,0 +1,202 @@
+/* Main workspace */
+
+.workspace {
+  min-width: 0;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--app-bg);
+}
+
+.conversation-loading {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 32px;
+  text-align: center;
+}
+
+.conversation-loading p {
+  max-width: 520px;
+  margin: 9px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.pane-header {
+  display: grid;
+  align-items: center;
+  height: var(--header-height);
+  min-height: var(--header-height);
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.mobile-back-button {
+  display: none;
+  width: var(--control-size);
+  height: var(--control-size);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+/* New conversation */
+
+.new-session-view,
+.session-view {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+}
+
+.new-session-header {
+  grid-template-columns: auto 1fr;
+  font-size: 0.88rem;
+}
+
+.new-session-content {
+  display: flex;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 32px 24px min(14vh, 120px);
+}
+
+.new-session-composer {
+  width: min(720px, 100%);
+  padding: 15px 15px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.new-session-context {
+  display: flex;
+  align-items: center;
+  width: min(720px, 100%);
+  padding: 0 8px 8px;
+}
+
+.new-session-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 100px;
+  max-height: 260px;
+  padding: 3px 5px 12px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.new-session-composer textarea::placeholder,
+.composer textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.new-session-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.new-session-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.provider-switch {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+}
+
+.provider-switch button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--tab-height);
+  min-height: var(--tab-height);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.provider-switch button.active {
+  background: var(--surface);
+  color: var(--selection-text);
+  box-shadow: var(--shadow-subtle);
+}
+
+.provider-switch .provider-logo {
+  width: 14px;
+  height: 14px;
+}
+
+.provider-switch .provider-logo-claude {
+  width: 14px;
+  height: 14px;
+}
+
+.round-send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--primary-text);
+  cursor: pointer;
+}
+
+.round-send-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.round-send-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.28;
+}
+
+.new-session-composer > small {
+  display: block;
+  margin: 7px 4px 0;
+  color: var(--danger);
+  font-size: 0.68rem;
+}

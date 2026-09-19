@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="racco-app-icon-title racco-app-icon-desc" >
+  <title id="racco-app-icon-title">Racco app icon</title>
+  <desc id="racco-app-icon-desc">Charcoal and ivory raccoon on an amber rounded square.</desc>
+<rect width="256" height="256" rx="56" fill="#DCA45B"/>
+<g transform="translate(12.8 12.8) scale(.9)"><path d="M44 99C27 82 24 59 32 42C38 29 52 26 65 34L101 60Z" fill="#26323B"/><path d="M43 70C38 59 38 49 45 43C51 39 60 44 75 57Z" fill="#DCA45B"/>
+<g transform="translate(256 0) scale(-1 1)"><path d="M44 99C27 82 24 59 32 42C38 29 52 26 65 34L101 60Z" fill="#26323B"/><path d="M43 70C38 59 38 49 45 43C51 39 60 44 75 57Z" fill="#DCA45B"/></g>
+<path d="M128 46C171 46 207 67 224 106L234 126Q238 133 234 141C222 162 204 182 181 197L151 216C137 225 119 225 105 216L75 197C52 182 34 162 22 141Q18 133 22 126L32 106C49 67 85 46 128 46Z" fill="#26323B"/>
+<path d="M128 60C90 60 60 79 45 113L33 133C44 155 60 172 83 186L113 205C122 211 134 211 143 205L173 186C196 172 212 155 223 133L211 113C196 79 166 60 128 60Z" fill="#F6F0E5"/>
+<path d="M33 133C43 111 67 100 87 102C106 103 117 116 128 126C139 116 150 103 169 102C189 100 213 111 223 133C212 155 196 172 173 186L149 174C140 169 135 159 128 159C121 159 116 169 107 174L83 186C60 172 44 155 33 133Z" fill="#26323B" stroke="#26323B" stroke-width=".75" stroke-linejoin="round"/>
+<path d="M62 134C62 127 68 122 76 122H86C94 122 100 127 100 134C100 143 93 150 82 150C71 150 62 143 62 134Z" fill="#F6F0E5"/>
+<g transform="translate(256 0) scale(-1 1)"><path d="M62 134C62 127 68 122 76 122H86C94 122 100 127 100 134C100 143 93 150 82 150C71 150 62 143 62 134Z" fill="#F6F0E5"/></g>
+<circle cx="85" cy="135" r="6" fill="#26323B"/>
+<circle cx="171" cy="135" r="6" fill="#26323B"/>
+<path d="M118 176Q128 171 138 176Q144 179 139 184L133 189Q128 193 123 189L117 184Q112 179 118 176Z" fill="#26323B"/></g>
+</svg>

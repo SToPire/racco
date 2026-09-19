@@ -1,0 +1,21 @@
+[Unit]
+Description=Racco host daemon
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/racco
+ExecStartPre=/usr/bin/test -f %h/.local/share/racco/dist/server/index.js
+ExecStart=/usr/bin/node %h/.local/share/racco/dist/server/index.js
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+KillMode=control-group
+UMask=0077
+Environment=NODE_ENV=production
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+SyslogIdentifier=raccod
+
+[Install]
+WantedBy=graphical-session.target

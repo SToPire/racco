@@ -1,0 +1,196 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+import { type SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
+import { mapClaudeHistory } from "./event-mapper.js";
+import { selectClaudeHistory } from "./history.js";
+
+const sessionId = randomUUID();
+function entry(
+  type: string,
+  uuid: string,
+  parentUuid: string | null,
+  extra: Record<string, unknown>,
+): SessionStoreEntry {
+  return { type, uuid, parentUuid, sessionId, isSidechain: false, ...extra };
+}
+const user = (id: string, parent: string | null, content: string) =>
+  entry("user", id, parent, { message: { role: "user", content } });
+const assistant = (
+  id: string,
+  parent: string,
+  text: string,
+  model = "test-model",
+) =>
+  entry("assistant", id, parent, {
+    message: { role: "assistant", model, content: [{ type: "text", text }] },
+  });
+const command = (
+  id: string,
+  parent: string | null,
+  name = "/context",
+  args = "",
+) =>
+  user(
+    id,
+    parent,
+    `<command-name>${name}</command-name>\n<command-message>${name.slice(1)}</command-message>\n<command-args>${args}</command-args>`,
+  );
+const output = (id: string, parent: string, text: string) =>
+  entry("system", id, parent, {
+    subtype: "local_command",
+    content: `<local-command-stdout>${text}</local-command-stdout>`,
+  });
+
+async function history(entries: SessionStoreEntry[]) {
+  const messages = await selectClaudeHistory(
+    entries,
+    { projectKey: "-history-fixture", sessionId },
+    "/history-fixture",
+  );
+  return mapClaudeHistory(messages).map((event) =>
+    "text" in event ? [event.type, event.text] : [event.type],
+  );
+}
+
+test("restores command output siblings, a final system-only command, and normal responses", async () => {
+  const entries = [
+    command("context", null),
+    output("context-output", "context", "Context usage"),
+    assistant(
+      "placeholder",
+      "context",
+      "No response requested.",
+      "<synthetic>",
+    ),
+    user("question", "placeholder", "What is 2+2?"),
+    assistant("answer", "question", "4"),
+    entry("attachment", "attachment", "answer", {}),
+    entry("system", "help", "attachment", {
+      subtype: "local_command",
+      content: "/help",
+    }),
+    output("help-output", "help", "/help isn't available in this environment."),
+  ];
+  const original = structuredClone(entries);
+  assert.deepEqual(await history(entries), [
+    ["user.message", "/context"],
+    ["assistant.message", "Context usage"],
+    ["user.message", "What is 2+2?"],
+    ["assistant.message", "4"],
+    ["user.message", "/help"],
+    ["assistant.message", "/help isn't available in this environment."],
+  ]);
+  assert.deepEqual(
+    entries,
+    original,
+    "native transcript entries must not be mutated",
+  );
+});
+
+test("keeps repeated commands and output chunks ordered without replay duplicates", async () => {
+  const firstOutput = output("first-output", "first", "First");
+  assert.deepEqual(
+    await history([
+      command("first", null, "/model", "example-model"),
+      firstOutput,
+      firstOutput,
+      output("second-output", "first", "More"),
+      assistant(
+        "placeholder",
+        "first",
+        "No response requested.",
+        "<synthetic>",
+      ),
+      command("second", "placeholder", "/model"),
+      output("third-output", "second", "Current"),
+    ]),
+    [
+      ["user.message", "/model example-model"],
+      ["assistant.message", "First"],
+      ["assistant.message", "More"],
+      ["user.message", "/model"],
+      ["assistant.message", "Current"],
+    ],
+  );
+});
+
+test("restores a session containing only an unsupported local command", async () => {
+  assert.deepEqual(
+    await history([
+      entry("system", "help", null, {
+        subtype: "local_command",
+        content: "/help",
+      }),
+      output("help-output", "help", "Command unavailable"),
+    ]),
+    [
+      ["user.message", "/help"],
+      ["assistant.message", "Command unavailable"],
+    ],
+  );
+});
+
+test("preserves SDK branch selection and excludes sidechains and metadata", async () => {
+  assert.deepEqual(
+    await history([
+      user("root", null, "Hello"),
+      command("abandoned", "root"),
+      output("abandoned-output", "abandoned", "Old branch"),
+      user("current", "root", "Current branch"),
+      assistant("answer", "current", "Current answer"),
+      {
+        ...output("side-output", "current", "Hidden sidechain"),
+        isSidechain: true,
+      },
+      { ...output("meta-output", "current", "Hidden metadata"), isMeta: true },
+    ]),
+    [
+      ["user.message", "Hello"],
+      ["user.message", "Current branch"],
+      ["assistant.message", "Current answer"],
+    ],
+  );
+});
+
+test("does not resurrect commands discarded by compaction", async () => {
+  assert.deepEqual(
+    await history([
+      command("old", null),
+      output("old-output", "old", "Before compaction"),
+      entry("system", "boundary", null, {
+        subtype: "compact_boundary",
+        compactMetadata: { trigger: "auto", preTokens: 1000 },
+      }),
+      user("summary", "boundary", "Summary"),
+      assistant("answer", "summary", "After compaction"),
+    ]),
+    [
+      ["user.message", "Summary"],
+      ["assistant.message", "After compaction"],
+    ],
+  );
+});
+
+test("restores outputs for commands preserved across a compaction boundary", async () => {
+  assert.deepEqual(
+    await history([
+      command("kept", null),
+      output("kept-output", "kept", "Kept result"),
+      entry("system", "boundary", null, {
+        subtype: "compact_boundary",
+        compactMetadata: {
+          preservedMessages: { anchorUuid: "boundary", uuids: ["kept"] },
+        },
+      }),
+      user("next", "boundary", "Continue"),
+      assistant("answer", "next", "Done"),
+    ]),
+    [
+      ["user.message", "/context"],
+      ["assistant.message", "Kept result"],
+      ["user.message", "Continue"],
+      ["assistant.message", "Done"],
+    ],
+  );
+});
