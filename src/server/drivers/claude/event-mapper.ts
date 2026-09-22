@@ -92,7 +92,7 @@ function mapToolResults(
       {
         type: "tool.completed",
         id: requiredIdentifier(block, "tool_use_id"),
-        success: block.is_error !== true,
+        status: block.is_error === true ? "failed" : "completed",
         output: stringify(block.content ?? structuredResult),
       },
     ];

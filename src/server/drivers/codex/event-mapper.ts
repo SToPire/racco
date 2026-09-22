@@ -5,6 +5,7 @@ import type {
 } from "../../../shared/protocol.js";
 import type { ProviderSessionMetadata } from "../driver.js";
 import { isAssistantItem, mapAssistantItem } from "./activity-mapper.js";
+import { CodexToolLifecycle } from "./tool-lifecycle.js";
 import type {
   CodexThread,
   CodexThreadItem,
@@ -73,11 +74,26 @@ export function mapThreadSummary(thread: CodexThread): ProviderSessionMetadata {
 export function mapThreadEvents(
   thread: CodexThread,
   resolveSubagentId: SubagentIdResolver,
-): TimelineEvent[] {
+): ItemEvent[] {
+  const tools = new CodexToolLifecycle();
   return thread.turns.flatMap((turn) => {
     const events = turn.items.flatMap((item) =>
       mapItemEvents(item, resolveSubagentId),
     );
+    tools.observe(thread.id, turn.id, events);
+    if (turn.status !== "inProgress") {
+      events.push(
+        ...tools.finish(
+          thread.id,
+          turn.status === "interrupted"
+            ? "interrupted"
+            : turn.status === "failed"
+              ? "failed"
+              : "incomplete",
+          turn.id,
+        ),
+      );
+    }
     if (turn.status === "failed") {
       events.push({
         type: "system.notice",
@@ -132,7 +148,7 @@ export function mapItemEvents(
       {
         type: "tool.completed",
         id: item.id,
-        success: true,
+        status: "completed",
         output: text,
         details: item,
       },
@@ -160,7 +176,11 @@ export function mapItemEvents(
       events.push({
         type: "tool.completed",
         id: item.id,
-        success: item.status === "completed" && item.exitCode === 0,
+        status:
+          item.status === "completed" &&
+          (item.exitCode === null || item.exitCode === 0)
+            ? "completed"
+            : "failed",
         output: item.aggregatedOutput ?? undefined,
         details: item,
       });
@@ -182,7 +202,7 @@ export function mapItemEvents(
       events.push({
         type: "tool.completed",
         id: item.id,
-        success: item.status === "completed",
+        status: item.status === "completed" ? "completed" : "failed",
         details: item,
       });
     }
@@ -205,7 +225,10 @@ export function mapItemEvents(
       events.push({
         type: "tool.completed",
         id: item.id,
-        success: item.error === null,
+        status:
+          item.status === "completed" && item.error === null
+            ? "completed"
+            : "failed",
         output,
         details: item,
       });
@@ -227,7 +250,10 @@ export function mapItemEvents(
       events.push({
         type: "tool.completed",
         id: item.id,
-        success: item.success === true,
+        status:
+          item.status === "completed" && item.success === true
+            ? "completed"
+            : "failed",
         output: stringify(item.contentItems),
         details: item,
       });
@@ -306,11 +332,9 @@ export function mapSubagentThread(
     },
   ];
 
-  for (const turn of thread.turns) {
-    for (const item of turn.items) {
-      events.push(...mapSubagentItemEvents(item, agentId, resolveSubagentId));
-    }
-  }
+  events.push(
+    ...mapSubagentEvents(mapThreadEvents(thread, resolveSubagentId), agentId),
+  );
 
   const lastTurn = thread.turns.at(-1);
   const state: SubagentState =
@@ -337,12 +361,11 @@ export function mapSubagentThread(
   return events;
 }
 
-export function mapSubagentItemEvents(
-  item: CodexThreadItem,
+export function mapSubagentEvents(
+  events: ItemEvent[],
   agentId: string,
-  resolveSubagentId: SubagentIdResolver,
 ): TimelineEvent[] {
-  return mapItemEvents(item, resolveSubagentId).map((event) => {
+  return events.map((event) => {
     if (event.type === "subagent.started" || event.type === "subagent.state") {
       return event;
     }

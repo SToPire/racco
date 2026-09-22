@@ -120,7 +120,7 @@ try {
       if (
         message.type === "timeline.event" &&
         message.event.type === "tool.completed" &&
-        message.event.success
+        message.event.status === "completed"
       ) {
         sawToolSuccess = true;
       }

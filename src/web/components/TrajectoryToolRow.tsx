@@ -23,7 +23,9 @@ export function TrajectoryToolRow({
       </span>
       <strong>{description.label}</strong>
       <span>
-        {[description.summary, description.outcome].filter(Boolean).join(" · ")}
+        {[description.summary, description.outcome, description.progress]
+          .filter(Boolean)
+          .join(" · ")}
       </span>
       <span className={`tool-status tool-status-${row.status}`}>
         {toolStatusLabel(row.status)}

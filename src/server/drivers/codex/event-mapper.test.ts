@@ -7,7 +7,7 @@ import {
   mapThreadEvents,
   mapThreadSummary,
 } from "./event-mapper.js";
-import type { CodexThread } from "./types.js";
+import type { CodexThread, CodexThreadItem } from "./types.js";
 
 const thread: CodexThread = {
   id: "thread-1",
@@ -106,6 +106,62 @@ test("maps Codex history into materialized timeline rows", () => {
     text: "done",
     phase: "final_answer",
   });
+});
+
+test("native turn history terminates unfinished tools without inventing successful results", () => {
+  const pending: CodexThreadItem = {
+    type: "commandExecution",
+    id: "unfinished",
+    command: "long task",
+    cwd: "/work/project",
+    status: "inProgress",
+    commandActions: [],
+    aggregatedOutput: "partial output",
+    exitCode: null,
+    durationMs: null,
+    processId: "process",
+    source: "agent",
+    pluginId: null,
+    scriptPath: null,
+  };
+  for (const [turnStatus, toolStatus] of [
+    ["completed", "incomplete"],
+    ["interrupted", "interrupted"],
+    ["failed", "failed"],
+    ["inProgress", "running"],
+  ] as const) {
+    const snapshot: CodexThread = {
+      ...thread,
+      turns: [
+        { id: "turn", status: turnStatus, error: null, items: [pending] },
+      ],
+    };
+    const row = buildTimeline(mapThreadEvents(snapshot, () => "unused"))[0];
+    assert(row.type === "tool");
+    assert.equal(row.status, toolStatus);
+    assert.equal(row.output, "partial output");
+    assert.deepEqual(row.details, pending);
+  }
+});
+
+test("MCP failure is not completed merely because its optional error payload is absent", () => {
+  const events = mapItemEvents(
+    {
+      type: "mcpToolCall",
+      id: "mcp",
+      server: "server",
+      tool: "tool",
+      status: "failed",
+      arguments: {},
+      error: null,
+      result: null,
+    },
+    () => "unused",
+  );
+  assert.equal(
+    events.find((event) => event.type === "tool.completed")?.status,
+    "failed",
+  );
 });
 
 test("preserves failed turn diagnostics in resumed history", () => {

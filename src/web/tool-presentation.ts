@@ -5,6 +5,7 @@ type ToolPresentation = {
   summary: string;
   outcome?: string;
   preview?: string;
+  progress?: string;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -154,21 +155,34 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
   const preview =
     row.status === "failed"
       ? lines.slice(0, 2).join("\n")
-      : row.status === "running"
+      : row.status !== "completed"
         ? lines.slice(-2).join("\n")
         : "";
+  const progress =
+    row.progress === undefined
+      ? undefined
+      : [
+          text(row.progress.description),
+          `${row.status === "running" ? "已运行" : "最后进度"} ${row.progress.elapsedSeconds.toFixed(1)}s`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
   return {
     label,
     summary: compact(summary),
     ...(outcome ? { outcome } : {}),
     ...(preview ? { preview: compact(preview, 280) } : {}),
+    ...(progress ? { progress: compact(progress) } : {}),
   };
 }
 
 export function toolStatusLabel(status: ToolTimelineRow["status"]): string {
-  return status === "running"
-    ? "运行中"
-    : status === "completed"
-      ? "已完成"
-      : "失败";
+  const labels: Record<ToolTimelineRow["status"], string> = {
+    running: "运行中",
+    completed: "已完成",
+    failed: "失败",
+    interrupted: "已中断",
+    incomplete: "结果未知",
+  };
+  return labels[status];
 }

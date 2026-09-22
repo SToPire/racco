@@ -9,6 +9,7 @@ import {
 import type { FileChange } from "../../shared/protocol";
 import type { ToolTimelineRow } from "../store";
 import { FileChanges } from "./FileChanges";
+import { toolStatusLabel } from "../tool-presentation";
 
 type ToolInspectorProps = {
   row: ToolTimelineRow;
@@ -293,11 +294,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
           <h2>{row.tool}</h2>
         </div>
         <span className={`tool-status tool-status-${row.status}`}>
-          {row.status === "running"
-            ? "运行中"
-            : row.status === "completed"
-              ? "已完成"
-              : "失败"}
+          {toolStatusLabel(row.status)}
         </span>
         <button
           className="icon-button"

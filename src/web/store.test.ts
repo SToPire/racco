@@ -57,6 +57,57 @@ test("snapshot building matches streaming across replacements, removals, tools a
   );
 });
 
+test("provider progress survives terminal states without reopening calls or changing their recorded output", () => {
+  let rows = buildTimeline([
+    {
+      type: "tool.started",
+      id: "call",
+      tool: "Bash",
+      input: { command: "test" },
+    },
+    { type: "tool.output", id: "call", output: "last output" },
+    {
+      type: "tool.progress",
+      id: "call",
+      elapsedSeconds: 12,
+      description: "Running tests",
+    },
+    { type: "tool.completed", id: "call", status: "interrupted" },
+  ]);
+  const snapshot = rows;
+  rows = applyTimelineEvent(rows, {
+    type: "tool.progress",
+    id: "call",
+    elapsedSeconds: 13,
+  });
+  assert.equal(rows.length, 1);
+  const row = rows[0];
+  assert(row.type === "tool");
+  assert.equal(row.status, "interrupted");
+  assert.equal(row.output, "last output");
+  assert.deepEqual(row.progress, { elapsedSeconds: 13 });
+  const before = snapshot[0];
+  assert(before.type === "tool");
+  assert.deepEqual(before.progress, {
+    elapsedSeconds: 12,
+    description: "Running tests",
+  });
+  for (const status of [
+    "completed",
+    "failed",
+    "interrupted",
+    "incomplete",
+  ] as const) {
+    const terminal = applyTimelineEvent(rows, {
+      type: "tool.completed",
+      id: "call",
+      status,
+    });
+    assert(terminal[0].type === "tool");
+    assert.equal(terminal[0].status, status);
+  }
+});
+
 test("materializes reasoning, plan documents and execution checklists as distinct rows for each agent", () => {
   const events: TimelineEvent[] = [
     {
@@ -267,7 +318,7 @@ test("replaces started tool details with the completed provider item", () => {
   const completed = applyTimelineEvent(started, {
     type: "tool.completed",
     id: "command-1",
-    success: true,
+    status: "completed",
     output: "/work\n",
     details: {
       type: "commandExecution",

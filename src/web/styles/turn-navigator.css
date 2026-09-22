@@ -285,6 +285,11 @@
   color: var(--danger);
 }
 
+.tool-status-interrupted,
+.tool-status-incomplete {
+  color: var(--text-faint);
+}
+
 pre {
   overflow: auto;
   margin: 9px 0 0;

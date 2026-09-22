@@ -117,6 +117,14 @@ export type PlanUpdatedEvent = {
   state: "running" | "completed" | "interrupted" | "error";
 };
 
+export type ToolCompletionStatus =
+  "completed" | "failed" | "interrupted" | "incomplete";
+
+export type ToolProgress = {
+  elapsedSeconds: number;
+  description?: string;
+};
+
 export type AgentTimelineEvent =
   | { type: "user.message"; id: string; text: string }
   | AssistantContentEvent
@@ -130,10 +138,11 @@ export type AgentTimelineEvent =
       details?: unknown;
     }
   | { type: "tool.output"; id: string; output: string }
+  | ({ type: "tool.progress"; id: string } & ToolProgress)
   | {
       type: "tool.completed";
       id: string;
-      success: boolean;
+      status: ToolCompletionStatus;
       output?: string;
       details?: unknown;
     }

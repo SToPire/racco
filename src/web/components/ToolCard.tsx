@@ -20,6 +20,7 @@ export function ToolCard({ row, selected, onSelect }: ToolCardProps) {
         <strong>{presentation.label}</strong>
         <span>{presentation.summary}</span>
         {presentation.outcome && <small>{presentation.outcome}</small>}
+        {presentation.progress && <small>{presentation.progress}</small>}
         {presentation.preview && (
           <span className={`tool-preview tool-preview-${row.status}`}>
             {presentation.preview}

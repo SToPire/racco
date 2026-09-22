@@ -2,6 +2,8 @@ import type {
   AgentTimelineEvent,
   SubagentState,
   TimelineEvent,
+  ToolCompletionStatus,
+  ToolProgress,
 } from "../shared/protocol";
 
 export type ToolTimelineRow = {
@@ -11,7 +13,8 @@ export type ToolTimelineRow = {
   input?: unknown;
   details?: unknown;
   output: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | ToolCompletionStatus;
+  progress?: ToolProgress;
 };
 
 export type AgentTimelineRow =
@@ -131,6 +134,18 @@ function applyAgentTimelineEvent(
       event.type === "tool.started" ? event.tool : (previous?.tool ?? "tool"),
     input: event.type === "tool.started" ? event.input : previous?.input,
     ...(details === undefined ? {} : { details }),
+    ...(event.type === "tool.progress"
+      ? {
+          progress: {
+            elapsedSeconds: event.elapsedSeconds,
+            ...(event.description === undefined
+              ? {}
+              : { description: event.description }),
+          },
+        }
+      : previous?.progress === undefined
+        ? {}
+        : { progress: previous.progress }),
     output:
       event.type === "tool.output"
         ? event.output
@@ -139,9 +154,7 @@ function applyAgentTimelineEvent(
           : (previous?.output ?? ""),
     status:
       event.type === "tool.completed"
-        ? event.success
-          ? "completed"
-          : "failed"
+        ? event.status
         : (previous?.status ?? "running"),
   };
 

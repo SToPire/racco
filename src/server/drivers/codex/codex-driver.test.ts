@@ -9,6 +9,121 @@ import type { DriverContext } from "../driver.js";
 import { buildTimeline } from "../../../web/store.js";
 
 test(
+  "Codex settles unfinished tool calls on native interruption, failure, missing results and provider exit",
+  { timeout: 10000 },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "racco-tool-lifecycle-"));
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${directory}:${previousPath}`;
+    t.after(async () => {
+      process.env.PATH = previousPath;
+      await rm(directory, { recursive: true, force: true });
+    });
+    await writeFile(
+      join(directory, "codex"),
+      `#!/usr/bin/env node
+const lines = require('node:readline').createInterface({ input: process.stdin });
+const send = message => process.stdout.write(JSON.stringify(message) + '\\n');
+lines.on('line', line => {
+  const message = JSON.parse(line);
+  if (message.id === undefined) return;
+  if (message.method === 'thread/start') return send({ id: message.id, result: { thread: { id: 'root', cwd: message.params.cwd } } });
+  if (message.method !== 'turn/start') return send({ id: message.id, result: {} });
+  const scenario = message.params.input[0].text;
+  const turn = { id: 'turn', status: 'inProgress', items: [], error: null };
+  send({ id: message.id, result: { turn } });
+  const emit = (method, values) => send({ method, params: { threadId: 'root', turnId: 'turn', ...values } });
+  setTimeout(() => {
+    const command = { type: 'commandExecution', id: 'launcher', command: 'launch process', cwd: '/tmp', status: 'completed', commandActions: [], aggregatedOutput: 'Background process launched', exitCode: 0, durationMs: null, processId: 'background', source: 'agent', pluginId: null, scriptPath: null };
+    emit('item/completed', { item: command });
+    emit('item/completed', { item: { ...command, id: 'failed-before-stop', status: 'failed', exitCode: 7 } });
+    emit('item/started', { item: { ...command, id: 'pending', status: 'inProgress', aggregatedOutput: null, exitCode: null, processId: null } });
+    emit('item/commandExecution/outputDelta', { itemId: 'pending', delta: 'Last received output' });
+    if (scenario === 'close') return;
+    if (scenario === 'exit') return setTimeout(() => process.exit(2), 5);
+    if (scenario === 'error') return emit('error', { error: { message: 'Native tool error' }, willRetry: false });
+    emit('turn/completed', { turn: { ...turn, status: scenario, error: scenario === 'failed' ? { message: 'Native turn failed' } : null } });
+  }, 5);
+});
+`,
+      { mode: 0o700 },
+    );
+    for (const [scenario, expected] of [
+      ["completed", "incomplete"],
+      ["interrupted", "interrupted"],
+      ["failed", "failed"],
+      ["error", "failed"],
+      ["exit", "failed"],
+      ["close", "failed"],
+    ] as const) {
+      const driver = new CodexDriver({ info() {}, warn() {} });
+      const events: TimelineEvent[] = [];
+      let sawOutput!: () => void;
+      const started = new Promise<void>((resolve) => {
+        sawOutput = resolve;
+      });
+      const context: DriverContext = {
+        emit(event) {
+          events.push(event);
+          if (event.type === "tool.output" && event.id === "pending")
+            sawOutput();
+        },
+        setState() {},
+        markProviderMaterialized() {},
+        async requestInteraction() {
+          throw new Error("Unexpected interaction");
+        },
+      };
+      try {
+        await driver.start();
+        const modelSettings = { modelId: "model", reasoningEffort: null };
+        const handle = await driver.createSession({
+          raccoSessionId: "session",
+          cwd: process.cwd(),
+          modelSettings,
+        });
+        const completion = driver.runTurn({
+          handle,
+          mode: "first",
+          prompt: scenario,
+          modelSettings,
+          context,
+          signal: new AbortController().signal,
+        });
+        void completion.catch(() => undefined);
+        if (scenario === "close") {
+          await started;
+          await driver.close();
+        }
+        if (scenario === "completed" || scenario === "interrupted")
+          await completion;
+        else await assert.rejects(completion);
+        const rows = buildTimeline(events);
+        const pending = rows.find((row) => row.id === "pending");
+        assert(pending?.type === "tool");
+        assert.equal(pending.status, expected, scenario);
+        assert.equal(pending.output, "Last received output");
+        const launcher = rows.find((row) => row.id === "launcher");
+        assert(launcher?.type === "tool");
+        assert.equal(launcher.status, "completed");
+        const failed = rows.find((row) => row.id === "failed-before-stop");
+        assert(failed?.type === "tool");
+        assert.equal(failed.status, "failed");
+        assert.equal(
+          events.filter(
+            (event) =>
+              event.type === "tool.completed" && event.id === "pending",
+          ).length,
+          1,
+        );
+      } finally {
+        await driver.close();
+      }
+    }
+  },
+);
+
+test(
   "Codex sends explicit model and effort on every turn including after thread resume",
   { timeout: 10_000 },
   async (t) => {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ContextUsageSchema } from "../../../shared/protocol.js";
 import type {
   AgentTimelineEvent,
+  ToolCompletionStatus,
   InteractionResponse,
   SubagentState,
   TimelineEvent,
@@ -22,10 +23,11 @@ import { ProviderSessionNotFoundError, SESSION_PAGE_SIZE } from "../driver.js";
 import { resolveProjectDirectory } from "../../project-path.js";
 import { CodexAppServerClient } from "./app-server-client.js";
 import { CodexActivityMapper } from "./activity-mapper.js";
+import { CodexToolLifecycle } from "./tool-lifecycle.js";
 import { CodexModelListSchema, codexModelCatalog } from "../model-options.js";
 import {
   mapItemEvents,
-  mapSubagentItemEvents,
+  mapSubagentEvents,
   mapSubagentThread,
   mapThreadEvents,
   mapThreadState,
@@ -120,6 +122,7 @@ export class CodexDriver implements AgentDriver {
   readonly #turnWaiters = new Map<string, TurnWaiter>();
   readonly #compactions = new Map<string, string | undefined>();
   readonly #activityMapper = new CodexActivityMapper();
+  readonly #toolLifecycle = new CodexToolLifecycle();
   readonly #toolOutput = new Map<string, string>();
   readonly #subagents = new Map<string, SubagentLink>();
   #ready = false;
@@ -228,6 +231,19 @@ export class CodexDriver implements AgentDriver {
     this.#ready = false;
     this.#sessionUpdate = undefined;
     const error = new Error("Codex provider closed");
+    for (const [threadId, context] of this.#contexts) {
+      emitAgentEvents(context, this.#finishTools(threadId, "failed"));
+    }
+    for (const [threadId, subagent] of this.#subagents) {
+      const context = this.#contexts.get(subagent.rootThreadId);
+      if (context !== undefined) {
+        emitAgentEvents(
+          context,
+          this.#finishTools(threadId, "failed"),
+          subagent,
+        );
+      }
+    }
     for (const threadId of this.#compactions.keys())
       this.#finishCompaction(threadId);
     for (const waiter of this.#turnWaiters.values()) waiter.reject(error);
@@ -236,6 +252,7 @@ export class CodexDriver implements AgentDriver {
     this.#contexts.clear();
     this.#subagents.clear();
     this.#activityMapper.clear();
+    this.#toolLifecycle.clear();
     this.#toolOutput.clear();
     await this.#client.close();
   }
@@ -266,7 +283,7 @@ export class CodexDriver implements AgentDriver {
     const thread = { ...response.thread, cwd };
     const resolveSubagentId = (providerThreadId: string) =>
       this.#rememberSubagent(providerThreadId, thread.id).agentId;
-    const events = mapThreadEvents(thread, resolveSubagentId);
+    const events: TimelineEvent[] = mapThreadEvents(thread, resolveSubagentId);
     const subagentThreads = await this.#readSubagentThreads(thread.id);
     for (const subagentThread of subagentThreads) {
       const parentThreadId = subagentThread.parentThreadId!;
@@ -422,6 +439,13 @@ export class CodexDriver implements AgentDriver {
         this.#activityMapper.finish(
           sessionId,
           input.signal.aborted ? "interrupted" : "error",
+        ),
+      );
+      emitAgentEvents(
+        input.context,
+        this.#finishTools(
+          sessionId,
+          input.signal.aborted ? "interrupted" : "failed",
         ),
       );
       input.signal.removeEventListener("abort", onAbort);
@@ -733,7 +757,7 @@ export class CodexDriver implements AgentDriver {
       notification.method === "item/started" ||
       notification.method === "item/completed"
     ) {
-      const item = (notification.params as ItemNotification).item;
+      const { item, turnId } = notification.params as ItemNotification;
       if (
         item.type === "contextCompaction" &&
         notification.method === "item/started"
@@ -743,11 +767,12 @@ export class CodexDriver implements AgentDriver {
         this.#rememberSubagent(item.agentThreadId, rootThreadId).name =
           item.agentPath.split("/").filter(Boolean).at(-1);
       }
-      const events =
-        subagent === undefined
-          ? mapItemEvents(item, resolveSubagentId)
-          : mapSubagentItemEvents(item, subagent.agentId, resolveSubagentId);
-      for (const event of events) context.emit(event);
+      const events = mapItemEvents(item, resolveSubagentId);
+      this.#toolLifecycle.observe(threadId, turnId, events);
+      for (const event of subagent === undefined
+        ? events
+        : mapSubagentEvents(events, subagent.agentId))
+        context.emit(event);
       if (notification.method === "item/completed") {
         this.#toolOutput.delete(`${threadId}:${item.id}`);
       }
@@ -790,6 +815,19 @@ export class CodexDriver implements AgentDriver {
     }
     if (notification.method === "turn/completed") {
       const completed = notification.params as TurnNotification;
+      emitAgentEvents(
+        context,
+        this.#finishTools(
+          threadId,
+          completed.turn.status === "interrupted"
+            ? "interrupted"
+            : completed.turn.status === "failed"
+              ? "failed"
+              : "incomplete",
+          completed.turn.id,
+        ),
+        subagent,
+      );
       emitAgentEvents(
         context,
         this.#activityMapper.finish(
@@ -842,6 +880,11 @@ export class CodexDriver implements AgentDriver {
       const error = notification.params as ErrorNotification;
       const message = error.error.message;
       if (!error.willRetry) {
+        emitAgentEvents(
+          context,
+          this.#finishTools(threadId, "failed", error.turnId),
+          subagent,
+        );
         emitAgentEvents(
           context,
           this.#activityMapper.finish(threadId, "error", error.turnId),
@@ -957,6 +1000,7 @@ export class CodexDriver implements AgentDriver {
     }
     for (const [threadId, context] of this.#contexts) {
       emitAgentEvents(context, this.#activityMapper.finish(threadId, "error"));
+      emitAgentEvents(context, this.#finishTools(threadId, "failed"));
       context.setState("error");
     }
     for (const [threadId, subagent] of this.#subagents) {
@@ -967,14 +1011,31 @@ export class CodexDriver implements AgentDriver {
           this.#activityMapper.finish(threadId, "error"),
           subagent,
         );
+        emitAgentEvents(
+          context,
+          this.#finishTools(threadId, "failed"),
+          subagent,
+        );
       }
     }
     this.#activityMapper.clear();
+    this.#toolLifecycle.clear();
     for (const waiter of this.#turnWaiters.values()) waiter.reject(error);
     this.#turnWaiters.clear();
   }
 
   #assertReady(): void {
     if (!this.#ready) throw new Error("Codex provider is unavailable");
+  }
+
+  #finishTools(
+    threadId: string,
+    status: Exclude<ToolCompletionStatus, "completed">,
+    turnId?: string,
+  ): AgentTimelineEvent[] {
+    const events = this.#toolLifecycle.finish(threadId, status, turnId);
+    for (const event of events)
+      this.#toolOutput.delete(`${threadId}:${event.id}`);
+    return events;
   }
 }

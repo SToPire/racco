@@ -30,12 +30,14 @@ test("single and short tool groups expose the actual action directly", () => {
   assert.match(html, /run-two/);
 });
 
-test("only older successes are folded, never running, failed, or selected tools", () => {
+test("only older completions are folded, never unfinished, failed, or selected tools", () => {
   const html = render(
     [
       tool("old"),
       tool("active", "running"),
       tool("failure", "failed"),
+      tool("stopped", "interrupted"),
+      tool("unknown", "incomplete"),
       tool("selected"),
       tool("latest-1"),
       tool("latest-2"),
@@ -45,7 +47,17 @@ test("only older successes are folded, never running, failed, or selected tools"
   const visible = html.replace(/<details[\s\S]*?<\/details>/g, "");
   assert.match(html, /之前 1 项已完成活动/);
   assert.doesNotMatch(visible, /run-old/);
-  for (const id of ["active", "failure", "selected", "latest-1", "latest-2"])
+  for (const id of [
+    "active",
+    "failure",
+    "stopped",
+    "unknown",
+    "selected",
+    "latest-1",
+    "latest-2",
+  ])
     assert.ok(visible.includes(`run-${id}`));
   assert.match(visible, /test assertion failed/);
+  assert.match(visible, /已中断/);
+  assert.match(visible, /结果未知/);
 });

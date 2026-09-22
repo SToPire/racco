@@ -139,7 +139,11 @@ function agentEntry(
     id: `${prefix}:tool:${row.id}`,
     kind: row.tool === "Context injection" ? "context" : "tool",
     label: describeTool(row).label,
-    summary: [describeTool(row).summary, describeTool(row).outcome]
+    summary: [
+      describeTool(row).summary,
+      describeTool(row).outcome,
+      describeTool(row).progress,
+    ]
       .filter(Boolean)
       .join(" · "),
     actor,

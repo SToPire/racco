@@ -98,7 +98,7 @@ export class FixtureDriver implements AgentDriver {
         {
           type: "tool.completed",
           id: "fixture-tool",
-          success: true,
+          status: "completed",
           output: "# Fixture project\nNo external providers are used.",
         },
         {

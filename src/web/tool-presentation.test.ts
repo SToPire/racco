@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { describeTool } from "./tool-presentation.js";
+import { describeTool, toolStatusLabel } from "./tool-presentation.js";
 import type { ToolTimelineRow } from "./store.js";
 
 const command: ToolTimelineRow = {
@@ -82,6 +82,27 @@ test("reports exit and duration facts without inventing test counts or success",
     "exit 0 · 1.3s",
   );
   assert.equal(describeTool(command).outcome, undefined);
+});
+
+test("displays native progress separately from final duration and distinguishes missing results from interruption", () => {
+  const running = describeTool({
+    ...command,
+    status: "running",
+    progress: { elapsedSeconds: 12, description: "Checking types" },
+  });
+  assert.equal(running.progress, "Checking types · 已运行 12.0s");
+  assert.equal(running.outcome, undefined);
+  const ended = describeTool({
+    ...command,
+    status: "incomplete",
+    progress: { elapsedSeconds: 12 },
+  });
+  assert.equal(ended.progress, "最后进度 12.0s");
+  assert.equal(ended.outcome, undefined);
+  assert.equal(describeTool(command).progress, undefined);
+  assert.equal(toolStatusLabel("interrupted"), "已中断");
+  assert.equal(toolStatusLabel("incomplete"), "结果未知");
+  assert.equal(toolStatusLabel("failed"), "失败");
 });
 
 test("exposes bounded failure and live output while preserving the raw row", () => {
