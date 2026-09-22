@@ -191,11 +191,15 @@ test("renders current Codex file changes from the mapped timeline", () => {
             kind: { type: "update", move_path: "/work/renamed.ts" },
             diff: "@@ -1 +1 @@\n-old\n+new",
           },
-          { path: "/work/new.ts", kind: { type: "add" }, diff: "+created" },
+          {
+            path: "/work/new.ts",
+            kind: { type: "add" },
+            diff: "@@ -0,0 +1,1 @@\n+created",
+          },
           {
             path: "/work/removed.ts",
             kind: { type: "delete" },
-            diff: "-removed",
+            diff: "@@ -1,1 +0,0 @@\n-removed",
           },
         ],
       },

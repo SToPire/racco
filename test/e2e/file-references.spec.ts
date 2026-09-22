@@ -125,7 +125,7 @@ test("file change paths open the existing read-only preview using literal filena
       {
         path: absolutePath,
         kind: { type: "add" },
-        diff: "+export const literalFilename = true;",
+        diff: "@@ -0,0 +1,1 @@\n+export const literalFilename = true;",
       },
     ],
   });
@@ -190,7 +190,7 @@ test("child Markdown, trajectory results and tool changes resolve against the ac
         {
           path: "README.md",
           kind: { type: "update", move_path: null },
-          diff: "+Child directory content",
+          diff: "@@ -0,0 +1,1 @@\n+Child directory content",
         },
       ],
     },

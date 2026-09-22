@@ -127,7 +127,8 @@ test("shows real file paths and diff line counts without counting headers", () =
       input: [
         {
           path: "a.ts",
-          diff: "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n+extra",
+          kind: { type: "update", move_path: null },
+          diff: "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1,2 @@\n-old\n+new\n+extra",
         },
       ],
     }),
@@ -170,4 +171,56 @@ test("Claude edit summaries use the same recorded patch facts as the inspector",
   });
   assert.equal(result.summary, "src/main.ts");
   assert.equal(result.outcome, "+2 −1");
+});
+
+test("increment/decrement hunk lines and Claude Write creations remain real changes", () => {
+  const edited = describeTool({
+    ...command,
+    tool: "Edit",
+    input: { file_path: "counter.ts" },
+    details: {
+      type: "claudeToolResult",
+      content: [],
+      result: {
+        filePath: "counter.ts",
+        structuredPatch: [
+          {
+            oldStart: 1,
+            oldLines: 1,
+            newStart: 1,
+            newLines: 1,
+            lines: ["---counter;", "+++counter;"],
+          },
+        ],
+      },
+    },
+  });
+  assert.equal(edited.outcome, "+1 −1");
+  const written = describeTool({
+    ...command,
+    tool: "Write",
+    input: { file_path: "README.md" },
+    details: {
+      type: "claudeToolResult",
+      content: [],
+      result: {
+        filePath: "README.md",
+        type: "create",
+        structuredPatch: [
+          {
+            oldStart: 0,
+            oldLines: 0,
+            newStart: 1,
+            newLines: 2,
+            lines: ["+- checklist", "+++counter;"],
+          },
+        ],
+      },
+    },
+  });
+  assert.equal(
+    written.outcome,
+    "+2 −0",
+    "Claude already supplies a patch, even for a newly created file",
+  );
 });

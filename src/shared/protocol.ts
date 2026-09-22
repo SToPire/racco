@@ -188,6 +188,7 @@ export type FileChange = {
     | { type: "add" }
     | { type: "delete" }
     | { type: "update"; move_path: string | null };
+  // Display-ready unified diff for every change kind and provider.
   diff: string;
 };
 

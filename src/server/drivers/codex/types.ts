@@ -1,5 +1,15 @@
 export type RequestId = string | number;
 
+export type CodexFileChange = {
+  path: string;
+  kind:
+    | { type: "add" }
+    | { type: "delete" }
+    | { type: "update"; move_path: string | null };
+  // Native Add/Delete carry file content; Update carries a unified diff.
+  diff: string;
+};
+
 export type JsonRpcRequest = {
   id: RequestId;
   method: string;
@@ -109,7 +119,7 @@ export type CodexThreadItem =
   | {
       type: "fileChange";
       id: string;
-      changes: FileChange[];
+      changes: CodexFileChange[];
       status: "inProgress" | "completed" | "failed" | "declined";
     }
   | {
@@ -287,4 +297,3 @@ export type UserInputParams = {
   itemId: string;
   questions: UserInputQuestion[];
 };
-import type { FileChange } from "../../../shared/protocol.js";

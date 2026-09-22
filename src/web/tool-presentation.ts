@@ -1,5 +1,6 @@
 import type { ToolTimelineRow } from "./store";
 import { claudeToolResult } from "./claude-tool-result";
+import { parseUnifiedDiff } from "../shared/file-diff";
 
 type ToolPresentation = {
   label: string;
@@ -84,9 +85,9 @@ function fileChangeSummary(
   let removed = 0;
   for (const change of changes) {
     if (typeof change.diff !== "string") continue;
-    for (const line of change.diff.split("\n")) {
-      if (line.startsWith("+") && !line.startsWith("+++")) added += 1;
-      if (line.startsWith("-") && !line.startsWith("---")) removed += 1;
+    for (const line of parseUnifiedDiff(change.diff)) {
+      if (line.kind === "added") added += 1;
+      if (line.kind === "removed") removed += 1;
     }
   }
   return {

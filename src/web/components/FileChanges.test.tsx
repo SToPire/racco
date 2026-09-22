@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FileNavigationContext } from "../FileNavigationContext";
-import { FileChanges } from "./FileChanges";
+import { DiffBlock, FileChanges } from "./FileChanges";
 
 test("file changes expose literal project paths without turning filename characters into URL locations", () => {
   const html = renderToStaticMarkup(
@@ -24,7 +24,7 @@ test("file changes expose literal project paths without turning filename charact
           {
             path: "/work/other/secret",
             kind: { type: "delete" },
-            diff: "-secret",
+            diff: "@@ -1,1 +0,0 @@\n-secret",
           },
         ]}
       />
@@ -34,4 +34,18 @@ test("file changes expose literal project paths without turning filename charact
   assert.match(html, /title="在文件侧栏打开 src\/new.ts"/);
   assert.match(html, /aria-disabled="true" title="文件不在当前项目内"/);
   assert.match(html, /diff-line-added/);
+});
+
+test("diff rendering does not mistake source increment/decrement for file headers", () => {
+  const html = renderToStaticMarkup(
+    <DiffBlock
+      text={
+        "--- a/counter.ts\n+++ b/counter.ts\n@@ -1 +1 @@\n---counter;\n+++counter;"
+      }
+    />,
+  );
+  assert.match(html, /diff-line-context">--- a\/counter.ts/);
+  assert.match(html, /diff-line-context">\+\+\+ b\/counter.ts/);
+  assert.match(html, /diff-line-removed">---counter;/);
+  assert.match(html, /diff-line-added">\+\+\+counter;/);
 });

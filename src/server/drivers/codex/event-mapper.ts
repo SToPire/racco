@@ -6,6 +6,7 @@ import type {
 import type { ProviderSessionMetadata } from "../driver.js";
 import { isAssistantItem, mapAssistantItem } from "./activity-mapper.js";
 import { CodexToolLifecycle } from "./tool-lifecycle.js";
+import { mapFileChange } from "./file-change.js";
 import type {
   CodexThread,
   CodexThreadItem,
@@ -194,7 +195,7 @@ export function mapItemEvents(
         type: "tool.started",
         id: item.id,
         tool: "fileChange",
-        input: item.changes,
+        input: item.changes.map(mapFileChange),
         details: item,
       },
     ];

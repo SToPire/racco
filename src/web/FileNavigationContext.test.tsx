@@ -22,7 +22,11 @@ function renderActor(baseDirectory: string | undefined) {
         <MarkdownContent text="[Actor file](README.md#L2)" />
         <FileChanges
           changes={[
-            { path: "source.ts", kind: { type: "add" }, diff: "+value" },
+            {
+              path: "source.ts",
+              kind: { type: "add" },
+              diff: "@@ -0,0 +1,1 @@\n+value",
+            },
           ]}
         />
       </FileReferenceScope>
