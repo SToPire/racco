@@ -88,7 +88,7 @@ for (const status of [
   });
 }
 
-test("shows Claude Edit result diffs ahead of the model-facing summary", () => {
+test("shows the model-facing Edit output without a second structured result", () => {
   const html = renderToStaticMarkup(
     <ToolInspector
       onClose={() => undefined}
@@ -119,13 +119,11 @@ test("shows Claude Edit result diffs ahead of the model-facing summary", () => {
     />,
   );
   assert.match(html, /aria-selected="true"[^>]*>Output<\/button>/);
-  assert.match(html, /diff-line-removed/);
-  assert.match(html, /diff-line-added/);
-  assert.match(html, /@@ -8,1 \+8,1 @@/);
-  assert(html.indexOf("diff-line-removed") < html.indexOf("File updated"));
+  assert.match(html, /data-tool-output="true">File updated<\/pre>/);
+  assert.doesNotMatch(html, /diff-line-|模型收到的输出/);
 });
 
-test("shows Claude stderr, interruption and background output file facts", () => {
+test("shows only the model-facing Bash output, including interrupted calls", () => {
   const html = renderToStaticMarkup(
     <ToolInspector
       onClose={() => undefined}
@@ -151,12 +149,11 @@ test("shows Claude stderr, interruption and background output file facts", () =>
     />,
   );
   assert.match(html, /已中断/);
-  assert.match(html, /data-tool-stderr="true">test diagnostics/);
-  assert.match(html, /data-tool-stdout="true">partial result/);
-  assert.match(html, /后台任务/);
-  assert.match(html, /task-1/);
-  assert.match(html, /\/work\/output\.txt/);
-  assert(html.indexOf("test diagnostics") < html.indexOf("partial result"));
+  assert.match(html, /data-tool-output="true">Tool stopped<\/pre>/);
+  assert.doesNotMatch(
+    html,
+    /test diagnostics|partial result|后台任务|\/work\/output\.txt|模型收到的输出/,
+  );
 });
 
 test("shows an explicit empty result for a tool without input or output", () => {

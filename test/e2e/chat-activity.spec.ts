@@ -48,12 +48,22 @@ for (const viewport of [
       tool: "Bash",
       input: { command: "npm test", description: "验证组件行为" },
     });
+    const modelOutput =
+      "FAIL ToolGroup: expected visible command summary\n1 assertion failed";
     emit({
       type: "tool.completed",
       id: "test-failure",
       status: "failed",
-      output:
-        "FAIL ToolGroup: expected visible command summary\n1 assertion failed",
+      output: modelOutput,
+      details: {
+        type: "claudeToolResult",
+        result: {
+          stdout: "Native stdout omitted from model output",
+          stderr: "Native stderr omitted from model output",
+          interrupted: false,
+        },
+        content: modelOutput,
+      },
     });
     emit({
       type: "tool.started",
@@ -109,6 +119,16 @@ for (const viewport of [
       inspector.getByRole("tab", { name: "Output", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await expect(inspector).toContainText("FAIL ToolGroup");
+    await expect(inspector.locator("[data-tool-output]")).toHaveCount(1);
+    await expect(inspector).not.toContainText("Native stdout");
+    await expect(inspector).not.toContainText("Native stderr");
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+    await inspector.getByRole("button", { name: "复制输出" }).click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(modelOutput);
     await page.getByRole("button", { name: "关闭工具详情" }).click();
     emit({
       type: "subagent.started",

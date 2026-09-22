@@ -91,41 +91,43 @@ test("maps Claude history into the shared materialized timeline", () => {
   ]);
 });
 
-test("retains Claude structured results even when model-facing output is present", () => {
-  const result = {
-    stdout: "partial stdout",
-    stderr: "cancelled",
-    interrupted: true,
-    backgroundTaskId: "task-1",
-  };
-  const [event] = new ClaudeLiveMapper().map({
-    type: "user",
-    parent_tool_use_id: null,
-    tool_use_result: result,
-    message: {
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          tool_use_id: "bash-1",
-          content: "Model-facing summary",
-          is_error: true,
-        },
-      ],
-    },
+for (const content of ["Model-facing summary", undefined]) {
+  test(`keeps native results separate from ${content === undefined ? "absent" : "present"} model output`, () => {
+    const result = {
+      stdout: "partial stdout",
+      stderr: "cancelled",
+      interrupted: true,
+      backgroundTaskId: "task-1",
+    };
+    const [event] = new ClaudeLiveMapper().map({
+      type: "user",
+      parent_tool_use_id: null,
+      tool_use_result: result,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "bash-1",
+            ...(content === undefined ? {} : { content }),
+            is_error: true,
+          },
+        ],
+      },
+    });
+    assert.deepEqual(event, {
+      type: "tool.completed",
+      id: "bash-1",
+      status: "interrupted",
+      output: content ?? "",
+      details: {
+        type: "claudeToolResult",
+        result,
+        content,
+      },
+    });
   });
-  assert.deepEqual(event, {
-    type: "tool.completed",
-    id: "bash-1",
-    status: "interrupted",
-    output: "Model-facing summary",
-    details: {
-      type: "claudeToolResult",
-      result,
-      content: "Model-facing summary",
-    },
-  });
-});
+}
 
 test("preserves attachment blocks without putting base64 data into display text", () => {
   const content = [

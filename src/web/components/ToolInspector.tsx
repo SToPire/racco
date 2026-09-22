@@ -3,11 +3,6 @@ import { useId, useState, type ReactNode } from "react";
 import type { FileChange } from "../../shared/protocol";
 import type { ToolTimelineRow } from "../store";
 import { FileChanges } from "./FileChanges";
-import {
-  claudeToolResult,
-  type ClaudeToolResultView,
-} from "../claude-tool-result";
-import { ClaudeToolOutput } from "./ClaudeToolOutput";
 import { toolStatusLabel } from "../tool-presentation";
 
 type ToolInspectorProps = {
@@ -166,13 +161,7 @@ function InputPanel({ row }: { row: ToolTimelineRow }) {
   return <pre>{stringify(row.input)}</pre>;
 }
 
-function OutputPanel({
-  row,
-  structured,
-}: {
-  row: ToolTimelineRow;
-  structured?: ClaudeToolResultView;
-}) {
+function OutputPanel({ row }: { row: ToolTimelineRow }) {
   const [copyResult, setCopyResult] = useState<{
     output: string;
     message: string;
@@ -183,7 +172,7 @@ function OutputPanel({
       : row.tool === "Bash"
         ? asRecord(row.input)?.command
         : undefined;
-  const copyText = structured?.copyText ?? row.output;
+  const copyText = row.output;
 
   async function copyOutput() {
     const output = copyText;
@@ -219,15 +208,7 @@ function OutputPanel({
             <code>{command}</code>
           </div>
         )}
-        {structured !== undefined ? (
-          <ClaudeToolOutput
-            view={structured}
-            output={row.output}
-            revealOriginal={
-              row.status === "failed" || row.status === "interrupted"
-            }
-          />
-        ) : row.output.length > 0 ? (
+        {row.output.length > 0 ? (
           <pre data-tool-output>{row.output}</pre>
         ) : (
           <p className="inspector-empty">
@@ -243,9 +224,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
   const id = useId();
   const hasInput = row.input !== undefined;
   const hasRaw = row.details !== undefined;
-  const structured = claudeToolResult(row);
-  const hasReadableOutput =
-    row.output.length > 0 || structured?.hasReadableResult === true;
+  const hasReadableOutput = row.output.length > 0;
   const hasOutput =
     hasReadableOutput || row.tool === "command" || (!hasInput && !hasRaw);
   const defaultTab: InspectorTab = hasReadableOutput
@@ -345,10 +324,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         ) : activeTab === "raw" ? (
           <pre>{stringify(row.details)}</pre>
         ) : (
-          <OutputPanel
-            row={row}
-            {...(structured === undefined ? {} : { structured })}
-          />
+          <OutputPanel row={row} />
         )}
       </section>
     </aside>

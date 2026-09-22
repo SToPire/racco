@@ -147,7 +147,7 @@ test("unknown tools retain their name and bounded literal input", () => {
   assert.equal(result.summary.length, 180);
 });
 
-test("Claude edit summaries use the same recorded patch facts as the inspector", () => {
+test("Claude edit summaries count the recorded native patch facts", () => {
   const result = describeTool({
     ...command,
     tool: "Edit",

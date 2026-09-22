@@ -150,12 +150,8 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
       ? `${input.fragments.length} 个片段`
       : "";
   }
-  if (nativeResult?.kind === "bash") {
-    const background = nativeResult.fields.find(
-      ([label]) => label === "后台任务",
-    )?.[1];
-    if (background) outcome = `后台任务 ${background}`;
-  }
+  if (nativeResult?.backgroundTaskId)
+    outcome = `后台任务 ${nativeResult.backgroundTaskId}`;
   if (!summary && row.input !== undefined)
     summary = text(
       typeof row.input === "string" ? row.input : JSON.stringify(row.input),

@@ -114,7 +114,7 @@ function mapToolResults(
             : block.is_error === true
               ? "failed"
               : "completed",
-        output: stringify(block.content ?? structuredResult),
+        output: stringify(block.content ?? ""),
         details: {
           type: "claudeToolResult",
           ...(structuredResult === undefined

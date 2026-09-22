@@ -114,43 +114,6 @@
   white-space: pre-wrap;
 }
 
-.inspector-structured-output {
-  display: grid;
-  gap: 14px;
-}
-
-.inspector-structured-output h3,
-.inspector-original-output > summary {
-  margin: 0 0 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.inspector-original-output > summary {
-  cursor: pointer;
-}
-
-.inspector-structured-output pre {
-  margin: 0;
-  overflow: auto;
-  color: var(--text);
-  background: var(--surface-subtle);
-}
-
-.inspector-output-attachments {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.inspector-output-attachments code {
-  margin-left: 8px;
-}
-
 .inspector-content > pre,
 .inspector-output-scroll > pre,
 .inspector-group pre,

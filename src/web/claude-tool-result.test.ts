@@ -8,11 +8,7 @@ import type {
 import type { ToolTimelineRow } from "./store.js";
 import { claudeToolResult } from "./claude-tool-result.js";
 
-function row(
-  tool: string,
-  result: unknown,
-  content: unknown = "Model summary",
-): ToolTimelineRow {
+function row(tool: string, result: unknown): ToolTimelineRow {
   return {
     type: "tool",
     id: "tool-1",
@@ -20,11 +16,11 @@ function row(
     input: {},
     output: "Model summary",
     status: "completed",
-    details: { type: "claudeToolResult", result, content },
+    details: { type: "claudeToolResult", result, content: "Model summary" },
   };
 }
 
-test("reads Bash streams and execution facts from the structured SDK result", () => {
+test("keeps native background task identity for the activity summary", () => {
   const result: BashOutput = {
     stdout: "error is a search term here",
     stderr: "warning text",
@@ -35,17 +31,7 @@ test("reads Bash streams and execution facts from the structured SDK result", ()
     persistedOutputSize: 3000,
   };
   const view = claudeToolResult(row("Bash", result));
-  assert.equal(view?.stdout, result.stdout);
-  assert.equal(view?.stderr, result.stderr);
-  assert.deepEqual(view?.fields, [
-    ["执行状态", "已中断"],
-    ["后台任务", "task-1"],
-    ["超时后转入后台", "1500 ms"],
-    ["完整输出文件", "/work/tool-results/full.txt"],
-    ["完整输出大小", "3000 bytes"],
-  ]);
-  assert.match(view!.copyText, /stderr:\nwarning text/);
-  assert.match(view!.copyText, /stdout:\nerror is a search term here/);
+  assert.deepEqual(view, { backgroundTaskId: "task-1" });
 });
 
 test("uses recorded Edit hunks without rebuilding a diff from strings", () => {
@@ -72,7 +58,6 @@ test("uses recorded Edit hunks without rebuilding a diff from strings", () => {
     kind: { type: "update", move_path: null },
     diff: "@@ -20,1 +20,2 @@\n-old\n+new\n+extra",
   });
-  assert.equal(view?.copyText, view?.change?.diff);
 });
 
 test("an empty Write patch does not claim the file was unchanged", () => {
@@ -84,51 +69,25 @@ test("an empty Write patch does not claim the file was unchanged", () => {
     originalFile: null,
   };
   const view = claudeToolResult(row("Write", result));
-  assert.equal(view?.emptyPatch, true);
-  assert.equal(view?.copyText, "Model summary");
+  assert.equal(view?.change?.path, "/work/large.txt");
+  assert.equal(view?.change?.diff, "");
 });
 
-test("keeps malformed or missing structured data on the ordinary output path", () => {
-  assert.equal(
+test("does not invent summary facts from malformed or missing results", () => {
+  assert.deepEqual(
     claudeToolResult(
       row("Edit", {
         filePath: "/work/app.ts",
         structuredPatch: [{ lines: ["+text"] }],
       }),
-    )?.kind,
-    "generic",
+    ),
+    {},
   );
   const missing = row("Edit", undefined);
   missing.details = { type: "claudeToolResult", content: "Model summary" };
-  assert.equal(claudeToolResult(missing)?.missingStructuredResult, true);
+  assert.deepEqual(claudeToolResult(missing), {});
   assert.equal(
     claudeToolResult({ ...missing, details: { filePath: "/work/app.ts" } }),
     undefined,
   );
-});
-
-test("describes image attachments without treating image bytes as stdout", () => {
-  const result: BashOutput = {
-    stdout: "cGljdHVyZQ==",
-    stderr: "",
-    interrupted: false,
-    isImage: true,
-  };
-  const view = claudeToolResult(
-    row("Bash", result, [
-      {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: "image/png",
-          data: result.stdout,
-        },
-      },
-    ]),
-  );
-  assert.equal(view?.stdout, "");
-  assert.deepEqual(view?.attachments, [
-    { label: "图像附件", mediaType: "image/png" },
-  ]);
-  assert.doesNotMatch(view!.copyText, /cGljdHVyZQ==/);
 });

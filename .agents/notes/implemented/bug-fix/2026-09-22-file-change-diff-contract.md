@@ -20,4 +20,4 @@ Codex 新增和删除文件提供文件原文，修改文件才提供 unified di
 
 ## Consequences
 
-两家 Provider 的活动摘要与差异详情使用同一统计与着色语义，原生数据可通过 Raw 核对。所有当前生产端和测试夹具采用统一展示契约，不保留同时猜测原文与 patch 的兼容分支。
+两家 Provider 的活动摘要与 Codex Changes 详情使用同一差异语义，原生数据可通过 Raw 核对；Claude Output 遵循[单一输出展示](../simplification/2026-09-22-single-tool-output.md)，不再额外展示原生差异。所有当前生产端和测试夹具采用统一展示契约，不保留同时猜测原文与 patch 的兼容分支。
