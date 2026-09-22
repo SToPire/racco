@@ -39,7 +39,16 @@ export type ProviderSessionUpdate =
   | { type: "context.usage"; usage: ContextUsage }
   | { type: "compaction.finished" }
   | { type: "metadata.changed"; metadata: ProviderSessionMetadata }
-  | Extract<TimelineEvent, { type: "system.notice" }>;
+  | Extract<
+      TimelineEvent,
+      {
+        type:
+          | "system.notice"
+          | "subagent.started"
+          | "subagent.state"
+          | "subagent.event";
+      }
+    >;
 
 export interface DriverContext {
   emit(event: TimelineEvent): void;

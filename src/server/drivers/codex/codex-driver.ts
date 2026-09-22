@@ -65,6 +65,7 @@ type SubagentLink = {
   agentId: string;
   rootThreadId: string;
   name?: string;
+  state?: SubagentState;
 };
 
 const SessionListSchema = z.object({
@@ -96,7 +97,7 @@ function subagentThreadState(status: CodexThread["status"]): SubagentState {
 }
 
 function emitAgentEvents(
-  context: DriverContext,
+  context: Pick<DriverContext, "emit">,
   events: AgentTimelineEvent[],
   subagent?: SubagentLink,
 ): void {
@@ -119,6 +120,7 @@ export class CodexDriver implements AgentDriver {
   readonly #client: CodexAppServerClient;
   readonly #contexts = new Map<string, DriverContext>();
   readonly #loadedThreads = new Set<string>();
+  readonly #observedRoots = new Set<string>();
   readonly #turnWaiters = new Map<string, TurnWaiter>();
   readonly #compactions = new Map<string, string | undefined>();
   readonly #activityMapper = new CodexActivityMapper();
@@ -229,26 +231,18 @@ export class CodexDriver implements AgentDriver {
 
   async close(): Promise<void> {
     this.#ready = false;
-    this.#sessionUpdate = undefined;
     const error = new Error("Codex provider closed");
     for (const [threadId, context] of this.#contexts) {
       emitAgentEvents(context, this.#finishTools(threadId, "failed"));
     }
-    for (const [threadId, subagent] of this.#subagents) {
-      const context = this.#contexts.get(subagent.rootThreadId);
-      if (context !== undefined) {
-        emitAgentEvents(
-          context,
-          this.#finishTools(threadId, "failed"),
-          subagent,
-        );
-      }
-    }
+    this.#finishSubagents(error);
+    this.#sessionUpdate = undefined;
     for (const threadId of this.#compactions.keys())
       this.#finishCompaction(threadId);
     for (const waiter of this.#turnWaiters.values()) waiter.reject(error);
     this.#turnWaiters.clear();
     this.#loadedThreads.clear();
+    this.#observedRoots.clear();
     this.#contexts.clear();
     this.#subagents.clear();
     this.#activityMapper.clear();
@@ -281,6 +275,7 @@ export class CodexDriver implements AgentDriver {
       );
     }
     const thread = { ...response.thread, cwd };
+    this.#observedRoots.add(thread.id);
     const resolveSubagentId = (providerThreadId: string) =>
       this.#rememberSubagent(providerThreadId, thread.id).agentId;
     const events: TimelineEvent[] = mapThreadEvents(thread, resolveSubagentId);
@@ -293,14 +288,28 @@ export class CodexDriver implements AgentDriver {
         parentThreadId === thread.id
           ? undefined
           : this.#rememberSubagent(parentThreadId, thread.id).agentId;
-      events.push(
-        ...mapSubagentThread(
-          subagentThread,
-          link.agentId,
-          resolveSubagentId,
-          parentAgentId,
-        ),
+      const childEvents = mapSubagentThread(
+        subagentThread,
+        link.agentId,
+        resolveSubagentId,
+        parentAgentId,
       );
+      events.push(...childEvents);
+      // Seed newly discovered children only; a snapshot can race newer live events.
+      if (link.state === undefined) {
+        const state = childEvents.at(-1);
+        if (state?.type === "subagent.state") link.state = state.state;
+        for (const turn of subagentThread.turns) {
+          if (turn.status !== "inProgress") continue;
+          this.#toolLifecycle.observe(
+            subagentThread.id,
+            turn.id,
+            turn.items.flatMap((item) =>
+              mapItemEvents(item, resolveSubagentId),
+            ),
+          );
+        }
+      }
     }
     return {
       metadata: mapThreadSummary(thread),
@@ -358,6 +367,7 @@ export class CodexDriver implements AgentDriver {
         threadSource: `racco:${input.raccoSessionId}`,
       },
     );
+    this.#observedRoots.add(response.thread.id);
     this.#loadedThreads.add(response.thread.id);
     return {
       providerSessionId: response.thread.id,
@@ -613,6 +623,7 @@ export class CodexDriver implements AgentDriver {
       throw error;
     }
     this.#loadedThreads.add(threadId);
+    this.#observedRoots.add(threadId);
   }
 
   #handleNotification(notification: JsonRpcNotification): void {
@@ -659,12 +670,39 @@ export class CodexDriver implements AgentDriver {
     if (notification.method === "thread/deleted") {
       const deleted = notification.params as { threadId: string };
       this.#loadedThreads.delete(deleted.threadId);
+      this.#observedRoots.delete(deleted.threadId);
       for (const [threadId, link] of this.#subagents) {
         if (
           threadId === deleted.threadId ||
           link.rootThreadId === deleted.threadId
-        )
+        ) {
+          const events = [
+            ...this.#finishTools(threadId, "interrupted"),
+            ...this.#activityMapper.finish(threadId, "interrupted"),
+          ];
+          if (link.rootThreadId !== deleted.threadId) {
+            emitAgentEvents(
+              {
+                emit: (event) => this.#emitRootEvent(link.rootThreadId, event),
+              },
+              events,
+              link,
+            );
+            if (
+              events.length > 0 ||
+              link.state === "starting" ||
+              link.state === "running"
+            ) {
+              this.#emitRootEvent(link.rootThreadId, {
+                type: "subagent.state",
+                id: `${link.agentId}:deleted`,
+                agentId: link.agentId,
+                state: "interrupted",
+              });
+            }
+          }
           this.#subagents.delete(threadId);
+        }
       }
       return;
     }
@@ -690,7 +728,8 @@ export class CodexDriver implements AgentDriver {
     const rootThreadId = subagent?.rootThreadId ?? threadId;
     const context =
       rootThreadId === undefined ? undefined : this.#contexts.get(rootThreadId);
-    if (context === undefined) {
+    // Child streams outlive individual main turns; only main events require a turn context.
+    if (context === undefined && subagent === undefined) {
       if (notification.method === "error") {
         const error = notification.params as ErrorNotification;
         this.#sessionUpdate?.(threadId, {
@@ -711,6 +750,9 @@ export class CodexDriver implements AgentDriver {
       }
       return;
     }
+    const emitter = {
+      emit: (event: TimelineEvent) => this.#emitRootEvent(rootThreadId, event),
+    };
     const resolveSubagentId = (providerThreadId: string) =>
       this.#rememberSubagent(providerThreadId, rootThreadId).agentId;
 
@@ -749,7 +791,7 @@ export class CodexDriver implements AgentDriver {
 
     const activityEvents = this.#activityMapper.map(notification);
     if (activityEvents !== undefined) {
-      emitAgentEvents(context, activityEvents, subagent);
+      emitAgentEvents(emitter, activityEvents, subagent);
       return;
     }
 
@@ -772,7 +814,7 @@ export class CodexDriver implements AgentDriver {
       for (const event of subagent === undefined
         ? events
         : mapSubagentEvents(events, subagent.agentId))
-        context.emit(event);
+        emitter.emit(event);
       if (notification.method === "item/completed") {
         this.#toolOutput.delete(`${threadId}:${item.id}`);
       }
@@ -784,9 +826,9 @@ export class CodexDriver implements AgentDriver {
       const output = (this.#toolOutput.get(cacheId) ?? "") + delta.delta;
       this.#toolOutput.set(cacheId, output);
       if (subagent === undefined) {
-        context.emit({ type: "tool.output", id: delta.itemId, output });
+        emitter.emit({ type: "tool.output", id: delta.itemId, output });
       } else {
-        context.emit({
+        emitter.emit({
           type: "subagent.event",
           id: `${subagent.agentId}:event:tool.output:${delta.itemId}`,
           agentId: subagent.agentId,
@@ -801,10 +843,10 @@ export class CodexDriver implements AgentDriver {
     }
     if (notification.method === "turn/started") {
       if (subagent === undefined) {
-        context.setState("running");
+        context!.setState("running");
       } else {
         const started = notification.params as TurnNotification;
-        context.emit({
+        emitter.emit({
           type: "subagent.state",
           id: `${subagent.agentId}:turn-started:${started.turn.id}`,
           agentId: subagent.agentId,
@@ -816,7 +858,7 @@ export class CodexDriver implements AgentDriver {
     if (notification.method === "turn/completed") {
       const completed = notification.params as TurnNotification;
       emitAgentEvents(
-        context,
+        emitter,
         this.#finishTools(
           threadId,
           completed.turn.status === "interrupted"
@@ -829,7 +871,7 @@ export class CodexDriver implements AgentDriver {
         subagent,
       );
       emitAgentEvents(
-        context,
+        emitter,
         this.#activityMapper.finish(
           threadId,
           completed.turn.status === "interrupted"
@@ -842,7 +884,7 @@ export class CodexDriver implements AgentDriver {
         subagent,
       );
       if (subagent !== undefined) {
-        context.emit({
+        emitter.emit({
           type: "subagent.state",
           id: `${subagent.agentId}:turn-completed:${completed.turn.id}`,
           agentId: subagent.agentId,
@@ -850,7 +892,7 @@ export class CodexDriver implements AgentDriver {
           message: completed.turn.error?.message ?? undefined,
         });
       } else {
-        context.setState(mapTurnState(completed.turn));
+        context!.setState(mapTurnState(completed.turn));
         const waiter = this.#turnWaiters.get(threadId);
         if (completed.turn.status === "failed") {
           waiter?.reject(
@@ -865,9 +907,9 @@ export class CodexDriver implements AgentDriver {
     if (notification.method === "thread/status/changed") {
       const changed = notification.params as ThreadStatusNotification;
       if (subagent === undefined) {
-        context.setState(mapThreadState(changed.status));
+        context!.setState(mapThreadState(changed.status));
       } else {
-        context.emit({
+        emitter.emit({
           type: "subagent.state",
           id: `${subagent.agentId}:thread-state:${randomUUID()}`,
           agentId: subagent.agentId,
@@ -881,12 +923,12 @@ export class CodexDriver implements AgentDriver {
       const message = error.error.message;
       if (!error.willRetry) {
         emitAgentEvents(
-          context,
+          emitter,
           this.#finishTools(threadId, "failed", error.turnId),
           subagent,
         );
         emitAgentEvents(
-          context,
+          emitter,
           this.#activityMapper.finish(threadId, "error", error.turnId),
           subagent,
         );
@@ -898,13 +940,13 @@ export class CodexDriver implements AgentDriver {
           text: message,
           level: error.willRetry ? "warning" : "error",
         };
-        if (error.willRetry) context.emit(event);
+        if (error.willRetry) emitter.emit(event);
         if (!error.willRetry) {
-          context.setState("error");
+          context!.setState("error");
           this.#turnWaiters.get(threadId)?.reject(new Error(message));
         }
       } else {
-        context.emit({
+        emitter.emit({
           type: "subagent.state",
           id: `${subagent.agentId}:error:${randomUUID()}`,
           agentId: subagent.agentId,
@@ -921,8 +963,11 @@ export class CodexDriver implements AgentDriver {
     if (parentThreadId == null) return;
     const parent = this.#subagents.get(parentThreadId);
     const rootThreadId = parent?.rootThreadId ?? parentThreadId;
-    const context = this.#contexts.get(rootThreadId);
-    if (context === undefined) return;
+    if (
+      !this.#observedRoots.has(rootThreadId) &&
+      !this.#contexts.has(rootThreadId)
+    )
+      return;
 
     const link = this.#rememberSubagent(thread.id, rootThreadId);
     link.name = thread.agentNickname ?? undefined;
@@ -930,13 +975,21 @@ export class CodexDriver implements AgentDriver {
       parentThreadId === rootThreadId ? undefined : parent?.agentId;
     const resolveSubagentId = (providerThreadId: string) =>
       this.#rememberSubagent(providerThreadId, rootThreadId).agentId;
+    for (const turn of thread.turns) {
+      if (turn.status !== "inProgress") continue;
+      this.#toolLifecycle.observe(
+        thread.id,
+        turn.id,
+        turn.items.flatMap((item) => mapItemEvents(item, resolveSubagentId)),
+      );
+    }
     for (const event of mapSubagentThread(
       thread,
       link.agentId,
       resolveSubagentId,
       parentAgentId,
     )) {
-      context.emit(event);
+      this.#emitRootEvent(rootThreadId, event);
     }
   }
 
@@ -1003,29 +1056,92 @@ export class CodexDriver implements AgentDriver {
       emitAgentEvents(context, this.#finishTools(threadId, "failed"));
       context.setState("error");
     }
-    for (const [threadId, subagent] of this.#subagents) {
-      const context = this.#contexts.get(subagent.rootThreadId);
-      if (context !== undefined) {
-        emitAgentEvents(
-          context,
-          this.#activityMapper.finish(threadId, "error"),
-          subagent,
-        );
-        emitAgentEvents(
-          context,
-          this.#finishTools(threadId, "failed"),
-          subagent,
-        );
-      }
-    }
+    this.#finishSubagents(error);
     this.#activityMapper.clear();
     this.#toolLifecycle.clear();
+    this.#toolOutput.clear();
+    this.#subagents.clear();
+    this.#observedRoots.clear();
+    this.#loadedThreads.clear();
     for (const waiter of this.#turnWaiters.values()) waiter.reject(error);
     this.#turnWaiters.clear();
   }
 
   #assertReady(): void {
     if (!this.#ready) throw new Error("Codex provider is unavailable");
+  }
+
+  #emitRootEvent(rootThreadId: string, event: TimelineEvent): void {
+    if (event.type === "subagent.state") {
+      for (const [threadId, link] of this.#subagents) {
+        if (link.agentId === event.agentId) {
+          link.state = event.state;
+          if (event.state !== "starting" && event.state !== "running") {
+            emitAgentEvents(
+              { emit: (nested) => this.#emitRootEvent(rootThreadId, nested) },
+              [
+                ...this.#finishTools(
+                  threadId,
+                  event.state === "completed"
+                    ? "incomplete"
+                    : event.state === "interrupted"
+                      ? "interrupted"
+                      : "failed",
+                ),
+                ...this.#activityMapper.finish(
+                  threadId,
+                  event.state === "completed"
+                    ? undefined
+                    : event.state === "interrupted"
+                      ? "interrupted"
+                      : "error",
+                ),
+              ],
+              link,
+            );
+          }
+          break;
+        }
+      }
+    }
+    const context = this.#contexts.get(rootThreadId);
+    if (context !== undefined) {
+      context.emit(event);
+    } else if (
+      event.type === "subagent.started" ||
+      event.type === "subagent.state" ||
+      event.type === "subagent.event" ||
+      event.type === "system.notice"
+    ) {
+      this.#sessionUpdate?.(rootThreadId, event);
+    }
+  }
+
+  #finishSubagents(error: Error): void {
+    for (const [threadId, subagent] of this.#subagents) {
+      const events = [
+        ...this.#activityMapper.finish(threadId, "error"),
+        ...this.#finishTools(threadId, "failed"),
+      ];
+      emitAgentEvents(
+        { emit: (event) => this.#emitRootEvent(subagent.rootThreadId, event) },
+        events,
+        subagent,
+      );
+      if (
+        events.length > 0 ||
+        subagent.state === "starting" ||
+        subagent.state === "running"
+      ) {
+        this.#emitRootEvent(subagent.rootThreadId, {
+          type: "subagent.state",
+          id: `${subagent.agentId}:provider-exit`,
+          agentId: subagent.agentId,
+          state: "error",
+          message: error.message,
+        });
+      }
+    }
   }
 
   #finishTools(

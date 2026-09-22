@@ -12,6 +12,8 @@ Status: implemented
 
 本决策补充[工具活动摘要](2026-09-22-tool-activity-summaries.md)的状态真实性，并与[Codex 展示性过程](2026-09-22-codex-visible-activity.md)共享终止语义；两者继续持有各自的摘要和内容投影决定。相关记录没有被完整替代。[无逐轮记录](../simplification/2026-09-17-session-state-without-turn-ledger.md)仍约束历史归属，新增跟踪仅服务于未结束调用，结束即清除。
 
+[Codex 后台子任务事件](../bug-fix/2026-09-22-codex-background-child-events.md)补充主轮次结束后的投递边界，子任务工具仍依其自身原生终态收束。
+
 ## Alternatives considered
 
 **仅依据会话状态修改视觉标签：** 无法保留单个调用先前完成或失败的事实，实时与重读历史也会产生差异。
