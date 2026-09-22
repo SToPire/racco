@@ -8,6 +8,7 @@ import {
 import { mapClaudeHistory } from "./event-mapper.js";
 import { selectClaudeHistory, selectClaudeSubagentHistory } from "./history.js";
 import { buildTimeline } from "../../../web/store.js";
+import type { TaskStopOutput } from "@anthropic-ai/claude-agent-sdk/sdk-tools";
 
 const sessionId = randomUUID();
 function entry(
@@ -343,3 +344,309 @@ test("reads native child transcripts with SDK identity and keeps their results o
     ),
   );
 });
+
+for (const retainLaunch of [true, false]) {
+  for (const successful of [true, false]) {
+    test(`TaskStop history ${successful ? "retains interruption" : "does not invent interruption"} with ${retainLaunch ? "a recorded" : "an unavailable"} launch and a later child snapshot`, async () => {
+      const nativeStop: TaskStopOutput = {
+        task_id: "worker",
+        task_type: "local_agent",
+        message: successful
+          ? "Successfully stopped worker"
+          : "Stop was refused",
+      };
+      const entries: SessionStoreEntry[] = [user("root", null, "Run worker")];
+      let predecessor = "root";
+      if (retainLaunch) {
+        entries.push(
+          entry("assistant", "launch", predecessor, {
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "spawn",
+                  name: "Agent",
+                  input: { description: "Worker", prompt: "Check parser" },
+                },
+              ],
+            },
+          }),
+        );
+        entries.push(
+          entry("user", "launched", "launch", {
+            toolUseResult: {
+              status: "async_launched",
+              agentId: "worker",
+              description: "Worker",
+              prompt: "Check parser",
+              outputFile: "/work/worker.txt",
+            },
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: "spawn",
+                  content: "Agent launched",
+                },
+              ],
+            },
+          }),
+        );
+        predecessor = "launched";
+      }
+      entries.push(
+        entry("assistant", "stop", predecessor, {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "stop-call",
+                name: "TaskStop",
+                input: { task_id: "worker-name" },
+              },
+            ],
+          },
+        }),
+      );
+      entries.push(
+        entry("user", "stopped", "stop", {
+          toolUseResult: nativeStop,
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "stop-call",
+                content: nativeStop.message,
+                is_error: !successful,
+              },
+            ],
+          },
+        }),
+      );
+      const key = { projectKey: "-history-fixture", sessionId };
+      const selected = await selectClaudeHistory(
+        entries,
+        key,
+        "/history-fixture",
+      );
+      const store = new InMemorySessionStore();
+      await store.append({ ...key, subpath: "subagents/agent-worker" }, [
+        { type: "agent_metadata", toolUseId: "spawn", parentAgentId: null },
+        { ...user("child-start", null, "Child task"), isSidechain: true },
+        entry("assistant", "child-tools", "child-start", {
+          isSidechain: true,
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "pending-read",
+                name: "Read",
+                input: { file_path: "parser.ts" },
+              },
+              {
+                type: "tool_use",
+                id: "finished-read",
+                name: "Read",
+                input: { file_path: "test.ts" },
+              },
+            ],
+          },
+        }),
+        entry("user", "child-result", "child-tools", {
+          isSidechain: true,
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "finished-read",
+                content: "Finished source",
+              },
+            ],
+          },
+        }),
+      ]);
+      const children = await selectClaudeSubagentHistory(
+        store,
+        key,
+        "/history-fixture",
+      );
+      const rows = buildTimeline(mapClaudeHistory(selected, children));
+      const child = rows.find(
+        (row) => row.type === "subagent" && row.agentId === "worker",
+      );
+      assert(child?.type === "subagent");
+      assert.equal(child.state, successful ? "interrupted" : "unknown");
+      if (successful) assert.equal(child.statusMessage, nativeStop.message);
+      const pending = child.timeline.find((row) => row.id === "pending-read");
+      assert(pending?.type === "tool");
+      assert.equal(pending.status, successful ? "interrupted" : "incomplete");
+      const completed = child.timeline.find(
+        (row) => row.id === "finished-read",
+      );
+      assert(completed?.type === "tool");
+      assert.equal(completed.status, "completed");
+      assert.equal(completed.output, "Finished source");
+      if (!retainLaunch) {
+        assert.equal(child.name, undefined);
+        assert.equal(child.prompt, undefined);
+        assert.equal(child.role, undefined);
+      }
+      const stop = rows.find((row) => row.id === "stop-call");
+      assert(stop?.type === "tool");
+      assert.equal(stop.status, successful ? "completed" : "failed");
+    });
+  }
+}
+
+for (const oldStatus of ["async_launched", "completed"] as const) {
+  for (const parentFirst of [true, false]) {
+    test(`root stop survives a later ${oldStatus} leaf result in ${parentFirst ? "parent-first" : "leaf-first"} child history`, async () => {
+      const key = { projectKey: "-history-fixture", sessionId };
+      const nativeStop: TaskStopOutput = {
+        task_id: "leaf",
+        task_type: "local_agent",
+        message: "Successfully stopped leaf",
+      };
+      const call = (
+        uuid: string,
+        parent: string,
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ) =>
+        entry("assistant", uuid, parent, {
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id, name, input }],
+          },
+        });
+      const result = (
+        uuid: string,
+        parent: string,
+        id: string,
+        toolUseResult: unknown,
+      ) =>
+        entry("user", uuid, parent, {
+          toolUseResult,
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: id,
+                content: "Native tool result",
+              },
+            ],
+          },
+        });
+      const main = await selectClaudeHistory(
+        [
+          user("root", null, "Check the tree"),
+          call("parent-launch", "root", "parent-spawn", "Agent", {
+            prompt: "Delegate checks",
+          }),
+          result("parent-launched", "parent-launch", "parent-spawn", {
+            status: "async_launched",
+            agentId: "parent",
+            description: "Delegate checks",
+            prompt: "Delegate checks",
+            outputFile: "/work/parent.txt",
+          }),
+          call("stop-leaf", "parent-launched", "stop-leaf-call", "TaskStop", {
+            task_id: "leaf",
+          }),
+          result("leaf-stopped", "stop-leaf", "stop-leaf-call", nativeStop),
+        ],
+        key,
+        "/history-fixture",
+      );
+      const store = new InMemorySessionStore();
+      const leafResult =
+        oldStatus === "async_launched"
+          ? {
+              status: oldStatus,
+              agentId: "leaf",
+              description: "Leaf task",
+              prompt: "Read parser",
+              outputFile: "/work/leaf.txt",
+            }
+          : {
+              // Current TaskStop permits a completed local_agent retained by
+              // native keepalive reasons (or an observer). Those runtime flags
+              // are not serialized in the Agent tool result itself.
+              status: oldStatus,
+              agentId: "leaf",
+              prompt: "Read parser",
+              content: [{ type: "text", text: "Old leaf completion" }],
+              totalToolUseCount: 1,
+              totalDurationMs: 500,
+              totalTokens: 10,
+            };
+      await store.append(
+        { ...key, subpath: "subagents/agent-parent" },
+        [
+          {
+            type: "agent_metadata",
+            toolUseId: "parent-spawn",
+            parentAgentId: null,
+          },
+          user("parent-request", null, "Delegate checks"),
+          call("leaf-launch", "parent-request", "leaf-spawn", "Agent", {
+            prompt: "Read parser",
+            description: "Leaf task",
+          }),
+          result("leaf-returned", "leaf-launch", "leaf-spawn", leafResult),
+        ].map((entry) => ({ ...entry, isSidechain: true })),
+      );
+      await store.append(
+        { ...key, subpath: "subagents/agent-leaf" },
+        [
+          {
+            type: "agent_metadata",
+            toolUseId: "leaf-spawn",
+            parentAgentId: "parent",
+          },
+          user("leaf-request", null, "Read parser"),
+          call("leaf-read", "leaf-request", "leaf-pending-read", "Read", {
+            file_path: "parser.ts",
+          }),
+        ].map((entry) => ({ ...entry, isSidechain: true })),
+      );
+      const children = await selectClaudeSubagentHistory(
+        store,
+        key,
+        "/history-fixture",
+      );
+      const orderedChildren = (
+        parentFirst ? ["parent", "leaf"] : ["leaf", "parent"]
+      ).map((agentId) => children.find((child) => child.agentId === agentId)!);
+      const rows = buildTimeline(mapClaudeHistory(main, orderedChildren));
+      const leaf = rows.find(
+        (row) => row.type === "subagent" && row.agentId === "leaf",
+      );
+      assert(leaf?.type === "subagent");
+      assert.equal(leaf.state, "interrupted");
+      assert.equal(leaf.statusMessage, nativeStop.message);
+      assert.equal(leaf.parentAgentId, "parent");
+      const read = leaf.timeline.find((row) => row.id === "leaf-pending-read");
+      assert(read?.type === "tool");
+      assert.equal(read.status, "interrupted");
+      const parent = rows.find(
+        (row) => row.type === "subagent" && row.agentId === "parent",
+      );
+      assert(parent?.type === "subagent");
+      assert.equal(parent.state, "unknown");
+      const delegatedCall = parent.timeline.find(
+        (row) => row.id === "leaf-spawn",
+      );
+      assert(delegatedCall?.type === "tool");
+      assert.equal(delegatedCall.status, "completed");
+    });
+  }
+}

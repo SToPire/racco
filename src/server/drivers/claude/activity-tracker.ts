@@ -69,6 +69,7 @@ export class ClaudeActivityTracker {
   readonly #tasks = new Map<string, Task>();
   readonly #pendingTaskUpdates = new Map<string, TaskUpdate[]>();
   readonly #ignoredTasks = new Set<string>();
+  readonly #appliedStops = new Set<string>();
 
   observe(
     events: readonly AgentTimelineEvent[],
@@ -104,10 +105,21 @@ export class ClaudeActivityTracker {
             ? record(details.result)
             : undefined;
         if (
+          call?.name === "TaskStop" &&
+          event.status === "completed" &&
+          output !== undefined
+        ) {
+          result.push(...this.#stopTask(event.id, output, event.output));
+        }
+        if (
           call?.name === "Agent" &&
           typeof output?.agentId === "string" &&
           output.agentId !== ""
         ) {
+          const previousAgent = this.#agents.get(output.agentId);
+          // Parent and child histories are read separately. Filling a missing
+          // launch identity must not overturn an already observed stop.
+          const preserveStop = previousAgent?.state === "interrupted";
           result.push(
             ...this.registerAgent(
               output.agentId,
@@ -119,7 +131,7 @@ export class ClaudeActivityTracker {
                 : undefined,
             ),
           );
-          if (output.status === "completed") {
+          if (output.status === "completed" && !preserveStop) {
             const task = this.#tasks.get(output.agentId);
             if (task) task.settled = true;
             result.push(
@@ -327,9 +339,24 @@ export class ClaudeActivityTracker {
     const events: TimelineEvent[] = [];
     for (const [id, owner] of this.#pendingTools) {
       this.#settledTools.add(id);
+      const ownerId =
+        owner.ownerAgentId ??
+        (owner.parentToolUseId === null
+          ? undefined
+          : this.#agentByTool.get(owner.parentToolUseId));
+      const ownerState =
+        ownerId === undefined ? undefined : this.#agents.get(ownerId)?.state;
+      // Child history is projected after the parent's stop/result records.
+      // Preserve that explicit terminal fact for child calls missing a result.
+      const terminalStatus =
+        ownerState === "interrupted"
+          ? "interrupted"
+          : ownerState === "error"
+            ? "failed"
+            : status;
       events.push(
         ...this.#route(
-          [{ type: "tool.completed", id, status }],
+          [{ type: "tool.completed", id, status: terminalStatus }],
           owner.parentToolUseId,
           owner.ownerAgentId,
         ),
@@ -480,6 +507,86 @@ export class ClaudeActivityTracker {
         ...(message ? { message } : {}),
       },
     ];
+  }
+
+  #stopTask(
+    sourceCallId: string,
+    output: Record<string, unknown>,
+    text?: string,
+  ): TimelineEvent[] {
+    const { task_id: taskId, task_type: taskType } = output;
+    if (
+      typeof taskId !== "string" ||
+      taskId.length === 0 ||
+      typeof taskType !== "string" ||
+      taskType.length === 0 ||
+      this.#ignoredTasks.has(taskId)
+    )
+      return [];
+    const agent = taskType === "local_agent";
+    const existing = this.#tasks.get(taskId);
+    if (
+      (existing !== undefined && existing.agent !== agent) ||
+      (!agent && this.#agents.has(taskId))
+    )
+      return [];
+    if (this.#appliedStops.has(sourceCallId)) return [];
+    this.#appliedStops.add(sourceCallId);
+    const message =
+      typeof output.message === "string" ? output.message : (text ?? "");
+    const events: TimelineEvent[] = [];
+    const task: Task = existing ?? {
+      id: taskId,
+      agent,
+      parentToolUseId: null,
+      description: "",
+      settled: true,
+    };
+    task.settled = true;
+    this.#tasks.set(taskId, task);
+    this.#pendingTaskUpdates.delete(taskId);
+    if (agent) {
+      if (!this.#agents.has(taskId)) events.push(...this.registerAgent(taskId));
+      events.push(...this.#finishAgentTools(taskId, "interrupted"));
+      events.push(
+        ...this.#setAgentState(
+          taskId,
+          "interrupted",
+          message,
+          `stop:${sourceCallId}`,
+        ),
+      );
+    } else {
+      if (existing === undefined)
+        events.push({
+          type: "tool.started",
+          id: `claude-task:${taskId}`,
+          tool: "backgroundTask",
+          input: undefined,
+        });
+      events.push(
+        ...this.#route(
+          [
+            {
+              type: "tool.completed",
+              id: `claude-task:${taskId}`,
+              status: "interrupted",
+              output: message,
+              details: {
+                type: "claudeTaskResult",
+                taskId,
+                taskType,
+                stoppedByToolUseId: sourceCallId,
+                result: output,
+              },
+            },
+          ],
+          task.parentToolUseId,
+          task.ownerAgentId,
+        ),
+      );
+    }
+    return events;
   }
 
   #finishAgentTools(

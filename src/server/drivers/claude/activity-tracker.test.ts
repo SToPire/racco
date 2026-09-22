@@ -7,6 +7,12 @@ import type {
   SDKTaskNotificationMessage,
   SDKToolProgressMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  AgentInput,
+  AgentOutput,
+  TaskStopOutput,
+} from "@anthropic-ai/claude-agent-sdk/sdk-tools";
+import type { ToolCompletionStatus } from "../../../shared/protocol.js";
 import { buildTimeline } from "../../../web/store.js";
 import { ClaudeActivityTracker } from "./activity-tracker.js";
 
@@ -66,6 +72,41 @@ const heartbeat = (
   uuid: randomUUID(),
   session_id,
 });
+
+function stopEvents(
+  tracker: ClaudeActivityTracker,
+  output: TaskStopOutput,
+  status: ToolCompletionStatus = "completed",
+  parentToolUseId: string | null = null,
+  inputTarget = output.task_id,
+) {
+  const id = `stop-${randomUUID()}`;
+  return [
+    ...tracker.observe(
+      [
+        {
+          type: "tool.started",
+          id,
+          tool: "TaskStop",
+          input: { task_id: inputTarget },
+        },
+      ],
+      parentToolUseId,
+    ),
+    ...tracker.observe(
+      [
+        {
+          type: "tool.completed",
+          id,
+          status,
+          output: output.message,
+          details: { type: "claudeToolResult", result: output },
+        },
+      ],
+      parentToolUseId,
+    ),
+  ];
+}
 
 test("holds early child messages until a native task identity is known", () => {
   const tracker = new ClaudeActivityTracker();
@@ -552,4 +593,295 @@ test("hides housekeeping tasks and preserves unknown task notifications as gener
   assert(task?.type === "tool");
   assert.equal(task.id, "claude-task:unannounced");
   assert.equal(task.status, "completed");
+});
+
+test("successful TaskStop targets the canonical result ID and leaves its caller and same-named peers running", () => {
+  const tracker = new ClaudeActivityTracker();
+  const events = [
+    ...tracker.map(started("parent", "parent-spawn"))!,
+    ...tracker.map(started("target", "target-spawn"))!,
+    ...tracker.map(started("peer", "peer-spawn"))!,
+  ];
+  for (const agent of ["parent", "target", "peer"])
+    events.push(
+      ...tracker.observe(
+        [
+          {
+            type: "tool.started",
+            id: `${agent}-read`,
+            tool: "Read",
+            input: {},
+          },
+        ],
+        `${agent}-spawn`,
+      ),
+    );
+  events.push(
+    ...stopEvents(
+      tracker,
+      {
+        task_id: "target",
+        task_type: "local_agent",
+        message: "Successfully stopped target",
+      },
+      "completed",
+      "parent-spawn",
+      "Read parser",
+    ),
+  );
+  const rows = buildTimeline(events);
+  for (const id of ["parent", "target", "peer"]) {
+    const agent = rows.find(
+      (row) => row.type === "subagent" && row.agentId === id,
+    );
+    assert(agent?.type === "subagent");
+    assert.equal(agent.state, id === "target" ? "interrupted" : "running");
+    const tool = agent.timeline.find((row) => row.id === `${id}-read`);
+    assert(tool?.type === "tool");
+    assert.equal(tool.status, id === "target" ? "interrupted" : "running");
+  }
+  assert.deepEqual(tracker.map(progress("target", "target-spawn")), []);
+});
+
+for (const status of ["failed", "interrupted", "incomplete"] as const) {
+  test(`a ${status} TaskStop cannot change an explicitly completed task`, () => {
+    const tracker = new ClaudeActivityTracker();
+    const events = tracker.map(started("done", "spawn"))!;
+    events.push(...tracker.map(finished("done"))!);
+    events.push(
+      ...stopEvents(
+        tracker,
+        {
+          task_id: "done",
+          task_type: "local_agent",
+          message: "Task cannot be stopped",
+        },
+        status,
+      ),
+    );
+    events.push(...tracker.finish("incomplete"));
+    const agent = buildTimeline(events).find((row) => row.type === "subagent");
+    assert(agent?.type === "subagent");
+    assert.equal(agent.state, "completed");
+    assert.equal(agent.statusMessage, "Parser checked");
+  });
+}
+
+test("successful TaskStop preserves a known background task's actual owner", () => {
+  const tracker = new ClaudeActivityTracker();
+  const events = tracker.map(started("owner", "spawn"))!;
+  events.push(
+    ...tracker.observe(
+      [
+        {
+          type: "tool.started",
+          id: "bash-call",
+          tool: "Bash",
+          input: { command: "sleep 30" },
+        },
+      ],
+      "spawn",
+    ),
+  );
+  events.push(
+    ...tracker.map(started("background", "bash-call", "local_bash"))!,
+  );
+  events.push(
+    ...tracker.observe(
+      [
+        {
+          type: "tool.completed",
+          id: "bash-call",
+          status: "completed",
+          output: "Launched",
+        },
+      ],
+      "spawn",
+    ),
+  );
+  events.push(
+    ...stopEvents(tracker, {
+      task_id: "background",
+      task_type: "local_bash",
+      message: "Background command stopped",
+    }),
+  );
+  const rows = buildTimeline(events);
+  const owner = rows.find((row) => row.type === "subagent");
+  assert(owner?.type === "subagent");
+  assert.equal(owner.state, "running");
+  const task = owner.timeline.find(
+    (row) => row.id === "claude-task:background",
+  );
+  assert(task?.type === "tool");
+  assert.equal(task.status, "interrupted");
+  const launch = owner.timeline.find((row) => row.id === "bash-call");
+  assert(launch?.type === "tool");
+  assert.equal(launch.status, "completed");
+  assert(!rows.some((row) => row.id === "claude-task:background"));
+});
+
+for (const taskType of ["local_agent", "local_bash"]) {
+  test(`a successful stop restores an unrecorded ${taskType} target without inventing launch metadata`, () => {
+    const tracker = new ClaudeActivityTracker();
+    const events = stopEvents(tracker, {
+      task_id: "missing-launch",
+      task_type: taskType,
+      message: "Stopped task",
+    });
+    events.push(...tracker.finish("incomplete"));
+    const rows = buildTimeline(events);
+    if (taskType === "local_agent") {
+      const target = rows.find((row) => row.type === "subagent");
+      assert(target?.type === "subagent");
+      assert.equal(target.agentId, "missing-launch");
+      assert.equal(target.state, "interrupted");
+      for (const key of [
+        "name",
+        "prompt",
+        "role",
+        "model",
+        "cwd",
+        "parentAgentId",
+      ] as const)
+        assert.equal(target[key], undefined);
+    } else {
+      assert(!rows.some((row) => row.type === "subagent"));
+      const target = rows.find(
+        (row) => row.id === "claude-task:missing-launch",
+      );
+      assert(target?.type === "tool");
+      assert.equal(target.tool, "backgroundTask");
+      assert.equal(target.status, "interrupted");
+      assert.equal(target.input, undefined);
+    }
+  });
+}
+
+test("an unsuccessful stop without a launch record does not invent a target", () => {
+  const tracker = new ClaudeActivityTracker();
+  const events = stopEvents(
+    tracker,
+    { task_id: "missing", task_type: "local_agent", message: "No such task" },
+    "failed",
+  );
+  events.push(...tracker.finish("incomplete"));
+  const rows = buildTimeline(events);
+  assert.equal(rows.length, 1);
+  assert(rows[0]?.type === "tool" && rows[0].tool === "TaskStop");
+});
+
+test("an old Agent receipt cannot undo TaskStop but a native SendMessage task start can", () => {
+  const tracker = new ClaudeActivityTracker();
+  const events = tracker.observe(
+    [
+      {
+        type: "tool.started",
+        id: "spawn",
+        tool: "Agent",
+        input: {
+          description: "Check parser",
+          prompt: "Check parser",
+        } satisfies AgentInput,
+      },
+    ],
+    null,
+  );
+  const launched = {
+    type: "tool.completed" as const,
+    id: "spawn",
+    status: "completed" as const,
+    details: {
+      type: "claudeToolResult",
+      result: {
+        status: "async_launched",
+        agentId: "worker",
+        description: "Check parser",
+        prompt: "Check parser",
+        outputFile: "/work/worker.txt",
+      } satisfies AgentOutput,
+    },
+  };
+  events.push(...tracker.observe([launched], null));
+  const stoppedEvents = stopEvents(tracker, {
+    task_id: "worker",
+    task_type: "local_agent",
+    message: "Stopped worker",
+  });
+  events.push(...stoppedEvents);
+  events.push(...tracker.observe([launched], null));
+  const stopped = buildTimeline(events).find((row) => row.type === "subagent");
+  assert(stopped?.type === "subagent");
+  assert.equal(stopped.state, "interrupted");
+  events.push(
+    ...tracker.observe(
+      [
+        {
+          type: "tool.started",
+          id: "send-call",
+          tool: "SendMessage",
+          input: { to: "worker", message: "Continue" },
+        },
+      ],
+      null,
+    ),
+  );
+  const beforeStart = buildTimeline(events).find(
+    (row) => row.type === "subagent",
+  );
+  assert(beforeStart?.type === "subagent");
+  assert.equal(beforeStart.state, "interrupted");
+  events.push(...tracker.map(started("worker", "send-call"))!);
+  const resumed = buildTimeline(events).find((row) => row.type === "subagent");
+  assert(resumed?.type === "subagent");
+  assert.equal(resumed.state, "running");
+  const oldStop = stoppedEvents.at(-1);
+  assert(oldStop?.type === "tool.completed");
+  events.push(...tracker.observe([oldStop], null));
+  const afterReplay = buildTimeline(events).find(
+    (row) => row.type === "subagent",
+  );
+  assert(afterReplay?.type === "subagent");
+  assert.equal(afterReplay.state, "running");
+});
+
+test("a native task_started can reopen a stopped agent whose old launch identity is unavailable", () => {
+  const tracker = new ClaudeActivityTracker();
+  const events = stopEvents(tracker, {
+    task_id: "worker",
+    task_type: "local_agent",
+    message: "Stopped worker",
+  });
+  events.push(...tracker.map(started("worker", "send-call"))!);
+  const worker = buildTimeline(events).find((row) => row.type === "subagent");
+  assert(worker?.type === "subagent");
+  assert.equal(worker.state, "running");
+});
+
+test("a successful result without TaskStop provenance or complete target identity cannot stop a task", () => {
+  for (const [toolName, output] of [
+    ["Read", { task_id: "worker", task_type: "local_agent" }],
+    ["TaskStop", { task_id: "worker" }],
+    ["TaskStop", { task_type: "local_agent" }],
+  ] as const) {
+    const tracker = new ClaudeActivityTracker();
+    const events = tracker.map(started("worker", "spawn"))!;
+    events.push(
+      ...tracker.observe(
+        [
+          { type: "tool.started", id: "call", tool: toolName, input: {} },
+          {
+            type: "tool.completed",
+            id: "call",
+            status: "completed",
+            details: { type: "claudeToolResult", result: output },
+          },
+        ],
+        null,
+      ),
+    );
+    const worker = buildTimeline(events).find((row) => row.type === "subagent");
+    assert(worker?.type === "subagent");
+    assert.equal(worker.state, "running");
+  }
 });
