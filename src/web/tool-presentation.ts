@@ -1,4 +1,5 @@
 import type { ToolTimelineRow } from "./store";
+import { claudeToolResult } from "./claude-tool-result";
 
 type ToolPresentation = {
   label: string;
@@ -102,6 +103,7 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
   let label = row.tool;
   let summary = description;
   let outcome: string | undefined;
+  const nativeResult = claudeToolResult(row);
   if (row.tool === "command" || row.tool === "Bash") {
     const action = row.tool === "command" ? commandSummary(details) : undefined;
     label = description ? "Bash" : (action?.label ?? "Bash");
@@ -122,6 +124,9 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
   } else if (["Edit", "Write", "MultiEdit"].includes(row.tool)) {
     label = row.tool === "Write" ? "写入" : "编辑";
     summary = text(input.file_path) || text(input.path) || description;
+    if (nativeResult?.change) {
+      ({ summary, outcome } = fileChangeSummary([nativeResult.change]));
+    }
   } else if (row.tool === "Grep" || row.tool === "Glob") {
     label = row.tool === "Grep" ? "搜索" : "查找文件";
     summary =
@@ -141,6 +146,12 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
     summary = Array.isArray(input.fragments)
       ? `${input.fragments.length} 个片段`
       : "";
+  }
+  if (nativeResult?.kind === "bash") {
+    const background = nativeResult.fields.find(
+      ([label]) => label === "后台任务",
+    )?.[1];
+    if (background) outcome = `后台任务 ${background}`;
   }
   if (!summary && row.input !== undefined)
     summary = text(

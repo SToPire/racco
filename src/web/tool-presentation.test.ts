@@ -145,3 +145,29 @@ test("unknown tools retain their name and bounded literal input", () => {
   assert.ok(result.summary.startsWith('{"something":'));
   assert.equal(result.summary.length, 180);
 });
+
+test("Claude edit summaries use the same recorded patch facts as the inspector", () => {
+  const result = describeTool({
+    ...command,
+    tool: "Edit",
+    input: { file_path: "src/main.ts" },
+    details: {
+      type: "claudeToolResult",
+      content: [],
+      result: {
+        filePath: "src/main.ts",
+        structuredPatch: [
+          {
+            oldStart: 1,
+            oldLines: 1,
+            newStart: 1,
+            newLines: 2,
+            lines: ["-old", "+new", "+extra"],
+          },
+        ],
+      },
+    },
+  });
+  assert.equal(result.summary, "src/main.ts");
+  assert.equal(result.outcome, "+2 −1");
+});
