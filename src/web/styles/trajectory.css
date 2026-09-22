@@ -4,7 +4,7 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   background: var(--surface);
 }
@@ -49,6 +49,7 @@
 }
 
 .trajectory-workspace {
+  position: relative;
   display: grid;
   min-width: 0;
   min-height: 0;

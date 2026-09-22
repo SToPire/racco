@@ -152,3 +152,27 @@ test("an unconfirmed send locks the draft even after the task starts and the vie
   await expect(page.locator(".run-state")).toHaveText("已停止");
   await expect(input).toHaveValue("draft after confirmed send");
 });
+
+test("mobile trajectory details leave pending questions and navigation reachable", async ({
+  page,
+  racco,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/session/${racco.sessions[0]!.sessionId}`);
+  await page.getByRole("textbox", { name: "发送给 Racco" }).fill("question");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(
+    page.getByText("Fixture question", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.locator(".trajectory-entry").first().click();
+  await expect(
+    page.getByRole("complementary", { name: "交互详情" }),
+  ).toBeVisible();
+  await page.getByRole("radio", { name: "Alpha", exact: true }).check();
+  await page.getByRole("button", { name: "提交回答" }).click();
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect(
+    page.getByText("Fixture: question (answer)", { exact: true }),
+  ).toBeVisible();
+});
