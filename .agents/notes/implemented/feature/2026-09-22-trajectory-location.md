@@ -10,7 +10,7 @@ Chat 和 Trajectory 对同一活动提供不同阅读方式，却没有定位联
 
 时间线行保留稳定的展示定位，选中工具后打开轨迹会定位同一调用，轨迹条目可以返回相应 Agent 的 Chat。显式定位优先于自动跟随，不因新内容立即跳走。主线继续按用户请求划分轮次，子任务使用独立步骤并明确标为子任务，不从其插入位置推断主线轮次或跨 Agent 发生时间。
 
-本决策落实[可理解过程提案](../../proposed/feature/2026-09-22-chat-observable-work.md)的轨迹可达性，并补充[阅读位置](2026-09-22-conversation-reading-position.md)的显式导航行为。相关记录保持有效，没有既有轨迹排序决策需要替代。[原生历史归属](../simplification/2026-09-17-session-state-without-turn-ledger.md)保持有效，不为无法恢复的顺序建立第二份逐轮记录。
+本决策落实[可理解过程提案](2026-09-22-chat-observable-work.md)的轨迹可达性，并补充[阅读位置](2026-09-22-conversation-reading-position.md)的显式导航行为。相关记录保持有效，没有既有轨迹排序决策需要替代。[原生历史归属](../simplification/2026-09-17-session-state-without-turn-ledger.md)保持有效，不为无法恢复的顺序建立第二份逐轮记录。
 
 ## Alternatives considered
 

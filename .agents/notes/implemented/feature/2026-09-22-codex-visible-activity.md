@@ -10,7 +10,7 @@ Codex 已提供公开思考摘要、方案正文、执行清单和回复阶段�
 
 时间线分别承载公开思考摘要、方案正文、执行清单和原生回复阶段，主对话与子 Agent 采用同一投影。仅展示 Provider 的公开摘要，原始推理内容不进入共享事件或前端。可恢复的正文在实时增量与原生历史中保持相同类型，完整项覆盖流式项；中断和失败保留已收到内容并标明终止。
 
-本决策落实[Chat 可理解过程提案](../../proposed/feature/2026-09-22-chat-observable-work.md)中的 Codex 展示性事件范围，不替代其余未完成工作。相关[Claude 流式输出](../bug-fix/2026-09-18-claude-streaming-output.md)继续持有其 Provider 特有的内容块归属与重试规则；[不保留逐轮执行记录](../simplification/2026-09-17-session-state-without-turn-ledger.md)的历史归属保持有效，不为过程展示增加执行账本。
+本决策落实[Chat 可理解过程提案](2026-09-22-chat-observable-work.md)中的 Codex 展示性事件范围，其余展示与交互决策由各自记录持有。相关[Claude 流式输出](../bug-fix/2026-09-18-claude-streaming-output.md)继续持有其 Provider 特有的内容块归属与重试规则；[不保留逐轮执行记录](../simplification/2026-09-17-session-state-without-turn-ledger.md)的历史归属保持有效，不为过程展示增加执行账本。
 
 ## Alternatives considered
 
