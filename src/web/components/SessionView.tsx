@@ -1,5 +1,5 @@
 import { UiIcon } from "./UiIcon";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   InteractionRequest,
   InteractionResponse,
@@ -18,6 +18,7 @@ import { Composer } from "./Composer";
 import { ContextControls } from "./ContextControls";
 import { InteractionCard } from "./InteractionCard";
 import { ProviderLogo } from "./ProviderLogo";
+import { SubagentCards } from "./SubagentCards";
 import { Timeline } from "./Timeline";
 import { TrajectoryView } from "./TrajectoryView";
 import { TurnNavigator } from "./TurnNavigator";
@@ -41,12 +42,6 @@ type SessionViewProps = {
   onResolve: (id: string, response: InteractionResponse) => void;
   selectedToolId?: string;
 };
-
-function activeSubagent(subagents: SubagentTimelineRow[]) {
-  return subagents.findLast(
-    (row) => row.state === "starting" || row.state === "running",
-  );
-}
 
 export function SessionView({
   active,
@@ -72,15 +67,12 @@ export function SessionView({
     false,
     connection === "open",
   );
-  const autoSelectedAgents = useRef(new Set<string>());
   const subagents = useMemo(
     () =>
       rows.filter((row): row is SubagentTimelineRow => row.type === "subagent"),
     [rows],
   );
-  const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(
-    () => activeSubagent(subagents)?.agentId,
-  );
+  const [selectedAgentId, setSelectedAgentId] = useState<string>();
   const [viewMode, setViewMode] = useState<"chat" | "trajectory">("chat");
   const selectedSubagent = subagents.find(
     (row) => row.agentId === selectedAgentId,
@@ -122,20 +114,6 @@ export function SessionView({
     selectedAgentId ?? "main",
     selectedRows,
   );
-
-  useEffect(() => {
-    if (!active) return;
-    const unseenActive = subagents.filter(
-      (row) =>
-        (row.state === "starting" || row.state === "running") &&
-        !autoSelectedAgents.current.has(row.agentId),
-    );
-    const candidate = unseenActive.at(-1);
-    if (candidate === undefined) return;
-    for (const row of unseenActive) autoSelectedAgents.current.add(row.agentId);
-    setSelectedAgentId(candidate.agentId);
-    onSelectTool(undefined);
-  }, [active, onSelectTool, subagents]);
 
   function selectAgent(agentId: string | undefined) {
     setSelectedAgentId(agentId);
@@ -257,6 +235,9 @@ export function SessionView({
               rows={selectedRows}
               selectedToolId={selectedToolId}
             />
+          )}
+          {selectedSubagent === undefined && subagents.length > 0 && (
+            <SubagentCards subagents={subagents} onSelect={selectAgent} />
           )}
         </section>
       ) : (

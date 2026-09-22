@@ -1,0 +1,105 @@
+.subagent-cards {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 0 24px 32px 69px;
+}
+
+.subagent-cards h2 {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.subagent-card-list {
+  display: grid;
+  gap: 8px;
+}
+
+.subagent-card {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.subagent-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.subagent-card.state-error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.subagent-card-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.82rem;
+}
+
+.subagent-card-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-card-state {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.subagent-card-task,
+.subagent-card-preview > span:last-child {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.subagent-card-task {
+  -webkit-line-clamp: 2;
+}
+
+.subagent-card-preview {
+  display: grid;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+.subagent-card-preview > span:first-child,
+.subagent-card-empty,
+.subagent-card-link {
+  font-size: 0.72rem;
+}
+
+.subagent-card-empty {
+  color: var(--text-faint);
+}
+
+.subagent-card-link {
+  color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .subagent-cards {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}

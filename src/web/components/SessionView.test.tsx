@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { TimelineRow } from "../store.js";
 import { SessionView } from "./SessionView.js";
 
-test("shows an active subagent in the title and switches the visible timeline", () => {
+test("keeps the main conversation visible and offers an active subagent task card", () => {
   const rows: TimelineRow[] = [
     { type: "assistant.message", id: "root-message", text: "root output" },
     {
@@ -66,12 +66,12 @@ test("shows an active subagent in the title and switches the visible timeline", 
 
   assert.match(html, /Main task/);
   assert.match(html, /Nietzsche/);
-  assert.match(html, /root › report_date · \/work\/project/);
+  assert.match(html, />Main Agent</);
   assert.match(html, /Report today&#x27;s date/);
-  assert.match(html, /trajectory-tool-row/);
-  assert.match(html, />Bash</);
-  assert.match(html, />date</);
-  assert.match(html, /child output/);
-  assert.doesNotMatch(html, /root output/);
+  assert.match(html, /aria-label="查看 Nietzsche 的对话"/);
+  assert.match(html, /等待进展更新/);
+  assert.match(html, /root output/);
+  assert.doesNotMatch(html, /child output/);
+  assert.doesNotMatch(html, /trajectory-tool-row/);
   assert.doesNotMatch(html, /\/root\/report_date/);
 });
