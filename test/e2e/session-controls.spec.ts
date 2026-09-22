@@ -158,8 +158,8 @@ test("mobile trajectory details leave pending questions and navigation reachable
   racco,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`/session/${racco.sessions[0]!.sessionId}`);
-  await page.getByRole("textbox", { name: "发送给 Racco" }).fill("question");
+  const input = await openSession(page, racco.sessions[0]!.sessionId);
+  await input.fill("question");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(
     page.getByText("Fixture question", { exact: true }),
