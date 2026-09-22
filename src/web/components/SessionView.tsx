@@ -1,5 +1,5 @@
 import { UiIcon } from "./UiIcon";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type {
   InteractionRequest,
   InteractionResponse,
@@ -74,6 +74,12 @@ export function SessionView({
   );
   const [selectedAgentId, setSelectedAgentId] = useState<string>();
   const [viewMode, setViewMode] = useState<"chat" | "trajectory">("chat");
+  const conversationRef = useRef<HTMLElement>(null);
+  const reading = useConversationScroll(
+    conversationRef,
+    `${session.sessionId}:${selectedAgentId ?? "main"}`,
+    active && loaded && viewMode === "chat",
+  );
   const selectedSubagent = subagents.find(
     (row) => row.agentId === selectedAgentId,
   );
@@ -107,12 +113,6 @@ export function SessionView({
           row.type === "user.message",
       ),
     [rows],
-  );
-  const conversation = useConversationScroll(
-    active && viewMode === "chat",
-    loaded,
-    selectedAgentId ?? "main",
-    selectedRows,
   );
   const turnActive =
     session.state === "running" || session.state === "waiting_interaction";
@@ -219,8 +219,7 @@ export function SessionView({
       {viewMode === "chat" ? (
         <section
           className="conversation"
-          ref={conversation.ref}
-          onScroll={conversation.onScroll}
+          ref={conversationRef}
           aria-busy={!loaded}
         >
           {error && <p className="error-banner">{error}</p>}
@@ -258,9 +257,19 @@ export function SessionView({
           <TurnNavigator
             sessionId={session.sessionId}
             requests={requests}
-            scrollContainerRef={conversation.ref}
+            scrollContainerRef={conversationRef}
           />
         )}
+
+      {viewMode === "chat" && !reading.following && (
+        <button
+          className="conversation-follow-latest"
+          type="button"
+          onClick={reading.followLatest}
+        >
+          回到最新内容 ↓
+        </button>
+      )}
 
       <footer
         className={`session-footer${viewMode === "trajectory" ? " session-footer-trajectory" : ""}`}
