@@ -40,8 +40,12 @@ test("Codex shows context usage and compacts without submitting or losing the dr
   await expect(
     page.getByRole("button", { name: "发送", exact: true }),
   ).toBeDisabled();
-  await expect(page.locator(".composer")).toHaveClass(/composer-compacting/);
-  await expect(page.locator(".run-state")).toHaveText("压缩中");
+  await expect(
+    page.locator(".session-view:not([hidden]) .composer"),
+  ).toHaveClass(/composer-compacting/);
+  await expect(
+    page.locator(".session-view:not([hidden]) .run-state"),
+  ).toHaveText("压缩中");
   await expect(page.getByText(/压缩请求已发送/)).toHaveCount(0);
   await expect(
     other.getByRole("textbox", { name: "发送给 Racco" }),
@@ -123,7 +127,9 @@ test("failed compaction reports the failure and restores controls", async ({
   await expect(
     page.getByText("Fixture compaction failed", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".run-state")).toHaveText("空闲");
+  await expect(
+    page.locator(".session-view:not([hidden]) .run-state"),
+  ).toHaveText("空闲");
   await expect(
     page.getByRole("button", { name: "压缩上下文", exact: true }),
   ).toBeEnabled();

@@ -1,5 +1,5 @@
-export function userRequestAnchorId(id: string): string {
-  return `user-request-${encodeURIComponent(id)}`;
+export function userRequestAnchorId(sessionId: string, id: string): string {
+  return `user-request-${encodeURIComponent(sessionId)}-${encodeURIComponent(id)}`;
 }
 
 export function userRequestPreview(text: string, maxLength = 56): string {

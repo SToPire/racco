@@ -7,8 +7,8 @@ import {
 
 test("builds stable encoded anchors for user request IDs", () => {
   assert.equal(
-    userRequestAnchorId("message/1:用户"),
-    "user-request-message%2F1%3A%E7%94%A8%E6%88%B7",
+    userRequestAnchorId("session-1", "message/1:用户"),
+    "user-request-session-1-message%2F1%3A%E7%94%A8%E6%88%B7",
   );
 });
 

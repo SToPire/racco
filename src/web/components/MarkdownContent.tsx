@@ -1,4 +1,5 @@
 import Markdown from "react-markdown";
+import { memo } from "react";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math-extended";
@@ -7,7 +8,9 @@ type MarkdownContentProps = {
   text: string;
 };
 
-export function MarkdownContent({ text }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({
+  text,
+}: MarkdownContentProps) {
   return (
     <Markdown
       rehypePlugins={[[rehypeKatex, { strict: "ignore", throwOnError: false }]]}
@@ -20,4 +23,4 @@ export function MarkdownContent({ text }: MarkdownContentProps) {
       {text}
     </Markdown>
   );
-}
+});

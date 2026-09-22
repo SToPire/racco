@@ -33,9 +33,9 @@ test("older sessions can be paged in, filtered and imported", async ({
   await dock
     .getByRole("button", { name: "导入并打开 Paged session 000", exact: true })
     .click();
-  await expect(page.locator(".session-title-line h1")).toHaveText(
-    "Paged session 000",
-  );
+  await expect(
+    page.locator(".session-view:not([hidden]) .session-title-line h1"),
+  ).toHaveText("Paged session 000");
   await expect(dock.getByRole("button", { name: "加载更多会话" })).toHaveCount(
     0,
   );
@@ -54,9 +54,9 @@ test("project sessions are discovered on demand, imported once and synchronized;
       requests.push(request.url());
   });
   await page.goto(`/session/${racco.sessions[0]!.sessionId}`);
-  await expect(page.locator(".session-title-line h1")).toContainText(
-    "[Fixture]",
-  );
+  await expect(
+    page.locator(".session-view:not([hidden]) .session-title-line h1"),
+  ).toContainText("[Fixture]");
   expect(requests).toHaveLength(0);
   await page.getByRole("button", { name: "展开文件侧栏" }).click();
   await page.getByRole("button", { name: "目录 src", exact: true }).click();
@@ -86,9 +86,9 @@ test("project sessions are discovered on demand, imported once and synchronized;
       exact: true,
     })
     .click();
-  await expect(page.locator(".session-title-line h1")).toHaveText(
-    "codex Alpha history",
-  );
+  await expect(
+    page.locator(".session-view:not([hidden]) .session-title-line h1"),
+  ).toHaveText("codex Alpha history");
   await expect(
     other.locator(".history-row").filter({ hasText: "codex Alpha history" }),
   ).toBeVisible();
@@ -137,9 +137,9 @@ test("session dock follows the selected project and can import Claude on a narro
   await expect(
     page.getByRole("button", { name: "展开会话侧栏" }),
   ).toBeFocused();
-  await expect(page.locator(".session-title-line h1")).toHaveText(
-    "claude Beta history",
-  );
+  await expect(
+    page.locator(".session-view:not([hidden]) .session-title-line h1"),
+  ).toHaveText("claude Beta history");
   await page.getByRole("button", { name: "模型", exact: true }).click();
   await page.getByRole("option", { name: /Fixture Primary/ }).click();
   await page

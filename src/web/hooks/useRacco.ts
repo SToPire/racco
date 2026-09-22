@@ -39,6 +39,15 @@ import {
 } from "../catalog";
 import { RaccoSocket, type SocketStatus } from "../socket";
 import { applyTimelineEvent, buildTimeline, type TimelineRow } from "../store";
+import {
+  visitSession,
+  updateSessionContent,
+  forgetSessionContent,
+  type SessionCache,
+} from "../session-cache";
+
+const EMPTY_ROWS: TimelineRow[] = [];
+const EMPTY_INTERACTIONS: InteractionRequest[] = [];
 
 function matchesRef(
   ref: SessionRef | undefined,
@@ -88,9 +97,9 @@ export function useRacco({
   onHome: () => void;
 }) {
   const [socket] = useState(() => new RaccoSocket());
-  const [activeSession, setActiveSession] = useState<SessionSummary>();
-  const [rows, setRows] = useState<TimelineRow[]>([]);
-  const [interactions, setInteractions] = useState<InteractionRequest[]>([]);
+  const [sessionCache, setSessionCache] = useState<SessionCache>(
+    () => new Map(),
+  );
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [health, setHealth] = useState<HealthResponse>();
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
@@ -109,6 +118,8 @@ export function useRacco({
   const [creating, setCreating] = useState(false);
   const pendingSend = useRef<string | undefined>(undefined);
   const pendingCreate = useRef<string | undefined>(undefined);
+  const subscriptionRequests = useRef(new Set<string>());
+  const connectedBefore = useRef(false);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   /** Pre-delete snapshot to detect double navigation (REST success + WS broadcast). */
@@ -125,6 +136,19 @@ export function useRacco({
       ]);
       setHealth(nextHealth);
       setSessions(nextSessions);
+      setSessionCache(
+        (current) =>
+          new Map(
+            [...current].flatMap(([id, content]) => {
+              const session = nextSessions.find(
+                (entry) => entry.sessionId === id,
+              );
+              return session === undefined
+                ? []
+                : [[id, { ...content, session }] as const];
+            }),
+          ),
+      );
       setProjects(nextProjects);
       const results = await loadAllWorktrees(nextProjects);
       setWorktrees((current) => {
@@ -179,22 +203,47 @@ export function useRacco({
         if (status === "closed" && pendingCreate.current !== undefined) {
           setHomeError("连接中断，创建结果未确认；重连后请先查看会话列表。");
         }
-        if (status === "open" && activeRef !== undefined) {
-          socket.send({
-            type: "session.subscribe",
-            requestId: crypto.randomUUID(),
-            ...activeRef,
-          });
+        if (status === "open") {
+          if (connectedBefore.current) void loadHome();
+          connectedBefore.current = true;
         }
       }),
-    [activeRef, socket],
+    [loadHome, socket],
   );
+
+  useEffect(() => {
+    if (connection !== "open" || activeRef === undefined) return;
+    let cancelled = false;
+    const requestId = crypto.randomUUID();
+    subscriptionRequests.current.add(requestId);
+    void socket
+      .request({
+        type: "session.subscribe",
+        requestId,
+        sessionId: activeRef.sessionId,
+      })
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setSessionError(
+            error instanceof Error ? error.message : String(error),
+          );
+      })
+      .finally(() => subscriptionRequests.current.delete(requestId));
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRef?.sessionId, connection, socket]);
 
   useEffect(
     () =>
       socket.onMessage((message: ServerMessage) => {
         if (message.type === "ack") return;
         if (message.type === "error") {
+          if (
+            message.requestId !== undefined &&
+            subscriptionRequests.current.has(message.requestId)
+          )
+            return;
           setSessionError(message.message);
           return;
         }
@@ -205,6 +254,12 @@ export function useRacco({
         }
 
         if (message.type === "project.deleted") {
+          setSessionCache((current) =>
+            forgetSessionContent(
+              current,
+              (content) => content.session.projectId === message.projectId,
+            ),
+          );
           setProjects((current) => removeProject(current, message.projectId));
           setSessions((current) =>
             current.filter(
@@ -230,6 +285,12 @@ export function useRacco({
         }
 
         if (message.type === "session.removed") {
+          setSessionCache((current) =>
+            forgetSessionContent(
+              current,
+              (content) => content.session.sessionId === message.sessionId,
+            ),
+          );
           setSessions((current) => removeSession(current, message.sessionId));
           if (
             !navigatingFromDelete.current &&
@@ -244,33 +305,77 @@ export function useRacco({
 
         if (message.type === "session.upserted") {
           setSessions((current) => upsertSession(current, message.session));
-          if (matchesRef(activeRef, message.session)) {
-            setActiveSession(message.session);
-          }
+          setSessionCache((current) =>
+            updateSessionContent(
+              current,
+              message.session.sessionId,
+              (content) => ({ ...content, session: message.session }),
+            ),
+          );
           return;
         }
 
         if (message.type === "session.snapshot") {
           setSessions((current) => upsertSession(current, message.session));
-          if (!matchesRef(activeRef, message.session)) return;
-          setActiveSession(message.session);
-          setRows(buildTimeline(message.events));
-          setInteractions(message.pendingInteractions);
-          setSessionError(undefined);
+          setSessionCache((current) =>
+            updateSessionContent(
+              matchesRef(activeRef, message.session)
+                ? visitSession(current, message.session)
+                : current,
+              message.session.sessionId,
+              (content) => ({
+                ...content,
+                session: message.session,
+                rows: buildTimeline(message.events),
+                interactions: message.pendingInteractions,
+                loaded: true,
+              }),
+            ),
+          );
+          if (matchesRef(activeRef, message.session))
+            setSessionError(undefined);
           return;
         }
 
-        if (!matchesRef(activeRef, message.session)) return;
         if (message.type === "timeline.event") {
-          setRows((current) => applyTimelineEvent(current, message.event));
+          setSessionCache((current) =>
+            updateSessionContent(
+              current,
+              message.session.sessionId,
+              (content) => ({
+                ...content,
+                rows: applyTimelineEvent(content.rows, message.event),
+              }),
+            ),
+          );
         } else if (message.type === "interaction.requested") {
-          setInteractions((current) => [
-            ...current.filter((item) => item.id !== message.interaction.id),
-            message.interaction,
-          ]);
+          setSessionCache((current) =>
+            updateSessionContent(
+              current,
+              message.session.sessionId,
+              (content) => ({
+                ...content,
+                interactions: [
+                  ...content.interactions.filter(
+                    (item) => item.id !== message.interaction.id,
+                  ),
+                  message.interaction,
+                ],
+              }),
+            ),
+          );
         } else if (message.type === "interaction.resolved") {
-          setInteractions((current) =>
-            current.filter((item) => item.id !== message.interactionId),
+          setSessionCache((current) =>
+            updateSessionContent(
+              current,
+              message.session.sessionId,
+              (content) => ({
+                ...content,
+                interactions: content.interactions.filter(
+                  (item) => item.id !== message.interactionId,
+                ),
+              }),
+            ),
           );
         }
       }),
@@ -278,11 +383,8 @@ export function useRacco({
   );
 
   useEffect(() => {
-    setRows([]);
-    setInteractions([]);
     setSessionError(undefined);
-    if (activeRef === undefined) setActiveSession(undefined);
-  }, [activeRef]);
+  }, [activeRef?.sessionId]);
 
   function openSession(session: SessionSummary) {
     const next: SessionRef = {
@@ -293,13 +395,13 @@ export function useRacco({
   }
 
   function navigateToRef(ref: SessionRef, session?: SessionSummary) {
-    setActiveSession(session);
+    if (session !== undefined)
+      setSessionCache((current) => visitSession(current, session));
     onOpen(ref);
   }
 
   function showHistory() {
     onHome();
-    void loadHome();
   }
 
   function rememberProject(project: ProjectEntry): ProjectEntry {
@@ -379,6 +481,11 @@ export function useRacco({
       // them locally keeps the tree from showing rows the server no longer has.
       if (result.removedSessionIds.length > 0) {
         const removed = new Set(result.removedSessionIds);
+        setSessionCache((current) =>
+          forgetSessionContent(current, (content) =>
+            removed.has(content.session.sessionId),
+          ),
+        );
         setSessions((current) =>
           current.filter((session) => !removed.has(session.sessionId)),
         );
@@ -450,6 +557,12 @@ export function useRacco({
     );
     const removedManagedSessionId = removed.removedManagedSessionId;
     if (removedManagedSessionId !== null) {
+      setSessionCache((current) =>
+        forgetSessionContent(
+          current,
+          (content) => content.session.sessionId === removedManagedSessionId,
+        ),
+      );
       // Optimistic local removal; the server's session.removed broadcast is the
       // idempotent backstop when the WebSocket is connected.
       setSessions((current) => removeSession(current, removedManagedSessionId));
@@ -484,6 +597,12 @@ export function useRacco({
     // disk, their local rows go away with the project; re-importing the same
     // directory re-derives them.
     setProjects((current) => removeProject(current, projectId));
+    setSessionCache((current) =>
+      forgetSessionContent(
+        current,
+        (content) => content.session.projectId === projectId,
+      ),
+    );
     setSessions((current) =>
       current.filter((session) => session.projectId !== projectId),
     );
@@ -502,6 +621,12 @@ export function useRacco({
   }
 
   async function deleteSession(sessionId: string): Promise<void> {
+    setSessionCache((current) =>
+      forgetSessionContent(
+        current,
+        (content) => content.session.sessionId === sessionId,
+      ),
+    );
     setSessionError(undefined);
     setSessions((current) => removeSession(current, sessionId));
     if (!navigatingFromDelete.current && activeRef !== undefined) {
@@ -641,8 +766,16 @@ export function useRacco({
   const session =
     activeRef === undefined
       ? undefined
-      : (activeSession ??
+      : (sessionCache.get(activeRef.sessionId)?.session ??
         sessions.find((candidate) => matchesRef(activeRef, candidate)));
+  useEffect(() => {
+    if (session !== undefined)
+      setSessionCache((current) => visitSession(current, session));
+  }, [activeRef?.sessionId, session?.sessionId]);
+  const activeContent =
+    activeRef === undefined ? undefined : sessionCache.get(activeRef.sessionId);
+  const rows = activeContent?.rows ?? EMPTY_ROWS;
+  const interactions = activeContent?.interactions ?? EMPTY_INTERACTIONS;
   return {
     session,
     sessions,
@@ -659,6 +792,7 @@ export function useRacco({
     creating,
     rows,
     interactions,
+    sessionViews: [...sessionCache.values()],
     openSession,
     showHistory,
     addProject,

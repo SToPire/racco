@@ -9,9 +9,9 @@ test("manual Dock selection survives an open session and new sessions follow the
   racco,
 }) => {
   await page.goto(`/session/${racco.sessions[0].sessionId}`);
-  await expect(page.locator(".session-title-line h1")).toContainText(
-    "[Fixture]",
-  );
+  await expect(
+    page.locator(".session-view:not([hidden]) .session-title-line h1"),
+  ).toContainText("[Fixture]");
   await page.getByRole("button", { name: "展开文件侧栏" }).click();
   const selector = page.getByRole("combobox", { name: "文件侧栏 Worktree" });
   await selector.selectOption(racco.projects[1].path);
@@ -128,9 +128,9 @@ test("a degraded refresh keeps worktrees visible and reports the error beside th
   );
   const catalog: WorktreeCatalog = await created.json();
   await page.goto(`/session/${racco.sessions[0].sessionId}`);
-  await expect(page.locator(".session-title-line h1")).toContainText(
-    "[Fixture]",
-  );
+  await expect(
+    page.locator(".session-view:not([hidden]) .session-title-line h1"),
+  ).toContainText("[Fixture]");
   await page.route("**/api/worktrees/refresh?*", (route) =>
     route.fulfill({ json: { ...catalog, degradedReason: "Git 暂不可用" } }),
   );

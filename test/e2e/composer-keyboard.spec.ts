@@ -57,7 +57,9 @@ for (const view of ["home", "conversation"] as const) {
 
     await input.press("Enter");
     await expect(page).toHaveURL(/\/session\//);
-    await expect(page.locator(".message-user").last()).toHaveText(prompt);
+    await expect(
+      page.locator(".session-view:not([hidden]) .message-user").last(),
+    ).toHaveText(prompt);
     await expect(
       page.getByText(`Fixture: ${prompt}`, { exact: true }),
     ).toBeVisible();

@@ -297,7 +297,7 @@
 .conversation {
   min-height: 0;
   overflow-y: auto;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }

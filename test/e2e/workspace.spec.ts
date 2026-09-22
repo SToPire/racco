@@ -151,7 +151,9 @@ test("project creation, turn completion and live catalog updates across browsers
   await expect(
     page.getByText("Fixture: browser-check", { exact: true }),
   ).toBeVisible();
-  const title = await page.locator(".session-title-line h1").innerText();
+  const title = await page
+    .locator(".session-view:not([hidden]) .session-title-line h1")
+    .innerText();
   await expect(
     other.locator(".history-row").filter({ hasText: title }),
   ).toBeVisible();
@@ -177,8 +179,10 @@ test("Files tabs remain separate from conversation and inspector state", async (
     dock.getByRole("tabpanel", { name: "index.ts", exact: true }),
   ).toContainText("answer = 42");
   await expect(page.locator(".file-tree")).toBeHidden();
-  await page.locator(".tool-group > summary").click();
-  await page.locator(".tool-card").click();
+  await page
+    .locator(".session-view:not([hidden]) .tool-group > summary")
+    .click();
+  await page.locator(".session-view:not([hidden]) .tool-card").click();
   await expect(
     page.getByRole("complementary", { name: "工具详情" }),
   ).toBeVisible();
@@ -257,7 +261,9 @@ test("compact layout, theme, question and interrupt controls work with fixture p
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "停止生成" })).toBeVisible();
   await page.getByRole("button", { name: "停止生成" }).click();
-  await expect(page.locator(".run-state")).toHaveText("已停止");
+  await expect(
+    page.locator(".session-view:not([hidden]) .run-state"),
+  ).toHaveText("已停止");
   await page.getByRole("button", { name: "展开文件侧栏" }).click();
   await page
     .getByRole("button", { name: "文件 other.txt", exact: true })

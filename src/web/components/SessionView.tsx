@@ -1,5 +1,5 @@
 import { UiIcon } from "./UiIcon";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   InteractionRequest,
   InteractionResponse,
@@ -22,8 +22,11 @@ import { Timeline } from "./Timeline";
 import { TrajectoryView } from "./TrajectoryView";
 import { TurnNavigator } from "./TurnNavigator";
 import { useModelSelection } from "../hooks/useModelSelection";
+import { useConversationScroll } from "../hooks/useConversationScroll";
 
 type SessionViewProps = {
+  active: boolean;
+  loaded: boolean;
   session: SessionSummary;
   rows: TimelineRow[];
   interactions: InteractionRequest[];
@@ -46,6 +49,8 @@ function activeSubagent(subagents: SubagentTimelineRow[]) {
 }
 
 export function SessionView({
+  active,
+  loaded,
   session,
   rows,
   interactions,
@@ -67,10 +72,11 @@ export function SessionView({
     false,
     connection === "open",
   );
-  const conversationRef = useRef<HTMLElement>(null);
   const autoSelectedAgents = useRef(new Set<string>());
-  const subagents = rows.filter(
-    (row): row is SubagentTimelineRow => row.type === "subagent",
+  const subagents = useMemo(
+    () =>
+      rows.filter((row): row is SubagentTimelineRow => row.type === "subagent"),
+    [rows],
   );
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(
     () => activeSubagent(subagents)?.agentId,
@@ -79,47 +85,57 @@ export function SessionView({
   const selectedSubagent = subagents.find(
     (row) => row.agentId === selectedAgentId,
   );
-  const mainRows = rows.filter(
-    (row): row is AgentTimelineRow => row.type !== "subagent",
+  const mainRows = useMemo(
+    () =>
+      rows.filter((row): row is AgentTimelineRow => row.type !== "subagent"),
+    [rows],
   );
-  const selectedRows: AgentTimelineRow[] =
-    selectedSubagent === undefined
-      ? mainRows
-      : [
-          ...(selectedSubagent.prompt === undefined
-            ? []
-            : [
-                {
-                  type: "user.message" as const,
-                  id: `subagent-task:${selectedSubagent.agentId}`,
-                  text: selectedSubagent.prompt,
-                },
-              ]),
-          ...selectedSubagent.timeline,
-        ];
-  const requests = rows.filter(
-    (row): row is Extract<TimelineRow, { type: "user.message" }> =>
-      row.type === "user.message",
+  const selectedRows: AgentTimelineRow[] = useMemo(
+    () =>
+      selectedSubagent === undefined
+        ? mainRows
+        : [
+            ...(selectedSubagent.prompt === undefined
+              ? []
+              : [
+                  {
+                    type: "user.message" as const,
+                    id: `subagent-task:${selectedSubagent.agentId}`,
+                    text: selectedSubagent.prompt,
+                  },
+                ]),
+            ...selectedSubagent.timeline,
+          ],
+    [mainRows, selectedSubagent],
+  );
+  const requests = useMemo(
+    () =>
+      rows.filter(
+        (row): row is Extract<TimelineRow, { type: "user.message" }> =>
+          row.type === "user.message",
+      ),
+    [rows],
+  );
+  const conversation = useConversationScroll(
+    active && viewMode === "chat",
+    loaded,
+    selectedAgentId ?? "main",
+    selectedRows,
   );
 
   useEffect(() => {
-    autoSelectedAgents.current.clear();
-    setSelectedAgentId(activeSubagent(subagents)?.agentId);
-    setViewMode("chat");
-  }, [session.sessionId]);
-
-  useEffect(() => {
+    if (!active) return;
     const unseenActive = subagents.filter(
       (row) =>
         (row.state === "starting" || row.state === "running") &&
         !autoSelectedAgents.current.has(row.agentId),
     );
-    const active = unseenActive.at(-1);
-    if (active === undefined) return;
+    const candidate = unseenActive.at(-1);
+    if (candidate === undefined) return;
     for (const row of unseenActive) autoSelectedAgents.current.add(row.agentId);
-    setSelectedAgentId(active.agentId);
+    setSelectedAgentId(candidate.agentId);
     onSelectTool(undefined);
-  }, [onSelectTool, subagents]);
+  }, [active, onSelectTool, subagents]);
 
   function selectAgent(agentId: string | undefined) {
     setSelectedAgentId(agentId);
@@ -133,7 +149,11 @@ export function SessionView({
   }
 
   return (
-    <section className="session-view">
+    <section
+      className="session-view"
+      hidden={!active}
+      data-session-id={session.sessionId}
+    >
       <header className="pane-header session-header">
         <button
           aria-label="返回对话历史"
@@ -212,7 +232,12 @@ export function SessionView({
       </nav>
 
       {viewMode === "chat" ? (
-        <section className="conversation" ref={conversationRef}>
+        <section
+          className="conversation"
+          ref={conversation.ref}
+          onScroll={conversation.onScroll}
+          aria-busy={!loaded}
+        >
           {error && <p className="error-banner">{error}</p>}
           {selectedRows.length === 0 ? (
             <div className="conversation-empty">
@@ -221,10 +246,11 @@ export function SessionView({
               >
                 <ProviderLogo provider={session.provider} />
               </span>
-              <p>等待第一条消息…</p>
+              <p>{loaded ? "等待第一条消息…" : "正在读取对话…"}</p>
             </div>
           ) : (
             <Timeline
+              sessionId={session.sessionId}
               denseTools={selectedSubagent !== undefined}
               onSelectTool={onSelectTool}
               provider={session.provider}
@@ -238,11 +264,13 @@ export function SessionView({
       )}
 
       {viewMode === "chat" &&
+        active &&
         selectedSubagent === undefined &&
         requests.length > 1 && (
           <TurnNavigator
+            sessionId={session.sessionId}
             requests={requests}
-            scrollContainerRef={conversationRef}
+            scrollContainerRef={conversation.ref}
           />
         )}
 
@@ -288,6 +316,7 @@ export function SessionView({
               }
               selection={selection}
               disabled={
+                !loaded ||
                 session.compacting ||
                 connection !== "open" ||
                 session.lifecycle !== "active" ||

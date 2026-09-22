@@ -10,6 +10,53 @@ import {
 } from "./store.js";
 import type { TimelineEvent } from "../shared/protocol.js";
 
+test("snapshot building matches streaming across replacements, removals, tools and nested agents", () => {
+  const events: TimelineEvent[] = [];
+  for (let index = 0; index < 200; index++) {
+    const id = String(index);
+    events.push(
+      { type: "user.message", id: `user-${id}`, text: id },
+      {
+        type: "tool.started",
+        id: `tool-${id}`,
+        tool: "shell",
+        input: { command: id },
+      },
+      { type: "tool.completed", id: `tool-${id}`, success: true, output: id },
+      {
+        type: "assistant.message",
+        id: `reply-${id}`,
+        text: "partial",
+        partial: true,
+      },
+      { type: "assistant.message.removed", id: `reply-${id}` },
+      { type: "assistant.message", id: `reply-${id}`, text: id },
+      {
+        type: "subagent.event",
+        id: `nested-${id}`,
+        agentId: "child",
+        event: { type: "assistant.message", id: `child-${id}`, text: id },
+      },
+    );
+  }
+  events.push({
+    type: "subagent.started",
+    id: "started",
+    agentId: "child",
+    name: "child",
+  });
+  events.push({
+    type: "subagent.event",
+    id: "removed",
+    agentId: "child",
+    event: { type: "assistant.message.removed", id: "child-0" },
+  });
+  assert.deepEqual(
+    buildTimeline(events),
+    events.reduce<TimelineRow[]>(applyTimelineEvent, []),
+  );
+});
+
 test("groups consecutive tool rows and preserves surrounding messages", () => {
   const rows: AgentTimelineRow[] = [
     { type: "assistant.message", id: "message-1", text: "Checking" },

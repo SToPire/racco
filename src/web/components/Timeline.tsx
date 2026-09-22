@@ -1,4 +1,5 @@
 import type { Provider } from "../../shared/protocol";
+import { memo } from "react";
 import { groupTimelineRows, type AgentTimelineRow } from "../store";
 import { userRequestAnchorId } from "../timeline-navigation";
 import { MarkdownContent } from "./MarkdownContent";
@@ -7,6 +8,7 @@ import { TrajectoryToolRow } from "./TrajectoryToolRow";
 import { ToolGroup } from "./ToolGroup";
 
 type TimelineProps = {
+  sessionId: string;
   rows: AgentTimelineRow[];
   provider: Provider;
   selectedToolId?: string;
@@ -14,7 +16,8 @@ type TimelineProps = {
   denseTools?: boolean;
 };
 
-export function Timeline({
+export const Timeline = memo(function Timeline({
+  sessionId,
   rows,
   provider,
   selectedToolId,
@@ -62,7 +65,7 @@ export function Timeline({
         return (
           <article
             className={`message message-${user ? "user" : "assistant"}`}
-            id={user ? userRequestAnchorId(row.id) : undefined}
+            id={user ? userRequestAnchorId(sessionId, row.id) : undefined}
             key={row.id}
           >
             {!user && (
@@ -78,4 +81,4 @@ export function Timeline({
       })}
     </div>
   );
-}
+});

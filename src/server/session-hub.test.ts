@@ -1514,6 +1514,78 @@ function operationGate() {
   return { promise, resolve };
 }
 
+test("a late subscription cannot replace a newer session or reattach a disconnected socket", async () => {
+  const f = await modelTestHub();
+  const entered = operationGate();
+  const release = operationGate();
+  const sent: ServerMessage[] = [];
+  const socket = recordingSocket(sent);
+  const input = {
+    provider: "codex" as const,
+    projectId: f.projectId,
+    path: f.cwd,
+  };
+  try {
+    const slow = await f.hub.importSession({
+      ...input,
+      providerSessionId: "slow",
+    });
+    const fast = await f.hub.importSession({
+      ...input,
+      providerSessionId: "fast",
+    });
+    f.driver.readSession = async (handle) => {
+      if (handle.providerSessionId === "slow") {
+        entered.resolve();
+        await release.promise;
+      }
+      return { metadata: { updatedAt: new Date().toISOString() }, events: [] };
+    };
+    const pending = f.hub.subscribe(socket, slow);
+    await entered.promise;
+    await f.hub.subscribe(socket, fast);
+    release.resolve();
+    await pending;
+    await f.hub.startTurn(fast, "fast", "fast-turn", fixtureModelSettings);
+    await f.hub.startTurn(slow, "slow", "slow-turn", fixtureModelSettings);
+    assert.deepEqual(
+      sent
+        .filter((message) => message.type === "timeline.event")
+        .map((message) => message.session.sessionId),
+      [fast.sessionId],
+    );
+
+    const pendingRead = operationGate();
+    const finishRead = operationGate();
+    f.driver.readSession = async () => {
+      pendingRead.resolve();
+      await finishRead.promise;
+      return { metadata: { updatedAt: new Date().toISOString() }, events: [] };
+    };
+    const idle = f.repository.importSession({
+      ...input,
+      providerSessionId: "idle",
+      cwd: f.cwd,
+      title: "idle",
+      updatedAt: new Date().toISOString(),
+    });
+    const disconnected = f.hub.subscribe(socket, idle);
+    await pendingRead.promise;
+    f.hub.unregisterClient(socket);
+    finishRead.resolve();
+    await disconnected;
+    sent.length = 0;
+    await f.hub.startTurn(idle, "idle", "idle-turn", fixtureModelSettings);
+    assert.equal(
+      sent.filter((message) => message.type === "timeline.event").length,
+      0,
+    );
+  } finally {
+    release.resolve();
+    await f.hub.close();
+  }
+});
+
 test("native deletion blocks starts across model discovery and compaction, and releases on failure", async () => {
   const f = await modelTestHub();
   const modelEntered = operationGate();

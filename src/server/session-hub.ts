@@ -114,6 +114,7 @@ export class SessionHub {
   readonly #sessions = new Map<string, RuntimeSession>();
   readonly #clients = new Set<WebSocket>();
   readonly #socketSubscriptions = new Map<WebSocket, string>();
+  readonly #pendingSubscriptions = new Map<WebSocket, symbol>();
   readonly #interactions = new Map<string, PendingInteraction>();
   readonly #models = new ModelCatalogCache();
   readonly #nativeMutations = new Map<string, Promise<void>>();
@@ -523,12 +524,26 @@ export class SessionHub {
     socket: WebSocket,
     ref: SessionRef,
   ): Promise<SessionSnapshotMessage | undefined> {
-    const snapshot = await this.snapshot(ref);
-    if (snapshot === undefined) return undefined;
     this.#unsubscribe(socket);
-    this.#sessions.get(ref.sessionId)?.subscribers.add(socket);
-    this.#socketSubscriptions.set(socket, ref.sessionId);
-    return snapshot;
+    const request = Symbol();
+    this.#pendingSubscriptions.set(socket, request);
+    try {
+      const snapshot = await this.snapshot(ref);
+      // Provider reads can finish out of order. Only the last navigation may
+      // own the socket; older snapshots can still refresh the client's cache.
+      if (
+        snapshot !== undefined &&
+        this.#pendingSubscriptions.get(socket) === request &&
+        socket.readyState === WebSocket.OPEN
+      ) {
+        this.#sessions.get(ref.sessionId)?.subscribers.add(socket);
+        this.#socketSubscriptions.set(socket, ref.sessionId);
+      }
+      return snapshot;
+    } finally {
+      if (this.#pendingSubscriptions.get(socket) === request)
+        this.#pendingSubscriptions.delete(socket);
+    }
   }
 
   async createSession(
@@ -1057,6 +1072,7 @@ export class SessionHub {
   }
 
   #unsubscribe(socket: WebSocket): void {
+    this.#pendingSubscriptions.delete(socket);
     const sessionId = this.#socketSubscriptions.get(socket);
     if (sessionId !== undefined) {
       this.#sessions.get(sessionId)?.subscribers.delete(socket);

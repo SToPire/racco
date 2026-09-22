@@ -38,7 +38,7 @@ export function App() {
     sending,
     creating,
     rows,
-    interactions,
+    sessionViews,
     openSession,
     showHistory,
     deleteNativeSession,
@@ -201,32 +201,38 @@ export function App() {
       />
 
       <section className="workspace">
-        {activeRef !== undefined ? (
-          session === undefined ? (
-            <div className="conversation-loading">
-              <span className="button-spinner" />
-              <p>正在读取对话…</p>
-              {sessionError && <p className="error-banner">{sessionError}</p>}
-            </div>
-          ) : (
-            <SessionView
-              key={session.sessionId}
-              connection={connection}
-              error={sessionError}
-              interactions={interactions}
-              onBack={showHistory}
-              onInterrupt={interruptTurn}
-              onCompact={compactSession}
-              onResolve={resolveInteraction}
-              onSelectTool={setSelectedToolId}
-              onSend={sendTurn}
-              rows={rows}
-              selectedToolId={selectedToolId}
-              sending={sending}
-              session={session}
-            />
-          )
-        ) : (
+        {activeRef !== undefined && session === undefined && (
+          <div className="conversation-loading">
+            <span className="button-spinner" />
+            <p>正在读取对话…</p>
+            {sessionError && <p className="error-banner">{sessionError}</p>}
+          </div>
+        )}
+        {sessionViews.map((view) => (
+          <SessionView
+            key={view.session.sessionId}
+            active={activeRef?.sessionId === view.session.sessionId}
+            loaded={view.loaded}
+            connection={connection}
+            error={
+              activeRef?.sessionId === view.session.sessionId
+                ? sessionError
+                : undefined
+            }
+            interactions={view.interactions}
+            onBack={showHistory}
+            onInterrupt={interruptTurn}
+            onCompact={compactSession}
+            onResolve={resolveInteraction}
+            onSelectTool={setSelectedToolId}
+            onSend={sendTurn}
+            rows={view.rows}
+            selectedToolId={selectedToolId}
+            sending={sending}
+            session={view.session}
+          />
+        ))}
+        {activeRef === undefined && (
           <NewSessionView
             active={!historyOpen}
             connected={connection === "open"}

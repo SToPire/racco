@@ -1,5 +1,9 @@
 /* Main workspace */
 
+.session-view[hidden] {
+  display: none;
+}
+
 .workspace {
   min-width: 0;
   height: 100dvh;

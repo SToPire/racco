@@ -8,11 +8,13 @@ import {
 type UserRequestRow = Extract<TimelineRow, { type: "user.message" }>;
 
 type TurnNavigatorProps = {
+  sessionId: string;
   requests: UserRequestRow[];
   scrollContainerRef: RefObject<HTMLElement | null>;
 };
 
 export function TurnNavigator({
+  sessionId,
   requests,
   scrollContainerRef,
 }: TurnNavigatorProps) {
@@ -32,7 +34,9 @@ export function TurnNavigator({
         Math.min(container.clientHeight * 0.28, 180);
       let nextId = requests[0]?.id;
       for (const request of requests) {
-        const target = document.getElementById(userRequestAnchorId(request.id));
+        const target = document.getElementById(
+          userRequestAnchorId(sessionId, request.id),
+        );
         if (
           target === null ||
           target.getBoundingClientRect().top > activationLine
@@ -57,7 +61,7 @@ export function TurnNavigator({
       window.removeEventListener("resize", scheduleUpdate);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [requests, scrollContainerRef]);
+  }, [sessionId, requests, scrollContainerRef]);
 
   useEffect(() => {
     if (!open) return;
@@ -87,7 +91,7 @@ export function TurnNavigator({
 
   function jumpTo(request: UserRequestRow) {
     document
-      .getElementById(userRequestAnchorId(request.id))
+      .getElementById(userRequestAnchorId(sessionId, request.id))
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
     setActiveId(request.id);
     setOpen(false);

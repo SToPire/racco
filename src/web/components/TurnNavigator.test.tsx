@@ -7,6 +7,7 @@ import { TurnNavigator } from "./TurnNavigator.js";
 test("renders the current request position in its collapsed state", () => {
   const html = renderToStaticMarkup(
     <TurnNavigator
+      sessionId="session-1"
       requests={[
         { type: "user.message", id: "user-1", text: "First request" },
         { type: "user.message", id: "user-2", text: "Second request" },

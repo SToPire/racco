@@ -36,6 +36,8 @@ test("shows an active subagent in the title and switches the visible timeline", 
   ];
   const html = renderToStaticMarkup(
     <SessionView
+      active={true}
+      loaded={true}
       connection="open"
       interactions={[]}
       onBack={() => undefined}

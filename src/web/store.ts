@@ -39,6 +39,17 @@ export type SubagentTimelineRow = {
 
 export type TimelineRow = AgentTimelineRow | SubagentTimelineRow;
 
+function emptySubagent(agentId: string): SubagentTimelineRow {
+  return {
+    type: "subagent",
+    id: `subagent:${agentId}`,
+    agentId,
+    state: "starting",
+    activities: [],
+    timeline: [],
+  };
+}
+
 type TimelineSection =
   | {
       type: "tool-group";
@@ -146,14 +157,7 @@ export function applyTimelineEvent(
     subagentIndex === -1 || next[subagentIndex]?.type !== "subagent"
       ? undefined
       : next[subagentIndex];
-  let subagent: SubagentTimelineRow = previous ?? {
-    type: "subagent",
-    id: `subagent:${event.agentId}`,
-    agentId: event.agentId,
-    state: "starting",
-    activities: [],
-    timeline: [],
-  };
+  let subagent: SubagentTimelineRow = previous ?? emptySubagent(event.agentId);
 
   if (event.type === "subagent.started") {
     subagent = {
@@ -216,7 +220,54 @@ export function applyTimelineEvent(
 }
 
 export function buildTimeline(events: TimelineEvent[]): TimelineRow[] {
-  return events.reduce<TimelineRow[]>(applyTimelineEvent, []);
+  // A snapshot is built once with indexed slots. Reusing the incremental
+  // reducer over the growing array copies and scans the full history per event.
+  const rows = new Map<string, TimelineRow>();
+  const children = new Map<string, Map<string, TimelineRow>>();
+  function apply(
+    target: Map<string, TimelineRow>,
+    key: string,
+    event: AgentTimelineEvent,
+  ) {
+    const previous = target.get(key);
+    const slot = previous === undefined ? [] : [previous];
+    applyAgentTimelineEvent(slot, event);
+    if (slot.length === 0) target.delete(key);
+    else target.set(key, slot[0]);
+  }
+  for (const event of events) {
+    if (
+      event.type === "subagent.started" ||
+      event.type === "subagent.state" ||
+      event.type === "subagent.event"
+    ) {
+      const key = `subagent:${event.agentId}`;
+      const previous = rows.get(key) ?? emptySubagent(event.agentId);
+      if (event.type === "subagent.event") {
+        let timeline = children.get(event.agentId);
+        if (timeline === undefined) {
+          timeline = new Map();
+          children.set(event.agentId, timeline);
+        }
+        apply(timeline, event.event.id, event.event);
+        rows.set(key, previous);
+      } else {
+        rows.set(key, applyTimelineEvent([previous], event)[0]);
+      }
+    } else {
+      apply(rows, `row:${event.id}`, event);
+    }
+  }
+  return [...rows.values()].map((row) =>
+    row.type === "subagent"
+      ? {
+          ...row,
+          timeline: [
+            ...(children.get(row.agentId)?.values() ?? []),
+          ] as AgentTimelineRow[],
+        }
+      : row,
+  );
 }
 
 export function groupTimelineRows(rows: AgentTimelineRow[]): TimelineSection[] {

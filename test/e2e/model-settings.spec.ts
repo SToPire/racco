@@ -35,9 +35,9 @@ test("a rejected turn keeps its text and selections for correction", async ({
     .getByRole("textbox", { name: "发送给 Racco" })
     .fill("do not lose this task");
   await page.getByRole("button", { name: "发送", exact: true }).click();
-  await expect(page.locator(".conversation .error-banner")).toContainText(
-    "browser-only 当前不可选",
-  );
+  await expect(
+    page.locator(".session-view:not([hidden]) .conversation .error-banner"),
+  ).toContainText("browser-only 当前不可选");
   await expect(page.getByRole("textbox", { name: "发送给 Racco" })).toHaveValue(
     "do not lose this task",
   );
