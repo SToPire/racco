@@ -60,20 +60,26 @@ export function TrajectoryResult({ entry }: { entry: TrajectoryEntry }) {
 export function TrajectoryInspector({
   entry,
   onClose,
+  onReveal,
 }: {
   entry: TrajectoryEntry;
   onClose: () => void;
+  onReveal?: (entry: TrajectoryEntry) => void;
 }) {
   const [tab, setTab] = useState<InspectorTab>("summary");
   return (
-    <aside className="trajectory-inspector" aria-label="交互详情">
+    <aside
+      className={`trajectory-inspector${onReveal && (entry.rowId !== undefined || entry.agentId !== undefined) ? " with-reveal" : ""}`}
+      aria-label="交互详情"
+    >
       <header>
         <div>
           <span className={`trajectory-kind kind-${entry.kind}`}>
             {kindLabel(entry.kind)}
           </span>
           <small>
-            Turn {entry.turn} · Step {entry.step}
+            {entry.turn === undefined ? "子任务" : `Turn ${entry.turn}`} · Step{" "}
+            {entry.step}
           </small>
         </div>
         <button
@@ -85,6 +91,16 @@ export function TrajectoryInspector({
           <UiIcon name="close" />
         </button>
       </header>
+      {onReveal &&
+        (entry.rowId !== undefined || entry.agentId !== undefined) && (
+          <button
+            className="trajectory-reveal"
+            type="button"
+            onClick={() => onReveal(entry)}
+          >
+            在 Chat 中查看
+          </button>
+        )}
       <nav
         className="trajectory-inspector-tabs view-tabs"
         aria-label="交互详情选项卡"
@@ -147,9 +163,22 @@ export function TrajectoryInspector({
   );
 }
 
-export function TrajectoryView({ rows }: { rows: TimelineRow[] }) {
+export function TrajectoryView({
+  rows,
+  onReveal,
+  focusRowId,
+}: {
+  rows: TimelineRow[];
+  onReveal?: (entry: TrajectoryEntry) => void;
+  focusRowId?: string;
+}) {
   const entries = useMemo(() => buildTrajectory(rows), [rows]);
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selectedId, setSelectedId] = useState<string | undefined>(
+    () =>
+      entries.find(
+        (entry) => entry.rowId === focusRowId && focusRowId !== undefined,
+      )?.id,
+  );
   const [search, setSearch] = useState("");
   const selected = entries.find((entry) => entry.id === selectedId);
   const query = search.trim().toLowerCase();
@@ -162,7 +191,9 @@ export function TrajectoryView({ rows }: { rows: TimelineRow[] }) {
             .toLowerCase()
             .includes(query),
         );
-  const turns = new Set(entries.map((entry) => entry.turn)).size;
+  const turns = new Set(
+    entries.flatMap((entry) => (entry.turn === undefined ? [] : [entry.turn])),
+  ).size;
   const calls = entries.filter(
     (entry) => entry.kind === "tool" || entry.kind === "context",
   ).length;
@@ -209,11 +240,17 @@ export function TrajectoryView({ rows }: { rows: TimelineRow[] }) {
           )}
           {visible.map((entry, index) => {
             const showTurn =
-              index === 0 || visible[index - 1]?.turn !== entry.turn;
+              index === 0 ||
+              visible[index - 1]?.turn !== entry.turn ||
+              visible[index - 1]?.agentId !== entry.agentId;
             return (
               <div className="trajectory-entry-wrap" key={entry.id}>
                 <small className="trajectory-turn-label">
-                  {showTurn ? `Turn ${entry.turn}` : ""}
+                  {showTurn
+                    ? entry.turn === undefined
+                      ? "子任务"
+                      : `Turn ${entry.turn}`
+                    : ""}
                 </small>
                 <button
                   aria-current={entry.id === selected?.id ? "true" : undefined}
@@ -243,6 +280,7 @@ export function TrajectoryView({ rows }: { rows: TimelineRow[] }) {
             entry={selected}
             key={selected.id}
             onClose={() => setSelectedId(undefined)}
+            onReveal={onReveal}
           />
         )}
       </div>

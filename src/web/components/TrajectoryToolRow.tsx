@@ -14,6 +14,7 @@ export function TrajectoryToolRow({
   return (
     <button
       aria-pressed={selected}
+      data-timeline-row={row.id}
       className={`trajectory-tool-row${selected ? " selected" : ""}`}
       onClick={onSelect}
       type="button"

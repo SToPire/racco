@@ -16,12 +16,14 @@ export type TrajectoryKind =
 
 export type TrajectoryEntry = {
   id: string;
-  turn: number;
+  turn?: number;
   step: number;
   kind: TrajectoryKind;
   label: string;
   summary: string;
   actor: string;
+  agentId?: string;
+  rowId?: string;
   agentPath?: string;
   cwd?: string;
   status?: string;
@@ -37,7 +39,7 @@ function compact(text: string, limit = 320): string {
     : `${normalized.slice(0, limit - 1)}…`;
 }
 
-function agentEntry(
+function agentEntryContent(
   row: AgentTimelineRow,
   actor: string,
   prefix: string,
@@ -156,6 +158,21 @@ function agentEntry(
   };
 }
 
+function agentEntry(
+  row: AgentTimelineRow,
+  actor: string,
+  prefix: string,
+  agentPath?: string,
+  cwd?: string,
+  agentId?: string,
+): Omit<TrajectoryEntry, "turn" | "step"> {
+  return {
+    ...agentEntryContent(row, actor, prefix, agentPath, cwd),
+    rowId: row.id,
+    agentId,
+  };
+}
+
 function stateEntry(
   row: SubagentTimelineRow,
   state: { id: string; state: SubagentState; message?: string },
@@ -205,7 +222,12 @@ export function buildTrajectory(rows: TimelineRow[]): TrajectoryEntry[] {
 
     const name = subagentName(row);
     const path = formatAgentPath(row.agentPath);
-    append({
+    let childStep = 0;
+    const appendChild = (entry: Omit<TrajectoryEntry, "turn" | "step">) => {
+      // Native child history does not establish its place in the main turn sequence.
+      entries.push({ ...entry, agentId: row.agentId, step: ++childStep });
+    };
+    appendChild({
       id: `subagent:${row.agentId}:identity`,
       kind: "subagent",
       label: "Subagent",
@@ -226,7 +248,7 @@ export function buildTrajectory(rows: TimelineRow[]): TrajectoryEntry[] {
       raw: row,
     });
     if (row.prompt !== undefined) {
-      append({
+      appendChild({
         id: `subagent:${row.agentId}:task`,
         kind: "user",
         label: "Task",
@@ -238,10 +260,18 @@ export function buildTrajectory(rows: TimelineRow[]): TrajectoryEntry[] {
         raw: { type: "subagent.task", prompt: row.prompt },
       });
     }
-    for (const activity of row.activities) append(stateEntry(row, activity));
+    for (const activity of row.activities)
+      appendChild(stateEntry(row, activity));
     for (const childRow of row.timeline) {
-      append(
-        agentEntry(childRow, name, `subagent:${row.agentId}`, path, row.cwd),
+      appendChild(
+        agentEntry(
+          childRow,
+          name,
+          `subagent:${row.agentId}`,
+          path,
+          row.cwd,
+          row.agentId,
+        ),
       );
     }
   }

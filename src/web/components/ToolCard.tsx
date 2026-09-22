@@ -12,6 +12,7 @@ export function ToolCard({ row, selected, onSelect }: ToolCardProps) {
   return (
     <button
       aria-pressed={selected}
+      data-timeline-row={row.id}
       className={`tool-card${selected ? " selected" : ""}`}
       onClick={onSelect}
       type="button"

@@ -1,5 +1,5 @@
 import { UiIcon } from "./UiIcon";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   InteractionRequest,
   InteractionResponse,
@@ -24,6 +24,7 @@ import { TrajectoryView } from "./TrajectoryView";
 import { TurnNavigator } from "./TurnNavigator";
 import { useModelSelection } from "../hooks/useModelSelection";
 import { useConversationScroll } from "../hooks/useConversationScroll";
+import type { TrajectoryEntry } from "../trajectory";
 
 type SessionViewProps = {
   active: boolean;
@@ -75,6 +76,8 @@ export function SessionView({
   const [selectedAgentId, setSelectedAgentId] = useState<string>();
   const [viewMode, setViewMode] = useState<"chat" | "trajectory">("chat");
   const conversationRef = useRef<HTMLElement>(null);
+  const [trajectoryTargetId, setTrajectoryTargetId] = useState<string>();
+  const revealTarget = useRef<string | undefined>(undefined);
   const reading = useConversationScroll(
     conversationRef,
     `${session.sessionId}:${selectedAgentId ?? "main"}`,
@@ -121,6 +124,28 @@ export function SessionView({
     session.compacting ||
     connection !== "open" ||
     session.lifecycle !== "active";
+
+  useEffect(() => {
+    if (viewMode !== "chat" || revealTarget.current === undefined) return;
+    const target = conversationRef.current?.querySelector<HTMLElement>(
+      `[data-timeline-row="${CSS.escape(revealTarget.current)}"]`,
+    );
+    if (!target) return;
+    reading.pauseFollowing();
+    target.scrollIntoView({ block: "center", behavior: "instant" });
+    revealTarget.current = undefined;
+  }, [viewMode, selectedAgentId, reading.pauseFollowing]);
+
+  function revealInChat(entry: TrajectoryEntry) {
+    setSelectedAgentId(entry.agentId);
+    revealTarget.current = entry.rowId;
+    onSelectTool(
+      entry.kind === "tool" || entry.kind === "context"
+        ? entry.rowId
+        : undefined,
+    );
+    setViewMode("chat");
+  }
 
   function selectAgent(agentId: string | undefined) {
     setSelectedAgentId(agentId);
@@ -206,6 +231,7 @@ export function SessionView({
           <button
             aria-current={viewMode === "trajectory" ? "page" : undefined}
             onClick={() => {
+              setTrajectoryTargetId(selectedToolId);
               setViewMode("trajectory");
               onSelectTool(undefined);
             }}
@@ -247,7 +273,11 @@ export function SessionView({
           )}
         </section>
       ) : (
-        <TrajectoryView rows={rows} />
+        <TrajectoryView
+          rows={rows}
+          focusRowId={trajectoryTargetId}
+          onReveal={revealInChat}
+        />
       )}
 
       {viewMode === "chat" &&

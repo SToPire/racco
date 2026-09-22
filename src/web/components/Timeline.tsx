@@ -57,7 +57,11 @@ export const Timeline = memo(function Timeline({
         const row = section.row;
         if (row.type === "system.notice") {
           return (
-            <p className={`notice notice-${row.level}`} key={row.id}>
+            <p
+              className={`notice notice-${row.level}`}
+              key={row.id}
+              data-timeline-row={row.id}
+            >
               {row.text}
             </p>
           );
@@ -67,7 +71,11 @@ export const Timeline = memo(function Timeline({
           row.type === "assistant.plan" ||
           row.type === "plan.updated"
         ) {
-          return <AssistantActivity key={row.id} row={row} />;
+          return (
+            <div key={row.id} data-timeline-row={row.id}>
+              <AssistantActivity row={row} />
+            </div>
+          );
         }
         const user = row.type === "user.message";
         return (
@@ -75,6 +83,7 @@ export const Timeline = memo(function Timeline({
             className={`message message-${user ? "user" : "assistant"}`}
             id={user ? userRequestAnchorId(sessionId, row.id) : undefined}
             key={row.id}
+            data-timeline-row={row.id}
           >
             {!user && (
               <span className={`message-avatar message-avatar-${provider}`}>

@@ -181,6 +181,20 @@
   background: var(--surface);
 }
 
+.trajectory-reveal {
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.trajectory-inspector.with-reveal {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
 .trajectory-inspector > header {
   display: flex;
   height: var(--header-height);

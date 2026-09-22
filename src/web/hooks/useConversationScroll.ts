@@ -18,12 +18,18 @@ export function useConversationScroll(
   const current = useRef<ReadingPosition>({ top: 0, following: true });
   const [following, setFollowing] = useState(true);
 
+  const pauseFollowing = useCallback(() => {
+    current.current.following = false;
+    setFollowing(false);
+  }, []);
+
   const followLatest = useCallback(() => {
     current.current.following = true;
     setFollowing(true);
     const element = containerRef.current;
     if (element)
       element.scrollTo({ top: element.scrollHeight, behavior: "instant" });
+    if (element) current.current.top = element.scrollTop;
   }, [containerRef]);
 
   useLayoutEffect(() => {
@@ -39,6 +45,7 @@ export function useConversationScroll(
         : current.current.top,
       behavior: "instant",
     });
+    current.current.top = element.scrollTop;
     let frame = 0;
     const resize = new ResizeObserver(() => scheduleLayout());
     const observeChildren = () => {
@@ -54,6 +61,7 @@ export function useConversationScroll(
             top: element!.scrollHeight,
             behavior: "instant",
           });
+        if (current.current.following) current.current.top = element!.scrollTop;
         observeChildren();
       });
     }
@@ -73,7 +81,8 @@ export function useConversationScroll(
     observeChildren();
     return () => {
       positions.current.set(readingKey, {
-        top: element.scrollTop,
+        // A removed scroll container already reports zero during cleanup.
+        top: current.current.top,
         following: current.current.following,
       });
       if (frame) cancelAnimationFrame(frame);
@@ -83,5 +92,5 @@ export function useConversationScroll(
     };
   }, [active, containerRef, readingKey]);
 
-  return { following, followLatest };
+  return { following, followLatest, pauseFollowing };
 }

@@ -62,9 +62,19 @@ test("projects main and subagent interactions into one session trajectory", () =
     ],
   );
   assert.equal(
-    entries.every((entry) => entry.turn === 1),
+    entries
+      .filter((entry) => entry.agentId === undefined)
+      .every((entry) => entry.turn === 1),
     true,
   );
+  assert.equal(
+    entries
+      .filter((entry) => entry.agentId === "agent-1")
+      .every((entry) => entry.turn === undefined),
+    true,
+  );
+  assert.equal(entries[6]?.rowId, "child-command");
+  assert.equal(entries.at(-1)?.step, 3);
   assert.equal(entries[6]?.cwd, "/work/project");
   assert.equal(entries[6]?.agentPath, "root › reviewer");
 });
