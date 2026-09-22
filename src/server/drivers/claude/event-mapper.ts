@@ -7,6 +7,8 @@ import type {
   TimelineEvent,
 } from "../../../shared/protocol.js";
 
+export type ClaudeHistoryMessage = SessionMessage & { toolUseResult?: unknown };
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -40,7 +42,7 @@ function stringify(value: unknown): string {
       .filter((item) => item?.type === "text" && typeof item.text === "string")
       .map((item) => item?.text)
       .join("\n");
-    if (text.length > 0) return text;
+    return text;
   }
   return JSON.stringify(value, null, 2) ?? "";
 }
@@ -85,15 +87,34 @@ function mapToolResults(
   message: unknown,
   structuredResult?: unknown,
 ): TimelineEvent[] {
-  return messageContent(message).flatMap((value): TimelineEvent[] => {
+  const content = messageContent(message);
+  const results = content.filter(
+    (value) => asRecord(value)?.type === "tool_result",
+  );
+  if (structuredResult !== undefined && results.length > 1) {
+    throw new Error("Ambiguous Claude structured tool result");
+  }
+  return results.flatMap((value): TimelineEvent[] => {
     const block = asRecord(value);
     if (block?.type !== "tool_result") return [];
     return [
       {
         type: "tool.completed",
         id: requiredIdentifier(block, "tool_use_id"),
-        status: block.is_error === true ? "failed" : "completed",
+        status:
+          asRecord(structuredResult)?.interrupted === true
+            ? "interrupted"
+            : block.is_error === true
+              ? "failed"
+              : "completed",
         output: stringify(block.content ?? structuredResult),
+        details: {
+          type: "claudeToolResult",
+          ...(structuredResult === undefined
+            ? {}
+            : { result: structuredResult }),
+          content: block.content,
+        },
       },
     ];
   });
@@ -108,14 +129,16 @@ function mapUserText(message: unknown, uuid: string): TimelineEvent[] {
   return text.length === 0 ? [] : [{ type: "user.message", id: uuid, text }];
 }
 
-export function mapClaudeHistory(messages: SessionMessage[]): TimelineEvent[] {
+export function mapClaudeHistory(
+  messages: ClaudeHistoryMessage[],
+): TimelineEvent[] {
   return messages.flatMap((entry) => {
     if (entry.type === "assistant")
       return mapAssistant(entry.message, entry.uuid);
     if (entry.type === "user") {
       return [
         ...mapUserText(entry.message, entry.uuid),
-        ...mapToolResults(entry.message),
+        ...mapToolResults(entry.message, entry.toolUseResult),
       ];
     }
     return [];

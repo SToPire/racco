@@ -9,6 +9,11 @@ import {
 import type { FileChange } from "../../shared/protocol";
 import type { ToolTimelineRow } from "../store";
 import { FileChanges } from "./FileChanges";
+import {
+  claudeToolResult,
+  type ClaudeToolResultView,
+} from "../claude-tool-result";
+import { ClaudeToolOutput } from "./ClaudeToolOutput";
 import { toolStatusLabel } from "../tool-presentation";
 
 type ToolInspectorProps = {
@@ -171,10 +176,12 @@ function OutputPanel({
   row,
   following,
   onFollowingChange,
+  structured,
 }: {
   row: ToolTimelineRow;
   following: boolean;
   onFollowingChange: (following: boolean) => void;
+  structured?: ClaudeToolResultView;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [copyResult, setCopyResult] = useState<{
@@ -182,14 +189,19 @@ function OutputPanel({
     message: string;
   }>();
   const command =
-    row.tool === "command" ? asRecord(row.details)?.command : undefined;
+    row.tool === "command"
+      ? asRecord(row.details)?.command
+      : row.tool === "Bash"
+        ? asRecord(row.input)?.command
+        : undefined;
+  const copyText = structured?.copyText ?? row.output;
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
     if (following && scroll !== null) scroll.scrollTop = scroll.scrollHeight;
-  }, [following, row.output]);
+  }, [following, row.output, row.details]);
 
   async function copyOutput() {
-    const output = row.output;
+    const output = copyText;
     try {
       await navigator.clipboard.writeText(output);
       setCopyResult({ output, message: "已复制" });
@@ -211,14 +223,14 @@ function OutputPanel({
           跟随末尾
         </button>
         <span role="status">
-          {copyResult?.output === row.output ? copyResult.message : ""}
+          {copyResult?.output === copyText ? copyResult.message : ""}
         </span>
         <button
           className="icon-button"
           type="button"
           aria-label="复制输出"
           title="复制输出"
-          disabled={row.output.length === 0}
+          disabled={copyText.length === 0}
           onClick={() => void copyOutput()}
         >
           <UiIcon name="copy" />
@@ -243,7 +255,15 @@ function OutputPanel({
             <code>{command}</code>
           </div>
         )}
-        {row.output.length > 0 ? (
+        {structured !== undefined ? (
+          <ClaudeToolOutput
+            view={structured}
+            output={row.output}
+            revealOriginal={
+              row.status === "failed" || row.status === "interrupted"
+            }
+          />
+        ) : row.output.length > 0 ? (
           <pre data-tool-output>{row.output}</pre>
         ) : (
           <p className="inspector-empty">
@@ -259,16 +279,18 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
   const id = useId();
   const hasInput = row.input !== undefined;
   const hasRaw = row.details !== undefined;
+  const structured = claudeToolResult(row);
+  const hasReadableOutput =
+    row.output.length > 0 || structured?.hasReadableResult === true;
   const hasOutput =
-    row.output.length > 0 || row.tool === "command" || (!hasInput && !hasRaw);
-  const defaultTab: InspectorTab =
-    row.output.length > 0
-      ? "output"
-      : hasInput
-        ? "input"
-        : hasRaw
-          ? "raw"
-          : "output";
+    hasReadableOutput || row.tool === "command" || (!hasInput && !hasRaw);
+  const defaultTab: InspectorTab = hasReadableOutput
+    ? "output"
+    : hasInput
+      ? "input"
+      : hasRaw
+        ? "raw"
+        : "output";
   const [requestedTab, setRequestedTab] = useState<InspectorTab>();
   const [following, setFollowing] = useState(row.status === "running");
   const selectedTab = requestedTab ?? defaultTab;
@@ -364,6 +386,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
             row={row}
             following={following}
             onFollowingChange={setFollowing}
+            {...(structured === undefined ? {} : { structured })}
           />
         )}
       </section>

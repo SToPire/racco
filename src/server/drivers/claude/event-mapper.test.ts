@@ -81,6 +81,7 @@ test("maps Claude history into the shared materialized timeline", () => {
       input: { file_path: "package.json" },
       output: '{"name":"racco"}',
       status: "completed",
+      details: { type: "claudeToolResult", content: '{"name":"racco"}' },
     },
     {
       type: "assistant.message",
@@ -88,6 +89,90 @@ test("maps Claude history into the shared materialized timeline", () => {
       text: "done",
     },
   ]);
+});
+
+test("retains Claude structured results even when model-facing output is present", () => {
+  const result = {
+    stdout: "partial stdout",
+    stderr: "cancelled",
+    interrupted: true,
+    backgroundTaskId: "task-1",
+  };
+  const [event] = new ClaudeLiveMapper().map({
+    type: "user",
+    parent_tool_use_id: null,
+    tool_use_result: result,
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "bash-1",
+          content: "Model-facing summary",
+          is_error: true,
+        },
+      ],
+    },
+  });
+  assert.deepEqual(event, {
+    type: "tool.completed",
+    id: "bash-1",
+    status: "interrupted",
+    output: "Model-facing summary",
+    details: {
+      type: "claudeToolResult",
+      result,
+      content: "Model-facing summary",
+    },
+  });
+});
+
+test("preserves attachment blocks without putting base64 data into display text", () => {
+  const content = [
+    { type: "text" as const, text: "Screenshot" },
+    {
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: "image/png" as const,
+        data: "cGljdHVyZQ==",
+      },
+    },
+  ];
+  const [event] = new ClaudeLiveMapper().map({
+    type: "user",
+    parent_tool_use_id: null,
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "image-1", content }],
+    },
+  });
+  assert.deepEqual(event, {
+    type: "tool.completed",
+    id: "image-1",
+    status: "completed",
+    output: "Screenshot",
+    details: { type: "claudeToolResult", content },
+  });
+});
+
+test("does not attribute one structured result to multiple tool results", () => {
+  assert.throws(
+    () =>
+      new ClaudeLiveMapper().map({
+        type: "user",
+        parent_tool_use_id: null,
+        tool_use_result: { stdout: "one" },
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "one", content: "one" },
+            { type: "tool_result", tool_use_id: "two", content: "two" },
+          ],
+        },
+      }),
+    /Ambiguous Claude structured tool result/,
+  );
 });
 
 test("rejects incomplete Claude tool identifiers instead of inventing timeline rows", () => {

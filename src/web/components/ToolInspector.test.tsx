@@ -57,7 +57,13 @@ test("places the command before collapsed execution metadata when there is no ou
   );
 });
 
-for (const status of ["running", "completed", "failed"] as const) {
+for (const status of [
+  "running",
+  "completed",
+  "failed",
+  "interrupted",
+  "incomplete",
+] as const) {
   test(`opens ${status} tool results on Output with copy and follow controls`, () => {
     const row: ToolTimelineRow = {
       type: "tool",
@@ -82,6 +88,77 @@ for (const status of ["running", "completed", "failed"] as const) {
     assert.doesNotMatch(html, /<pre>\{\n/);
   });
 }
+
+test("shows Claude Edit result diffs ahead of the model-facing summary", () => {
+  const html = renderToStaticMarkup(
+    <ToolInspector
+      onClose={() => undefined}
+      row={{
+        type: "tool",
+        id: "edit-1",
+        tool: "Edit",
+        input: { file_path: "/work/app.ts" },
+        status: "completed",
+        output: "File updated",
+        details: {
+          type: "claudeToolResult",
+          result: {
+            filePath: "/work/app.ts",
+            structuredPatch: [
+              {
+                oldStart: 8,
+                oldLines: 1,
+                newStart: 8,
+                newLines: 1,
+                lines: ["-old", "+new"],
+              },
+            ],
+          },
+          content: "File updated",
+        },
+      }}
+    />,
+  );
+  assert.match(html, /aria-selected="true"[^>]*>Output<\/button>/);
+  assert.match(html, /diff-line-removed/);
+  assert.match(html, /diff-line-added/);
+  assert.match(html, /@@ -8,1 \+8,1 @@/);
+  assert(html.indexOf("diff-line-removed") < html.indexOf("File updated"));
+});
+
+test("shows Claude stderr, interruption and background output file facts", () => {
+  const html = renderToStaticMarkup(
+    <ToolInspector
+      onClose={() => undefined}
+      row={{
+        type: "tool",
+        id: "bash-1",
+        tool: "Bash",
+        input: { command: "pnpm test" },
+        status: "interrupted",
+        output: "Tool stopped",
+        details: {
+          type: "claudeToolResult",
+          result: {
+            stdout: "partial result",
+            stderr: "test diagnostics",
+            interrupted: true,
+            backgroundTaskId: "task-1",
+            persistedOutputPath: "/work/output.txt",
+          },
+          content: "Tool stopped",
+        },
+      }}
+    />,
+  );
+  assert.match(html, /已中断/);
+  assert.match(html, /data-tool-stderr="true">test diagnostics/);
+  assert.match(html, /data-tool-stdout="true">partial result/);
+  assert.match(html, /后台任务/);
+  assert.match(html, /task-1/);
+  assert.match(html, /\/work\/output\.txt/);
+  assert(html.indexOf("test diagnostics") < html.indexOf("partial result"));
+});
 
 test("shows an explicit empty result for a tool without input or output", () => {
   const html = renderToStaticMarkup(

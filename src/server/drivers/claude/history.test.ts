@@ -194,3 +194,65 @@ test("restores outputs for commands preserved across a compaction boundary", asy
     ],
   );
 });
+
+test("restores the selected message's current native toolUseResult by UUID", async () => {
+  const nativeResult = {
+    stdout: "stdout",
+    stderr: "stderr",
+    interrupted: false,
+    persistedOutputPath: "/work/output.txt",
+  };
+  const toolResult = (uuid: string, parent: string, toolUseResult?: unknown) =>
+    entry("user", uuid, parent, {
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: uuid,
+            content: "Text shown to the model",
+          },
+        ],
+      },
+      ...(toolUseResult === undefined ? {} : { toolUseResult }),
+    });
+  const entries = [
+    user("root", null, "Run commands"),
+    toolResult("abandoned-result", "root", { stdout: "abandoned" }),
+    assistant("current", "root", "Current branch"),
+    toolResult("current-result", "current", { stdout: "superseded duplicate" }),
+    toolResult("current-result", "current", nativeResult),
+    assistant("continue", "current-result", "Continue"),
+    toolResult("missing-result", "continue"),
+  ];
+  const original = structuredClone(entries);
+  const selected = await selectClaudeHistory(
+    entries,
+    { projectKey: "-history-fixture", sessionId },
+    "/history-fixture",
+  );
+  const completed = mapClaudeHistory(selected).filter(
+    (event) => event.type === "tool.completed",
+  );
+  assert.deepEqual(completed, [
+    {
+      type: "tool.completed",
+      id: "current-result",
+      status: "completed",
+      output: "Text shown to the model",
+      details: {
+        type: "claudeToolResult",
+        result: nativeResult,
+        content: "Text shown to the model",
+      },
+    },
+    {
+      type: "tool.completed",
+      id: "missing-result",
+      status: "completed",
+      output: "Text shown to the model",
+      details: { type: "claudeToolResult", content: "Text shown to the model" },
+    },
+  ]);
+  assert.deepEqual(entries, original);
+});

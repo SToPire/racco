@@ -6,6 +6,7 @@ import {
   type SessionMessage,
   type SessionStoreEntry,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { ClaudeHistoryMessage } from "./event-mapper.js";
 
 type DisplayMessage = { role: "user" | "assistant"; content: string };
 
@@ -86,6 +87,11 @@ export async function selectClaudeHistory(
   cwd: string,
 ) {
   const projected = projectClaudeHistory(entries);
+  const recorded = new Map(
+    projected.flatMap((entry) =>
+      entry.uuid ? [[entry.uuid, entry] as const] : [],
+    ),
+  );
   const store = new InMemorySessionStore();
   await store.append(key, projected);
   const selected = await getSessionMessages(key.sessionId, {
@@ -115,7 +121,7 @@ export async function selectClaudeHistory(
     });
     outputs.set(entry.parentUuid, siblings);
   }
-  const result: SessionMessage[] = [];
+  const result: ClaudeHistoryMessage[] = [];
   const seen = new Set<string>();
   for (const message of selected) {
     const pending = [message];
@@ -123,7 +129,16 @@ export async function selectClaudeHistory(
       const next = pending.pop()!;
       if (seen.has(next.uuid)) continue;
       seen.add(next.uuid);
-      result.push(next);
+      // The current native transcript stores toolUseResult, while the SDK's
+      // public SessionMessage projection omits it. Restore only this selected
+      // message's raw field; absent data stays absent after reconnect.
+      const toolUseResult =
+        next.type === "user"
+          ? recorded.get(next.uuid)?.toolUseResult
+          : undefined;
+      result.push(
+        toolUseResult === undefined ? next : { ...next, toolUseResult },
+      );
       const children = outputs.get(next.uuid) ?? [];
       for (let index = children.length - 1; index >= 0; index--)
         pending.push(children[index]!);
