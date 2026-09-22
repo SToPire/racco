@@ -91,5 +91,40 @@ for (const viewport of [
       inspector.getByRole("tab", { name: "Output", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await expect(inspector).toContainText("FAIL ToolGroup");
+    await page.getByRole("button", { name: "关闭工具详情" }).click();
+    emit({
+      type: "subagent.started",
+      id: "worker",
+      agentId: "worker",
+      name: "Worker",
+      prompt: "检查远程工具",
+    });
+    emit({
+      type: "subagent.event",
+      id: "worker-tool",
+      agentId: "worker",
+      event: {
+        type: "tool.started",
+        id: "long-tool",
+        tool: "mcp__google_drive__batch_update_document",
+        input: { description: "更新项目说明" },
+      },
+    });
+    await page.getByRole("button", { name: "查看 Worker 的对话" }).click();
+    const childTool = page.locator(".trajectory-tool-row");
+    await expect(childTool).toContainText("更新项目说明");
+    await expect
+      .poll(
+        async () =>
+          (await childTool.locator("strong").boundingBox())?.width ?? Infinity,
+      )
+      .toBeLessThanOrEqual(96);
+    await expect
+      .poll(() =>
+        page
+          .locator(".conversation")
+          .evaluate((element) => element.scrollWidth - element.clientWidth),
+      )
+      .toBeLessThanOrEqual(1);
   });
 }

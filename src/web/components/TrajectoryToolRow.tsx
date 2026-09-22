@@ -22,7 +22,7 @@ export function TrajectoryToolRow({
       <span className="trajectory-tool-icon" aria-hidden="true">
         {row.tool === "command" || row.tool === "Bash" ? ">_" : "▧"}
       </span>
-      <strong>{description.label}</strong>
+      <strong title={row.tool}>{description.label}</strong>
       <span>
         {[description.summary, description.outcome, description.progress]
           .filter(Boolean)
