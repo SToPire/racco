@@ -1,9 +1,9 @@
+import { describeTool } from "./tool-presentation";
 import type { SubagentState } from "../shared/protocol";
 import type {
   AgentTimelineRow,
   SubagentTimelineRow,
   TimelineRow,
-  ToolTimelineRow,
 } from "./store";
 import {
   formatAgentPath,
@@ -35,33 +35,6 @@ function compact(text: string, limit = 320): string {
   return normalized.length <= limit
     ? normalized
     : `${normalized.slice(0, limit - 1)}…`;
-}
-
-function stringify(value: unknown): string {
-  if (typeof value === "string") return value;
-  return JSON.stringify(value) ?? "";
-}
-
-function toolLabel(row: ToolTimelineRow): string {
-  if (row.tool === "command") return "Bash";
-  if (row.tool === "fileChange") return "Files";
-  return row.tool;
-}
-
-function toolSummary(row: ToolTimelineRow): string {
-  const input =
-    typeof row.input === "object" && row.input !== null
-      ? (row.input as Record<string, unknown>)
-      : undefined;
-  if (row.tool === "command")
-    return compact(stringify(input?.command ?? row.input));
-  if (row.tool === "Context injection") {
-    const fragments = input?.fragments;
-    return Array.isArray(fragments)
-      ? `${fragments.length} context fragment${fragments.length === 1 ? "" : "s"}`
-      : "Injected context";
-  }
-  return compact(stringify(row.input));
 }
 
 function agentEntry(
@@ -122,8 +95,10 @@ function agentEntry(
   return {
     id: `${prefix}:tool:${row.id}`,
     kind: row.tool === "Context injection" ? "context" : "tool",
-    label: toolLabel(row),
-    summary: toolSummary(row),
+    label: describeTool(row).label,
+    summary: [describeTool(row).summary, describeTool(row).outcome]
+      .filter(Boolean)
+      .join(" · "),
     actor,
     agentPath,
     cwd,

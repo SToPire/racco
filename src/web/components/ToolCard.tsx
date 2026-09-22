@@ -1,4 +1,5 @@
 import type { TimelineRow } from "../store";
+import { describeTool, toolStatusLabel } from "../tool-presentation";
 
 type ToolCardProps = {
   row: Extract<TimelineRow, { type: "tool" }>;
@@ -7,6 +8,7 @@ type ToolCardProps = {
 };
 
 export function ToolCard({ row, selected, onSelect }: ToolCardProps) {
+  const presentation = describeTool(row);
   return (
     <button
       aria-pressed={selected}
@@ -14,13 +16,18 @@ export function ToolCard({ row, selected, onSelect }: ToolCardProps) {
       onClick={onSelect}
       type="button"
     >
-      <strong>{row.tool}</strong>
+      <span className="tool-card-description">
+        <strong>{presentation.label}</strong>
+        <span>{presentation.summary}</span>
+        {presentation.outcome && <small>{presentation.outcome}</small>}
+        {presentation.preview && (
+          <span className={`tool-preview tool-preview-${row.status}`}>
+            {presentation.preview}
+          </span>
+        )}
+      </span>
       <span className={`tool-status tool-status-${row.status}`}>
-        {row.status === "running"
-          ? "运行中"
-          : row.status === "completed"
-            ? "已完成"
-            : "失败"}
+        {toolStatusLabel(row.status)}
       </span>
     </button>
   );

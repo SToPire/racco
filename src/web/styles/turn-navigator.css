@@ -135,7 +135,7 @@
   margin-left: 45px;
 }
 
-.tool-group > summary {
+.tool-history > summary {
   display: flex;
   width: fit-content;
   align-items: center;
@@ -145,6 +145,47 @@
   font-size: 0.78rem;
   font-weight: 560;
   user-select: none;
+  list-style: none;
+}
+
+.tool-history > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-history > summary .ui-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+.tool-history[open] > summary .ui-icon {
+  transform: rotate(90deg);
+}
+.tool-card-description {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.tool-card-description > span {
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 0.74rem;
+}
+.tool-card-description > small {
+  color: var(--text-faint);
+  font-size: 0.68rem;
+}
+.tool-card-description > .tool-preview {
+  margin: 3px 0 0;
+  padding: 0;
+  white-space: pre-wrap;
+  font-size: 0.7rem;
+}
+.tool-card-description > .tool-preview-failed {
+  color: var(--danger);
+}
+.tool-card > .tool-status {
+  flex: 0 0 auto;
+  align-self: start;
 }
 
 .tool-group-items {
@@ -167,7 +208,7 @@
   display: grid;
   min-width: 0;
   min-height: 36px;
-  grid-template-columns: 22px auto minmax(0, 1fr) 7px;
+  grid-template-columns: 22px auto minmax(0, 1fr) auto;
   gap: 7px;
   align-items: center;
   padding: 5px 7px;
