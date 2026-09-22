@@ -6,6 +6,7 @@ import test from "node:test";
 import { CodexDriver } from "./codex-driver.js";
 import type { ContextUsage, TimelineEvent } from "../../../shared/protocol.js";
 import type { DriverContext } from "../driver.js";
+import { buildTimeline } from "../../../web/store.js";
 
 test(
   "Codex sends explicit model and effort on every turn including after thread resume",
@@ -111,6 +112,135 @@ lines.on('line', line => {
     } finally {
       await first.close();
       await resumed.close();
+    }
+  },
+);
+
+test(
+  "Codex forwards public activity and child ownership while native history retains semantic item kinds",
+  { timeout: 10000 },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "racco-activity-wire-"));
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${directory}:${previousPath}`;
+    t.after(async () => {
+      process.env.PATH = previousPath;
+      await rm(directory, { recursive: true, force: true });
+    });
+    await writeFile(
+      join(directory, "codex"),
+      `#!/usr/bin/env node
+const lines = require('node:readline').createInterface({ input: process.stdin });
+const send = message => process.stdout.write(JSON.stringify(message) + '\\n');
+const items = [
+  { type: 'reasoning', id: 'reason', summary: ['Inspect protocol'], content: ['PRIVATE RAW CONTENT'] },
+  { type: 'plan', id: 'proposal', text: 'Update the renderer' },
+  { type: 'agentMessage', id: 'progress', text: 'Checking files', phase: 'commentary' },
+  { type: 'agentMessage', id: 'answer', text: 'Finished', phase: 'final_answer' },
+];
+const thread = { id: 'root', cwd: ${JSON.stringify(process.cwd())}, preview: 'Activity', name: null, createdAt: 1700000000, updatedAt: 1700000100, status: { type: 'idle' }, parentThreadId: null, agentNickname: null, agentRole: null, source: 'appServer', turns: [] };
+lines.on('line', line => {
+  const message = JSON.parse(line);
+  if (message.id === undefined) return;
+  if (message.method === 'thread/start' || message.method === 'thread/read') return send({ id: message.id, result: { thread } });
+  if (message.method === 'thread/list') return send({ id: message.id, result: { data: [], nextCursor: null } });
+  if (message.method !== 'turn/start') return send({ id: message.id, result: {} });
+  const turn = { id: 'turn', items, status: 'completed', error: null };
+  send({ id: message.id, result: { turn: { ...turn, items: [], status: 'inProgress' } } });
+  setTimeout(() => {
+    const emit = (method, values) => send({ method, params: { threadId: 'root', turnId: 'turn', ...values } });
+    emit('item/started', { item: { ...items[0], summary: [] } });
+    emit('item/reasoning/summaryTextDelta', { itemId: 'reason', summaryIndex: 0, delta: 'Inspect protocol' });
+    emit('item/reasoning/textDelta', { itemId: 'reason', delta: 'PRIVATE RAW DELTA' });
+    emit('item/completed', { item: items[0] });
+    emit('item/started', { item: { ...items[1], text: '' } });
+    emit('item/plan/delta', { itemId: 'proposal', delta: 'Update the renderer' });
+    emit('item/completed', { item: items[1] });
+    emit('turn/plan/updated', { explanation: 'Checking rendering', plan: [{ step: 'Verify UI', status: 'inProgress' }] });
+    emit('item/started', { item: { ...items[2], text: '' } });
+    emit('item/agentMessage/delta', { itemId: 'progress', delta: 'Checking files' });
+    emit('item/completed', { item: items[2] });
+    emit('item/completed', { item: items[3] });
+    send({ method: 'thread/started', params: { thread: { ...thread, id: 'child', parentThreadId: 'root', agentNickname: 'Reviewer' } } });
+    emit('item/completed', { threadId: 'child', turnId: 'child-turn', item: { type: 'reasoning', id: 'child-reason', summary: ['Reviewing tests'], content: ['PRIVATE CHILD CONTENT'] } });
+    emit('turn/plan/updated', { threadId: 'child', turnId: 'child-turn', explanation: null, plan: [{ step: 'Review', status: 'completed' }] });
+    thread.turns = [turn];
+    emit('turn/completed', { turn });
+  }, 5);
+});
+`,
+      { mode: 0o700 },
+    );
+    const driver = new CodexDriver({ info() {}, warn() {} });
+    const events: TimelineEvent[] = [];
+    const context: DriverContext = {
+      emit: (event) => events.push(event),
+      setState() {},
+      markProviderMaterialized() {},
+      async requestInteraction() {
+        throw new Error("Unexpected interaction");
+      },
+    };
+    try {
+      await driver.start();
+      const modelSettings = { modelId: "model", reasoningEffort: null };
+      const handle = await driver.createSession({
+        raccoSessionId: "session",
+        cwd: process.cwd(),
+        modelSettings,
+      });
+      await driver.runTurn({
+        handle,
+        mode: "first",
+        prompt: "Inspect",
+        modelSettings,
+        context,
+        signal: new AbortController().signal,
+      });
+      const snapshot = await driver.readSession(handle);
+      assert.deepEqual(
+        buildTimeline(
+          events.filter((event) => event.type.startsWith("assistant.")),
+        ),
+        buildTimeline(snapshot.events),
+      );
+      assert.doesNotMatch(JSON.stringify(events), /PRIVATE/);
+      assert(
+        events.some(
+          (event) =>
+            event.type === "assistant.message" &&
+            event.partial &&
+            event.phase === "commentary",
+        ),
+      );
+      assert(
+        events.some(
+          (event) => event.type === "assistant.plan" && event.partial,
+        ),
+      );
+      assert(
+        events.some(
+          (event) =>
+            event.type === "plan.updated" &&
+            event.steps[0].status === "inProgress",
+        ),
+      );
+      assert(
+        events.some(
+          (event) =>
+            event.type === "subagent.event" &&
+            event.event.type === "assistant.reasoning",
+        ),
+      );
+      assert(
+        events.some(
+          (event) =>
+            event.type === "subagent.event" &&
+            event.event.type === "plan.updated",
+        ),
+      );
+    } finally {
+      await driver.close();
     }
   },
 );

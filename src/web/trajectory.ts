@@ -92,6 +92,49 @@ function agentEntry(
       raw: row,
     };
   }
+  if (
+    row.type === "assistant.reasoning" ||
+    row.type === "assistant.plan" ||
+    row.type === "plan.updated"
+  ) {
+    const text =
+      row.type === "assistant.reasoning"
+        ? row.summary.join("\n\n")
+        : row.type === "assistant.plan"
+          ? row.text
+          : [
+              row.explanation,
+              ...row.steps.map((step) => `${step.status}: ${step.step}`),
+            ]
+              .filter(Boolean)
+              .join("\n");
+    return {
+      id: `${prefix}:${row.type}:${row.id}`,
+      kind: "assistant",
+      label:
+        row.type === "assistant.reasoning"
+          ? "思考摘要"
+          : row.type === "assistant.plan"
+            ? "方案"
+            : "执行计划",
+      summary: compact(text),
+      actor,
+      agentPath,
+      cwd,
+      status:
+        row.type === "plan.updated"
+          ? row.state
+          : row.stopReason === "interrupted"
+            ? "Interrupted"
+            : row.stopReason === "error"
+              ? "Failed"
+              : row.partial
+                ? "Streaming"
+                : "Completed",
+      result: text,
+      raw: row,
+    };
+  }
   return {
     id: `${prefix}:tool:${row.id}`,
     kind: row.tool === "Context injection" ? "context" : "tool",

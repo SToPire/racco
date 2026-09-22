@@ -15,7 +15,17 @@ export type ToolTimelineRow = {
 };
 
 export type AgentTimelineRow =
-  | Extract<AgentTimelineEvent, { type: "user.message" | "assistant.message" }>
+  | Extract<
+      AgentTimelineEvent,
+      {
+        type:
+          | "user.message"
+          | "assistant.message"
+          | "assistant.reasoning"
+          | "assistant.plan"
+          | "plan.updated";
+      }
+    >
   | Extract<AgentTimelineEvent, { type: "system.notice" }>
   | ToolTimelineRow;
 
@@ -96,6 +106,9 @@ function applyAgentTimelineEvent(
   if (
     event.type === "user.message" ||
     event.type === "assistant.message" ||
+    event.type === "assistant.reasoning" ||
+    event.type === "assistant.plan" ||
+    event.type === "plan.updated" ||
     event.type === "system.notice"
   ) {
     if (index === -1) rows.push(event);

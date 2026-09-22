@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ContextUsageSchema } from "../../../shared/protocol.js";
 import type {
+  AgentTimelineEvent,
   InteractionResponse,
   SubagentState,
   TimelineEvent,
@@ -20,6 +21,7 @@ import type {
 import { ProviderSessionNotFoundError, SESSION_PAGE_SIZE } from "../driver.js";
 import { resolveProjectDirectory } from "../../project-path.js";
 import { CodexAppServerClient } from "./app-server-client.js";
+import { CodexActivityMapper } from "./activity-mapper.js";
 import { CodexModelListSchema, codexModelCatalog } from "../model-options.js";
 import {
   mapItemEvents,
@@ -91,6 +93,25 @@ function subagentThreadState(status: CodexThread["status"]): SubagentState {
   return "completed";
 }
 
+function emitAgentEvents(
+  context: DriverContext,
+  events: AgentTimelineEvent[],
+  subagent?: SubagentLink,
+): void {
+  for (const event of events) {
+    context.emit(
+      subagent === undefined
+        ? event
+        : {
+            type: "subagent.event",
+            id: `${subagent.agentId}:event:${event.type}:${event.id}`,
+            agentId: subagent.agentId,
+            event: { ...event, id: `${subagent.agentId}:${event.id}` },
+          },
+    );
+  }
+}
+
 export class CodexDriver implements AgentDriver {
   readonly provider = "codex" as const;
   readonly #client: CodexAppServerClient;
@@ -98,7 +119,7 @@ export class CodexDriver implements AgentDriver {
   readonly #loadedThreads = new Set<string>();
   readonly #turnWaiters = new Map<string, TurnWaiter>();
   readonly #compactions = new Map<string, string | undefined>();
-  readonly #assistantText = new Map<string, string>();
+  readonly #activityMapper = new CodexActivityMapper();
   readonly #toolOutput = new Map<string, string>();
   readonly #subagents = new Map<string, SubagentLink>();
   #ready = false;
@@ -214,7 +235,7 @@ export class CodexDriver implements AgentDriver {
     this.#loadedThreads.clear();
     this.#contexts.clear();
     this.#subagents.clear();
-    this.#assistantText.clear();
+    this.#activityMapper.clear();
     this.#toolOutput.clear();
     await this.#client.close();
   }
@@ -396,6 +417,13 @@ export class CodexDriver implements AgentDriver {
       waiter.interrupt();
       await completion;
     } finally {
+      emitAgentEvents(
+        input.context,
+        this.#activityMapper.finish(
+          sessionId,
+          input.signal.aborted ? "interrupted" : "error",
+        ),
+      );
       input.signal.removeEventListener("abort", onAbort);
       this.#turnWaiters.delete(sessionId);
       this.#contexts.delete(sessionId);
@@ -695,6 +723,12 @@ export class CodexDriver implements AgentDriver {
       }
     }
 
+    const activityEvents = this.#activityMapper.map(notification);
+    if (activityEvents !== undefined) {
+      emitAgentEvents(context, activityEvents, subagent);
+      return;
+    }
+
     if (
       notification.method === "item/started" ||
       notification.method === "item/completed"
@@ -715,35 +749,7 @@ export class CodexDriver implements AgentDriver {
           : mapSubagentItemEvents(item, subagent.agentId, resolveSubagentId);
       for (const event of events) context.emit(event);
       if (notification.method === "item/completed") {
-        this.#assistantText.delete(`${threadId}:${item.id}`);
         this.#toolOutput.delete(`${threadId}:${item.id}`);
-      }
-      return;
-    }
-    if (notification.method === "item/agentMessage/delta") {
-      const delta = notification.params as DeltaNotification;
-      const cacheId = `${delta.threadId}:${delta.itemId}`;
-      const text = (this.#assistantText.get(cacheId) ?? "") + delta.delta;
-      this.#assistantText.set(cacheId, text);
-      if (subagent === undefined) {
-        context.emit({
-          type: "assistant.message",
-          id: delta.itemId,
-          text,
-          partial: true,
-        });
-      } else {
-        context.emit({
-          type: "subagent.event",
-          id: `${subagent.agentId}:event:assistant.message:${delta.itemId}`,
-          agentId: subagent.agentId,
-          event: {
-            type: "assistant.message",
-            id: `${subagent.agentId}:${delta.itemId}`,
-            text,
-            partial: true,
-          },
-        });
       }
       return;
     }
@@ -784,6 +790,19 @@ export class CodexDriver implements AgentDriver {
     }
     if (notification.method === "turn/completed") {
       const completed = notification.params as TurnNotification;
+      emitAgentEvents(
+        context,
+        this.#activityMapper.finish(
+          threadId,
+          completed.turn.status === "interrupted"
+            ? "interrupted"
+            : completed.turn.status === "failed"
+              ? "error"
+              : undefined,
+          completed.turn.id,
+        ),
+        subagent,
+      );
       if (subagent !== undefined) {
         context.emit({
           type: "subagent.state",
@@ -822,6 +841,13 @@ export class CodexDriver implements AgentDriver {
     if (notification.method === "error") {
       const error = notification.params as ErrorNotification;
       const message = error.error.message;
+      if (!error.willRetry) {
+        emitAgentEvents(
+          context,
+          this.#activityMapper.finish(threadId, "error", error.turnId),
+          subagent,
+        );
+      }
       if (subagent === undefined) {
         const event: TimelineEvent = {
           type: "system.notice",
@@ -929,9 +955,21 @@ export class CodexDriver implements AgentDriver {
       });
       this.#finishCompaction(threadId);
     }
-    for (const context of this.#contexts.values()) {
+    for (const [threadId, context] of this.#contexts) {
+      emitAgentEvents(context, this.#activityMapper.finish(threadId, "error"));
       context.setState("error");
     }
+    for (const [threadId, subagent] of this.#subagents) {
+      const context = this.#contexts.get(subagent.rootThreadId);
+      if (context !== undefined) {
+        emitAgentEvents(
+          context,
+          this.#activityMapper.finish(threadId, "error"),
+          subagent,
+        );
+      }
+    }
+    this.#activityMapper.clear();
     for (const waiter of this.#turnWaiters.values()) waiter.reject(error);
     this.#turnWaiters.clear();
   }

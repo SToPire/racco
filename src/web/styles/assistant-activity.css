@@ -1,0 +1,90 @@
+.assistant-activity {
+  min-width: 0;
+  margin: 10px 0;
+  border-left: 2px solid var(--border);
+  padding: 8px 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.assistant-message-state {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+}
+
+.assistant-activity > header,
+.assistant-activity > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.assistant-activity > header > span,
+.assistant-activity > summary > small {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.reasoning-summary > summary {
+  cursor: pointer;
+}
+
+.reasoning-summary > summary::before {
+  content: "›";
+  flex-shrink: 0;
+}
+
+.reasoning-summary[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.reasoning-summary > summary > strong {
+  flex-shrink: 0;
+}
+
+.reasoning-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reasoning-summary[open] .reasoning-preview {
+  visibility: hidden;
+}
+
+.assistant-activity-content {
+  margin-top: 8px;
+}
+
+.execution-plan ol {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.plan-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.plan-step > span:nth-child(2) {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.plan-step small {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.plan-step-inProgress {
+  color: var(--text);
+}

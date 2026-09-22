@@ -6,6 +6,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ProviderLogo } from "./ProviderLogo";
 import { TrajectoryToolRow } from "./TrajectoryToolRow";
 import { ToolGroup } from "./ToolGroup";
+import { AssistantActivity, assistantPhaseLabel } from "./AssistantActivity";
 
 type TimelineProps = {
   sessionId: string;
@@ -61,6 +62,13 @@ export const Timeline = memo(function Timeline({
             </p>
           );
         }
+        if (
+          row.type === "assistant.reasoning" ||
+          row.type === "assistant.plan" ||
+          row.type === "plan.updated"
+        ) {
+          return <AssistantActivity key={row.id} row={row} />;
+        }
         const user = row.type === "user.message";
         return (
           <article
@@ -74,6 +82,25 @@ export const Timeline = memo(function Timeline({
               </span>
             )}
             <div className="message-content">
+              {!user &&
+                (assistantPhaseLabel(row.phase) ||
+                  row.partial ||
+                  row.stopReason) && (
+                  <small className="assistant-message-state">
+                    {[
+                      assistantPhaseLabel(row.phase),
+                      row.stopReason === "interrupted"
+                        ? "已中断"
+                        : row.stopReason === "error"
+                          ? "未完成"
+                          : row.partial
+                            ? "生成中"
+                            : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </small>
+                )}
               <MarkdownContent text={row.text} />
             </div>
           </article>

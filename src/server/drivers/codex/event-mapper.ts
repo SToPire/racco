@@ -4,6 +4,7 @@ import type {
   TimelineEvent,
 } from "../../../shared/protocol.js";
 import type { ProviderSessionMetadata } from "../driver.js";
+import { isAssistantItem, mapAssistantItem } from "./activity-mapper.js";
 import type {
   CodexThread,
   CodexThreadItem,
@@ -116,13 +117,7 @@ export function mapItemEvents(
       : [{ type: "user.message", id: item.id, text }];
   }
 
-  if (item.type === "agentMessage") {
-    return [{ type: "assistant.message", id: item.id, text: item.text }];
-  }
-
-  if (item.type === "plan") {
-    return [{ type: "assistant.message", id: item.id, text: item.text }];
-  }
+  if (isAssistantItem(item)) return [mapAssistantItem(item)];
 
   if (item.type === "hookPrompt") {
     const text = item.fragments.map((fragment) => fragment.text).join("\n\n");

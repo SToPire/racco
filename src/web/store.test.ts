@@ -57,6 +57,79 @@ test("snapshot building matches streaming across replacements, removals, tools a
   );
 });
 
+test("materializes reasoning, plan documents and execution checklists as distinct rows for each agent", () => {
+  const events: TimelineEvent[] = [
+    {
+      type: "assistant.reasoning",
+      id: "reason",
+      summary: ["Inspect"],
+      partial: true,
+    },
+    { type: "assistant.plan", id: "proposal", text: "Initial", partial: true },
+    {
+      type: "plan.updated",
+      state: "running",
+      id: "turn:plan",
+      explanation: null,
+      steps: [{ step: "Implement", status: "pending" }],
+    },
+    {
+      type: "assistant.message",
+      id: "commentary",
+      text: "Updating the view",
+      phase: "commentary",
+    },
+    {
+      type: "subagent.event",
+      id: "child-event",
+      agentId: "child",
+      event: {
+        type: "assistant.reasoning",
+        id: "child:reason",
+        summary: ["Review"],
+      },
+    },
+  ];
+  const initial = buildTimeline(events);
+  const complete = applyTimelineEvent(
+    applyTimelineEvent(
+      applyTimelineEvent(initial, {
+        type: "assistant.reasoning",
+        id: "reason",
+        summary: ["Inspect", "Verify"],
+      }),
+      { type: "assistant.plan", id: "proposal", text: "Final proposal" },
+    ),
+    {
+      type: "plan.updated",
+      state: "running",
+      id: "turn:plan",
+      explanation: "Done",
+      steps: [{ step: "Implement", status: "completed" }],
+    },
+  );
+  assert.equal(complete.length, 5);
+  assert.deepEqual(complete[0], {
+    type: "assistant.reasoning",
+    id: "reason",
+    summary: ["Inspect", "Verify"],
+  });
+  assert.deepEqual(initial[0], events[0]);
+  assert.equal(
+    groupTimelineRows(
+      complete.filter(
+        (row): row is AgentTimelineRow => row.type !== "subagent",
+      ),
+    ).every((section) => section.type === "row"),
+    true,
+  );
+  const child = complete[4];
+  assert(child.type === "subagent");
+  assert.deepEqual(child.timeline, [
+    { type: "assistant.reasoning", id: "child:reason", summary: ["Review"] },
+  ]);
+});
+
 test("groups consecutive tool rows and preserves surrounding messages", () => {
   const rows: AgentTimelineRow[] = [
     { type: "assistant.message", id: "message-1", text: "Checking" },

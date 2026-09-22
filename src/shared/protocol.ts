@@ -74,18 +74,53 @@ export type SessionSummary = SessionRef & {
   compacting: boolean;
 };
 
+export type AssistantPhase = "commentary" | "final_answer";
+
+type AssistantContentState =
+  | { partial: true; stopReason?: never }
+  | { partial?: false; stopReason?: "interrupted" | "error" };
+
 export type AssistantMessageEvent = {
   type: "assistant.message";
   id: string;
   text: string;
-} & (
-  | { partial: true; stopReason?: never }
-  | { partial?: false; stopReason?: "interrupted" | "error" }
-);
+  // An absent/null phase means the provider did not classify the message.
+  phase?: AssistantPhase | null;
+} & AssistantContentState;
+
+export type AssistantReasoningEvent = {
+  type: "assistant.reasoning";
+  id: string;
+  // Only the provider's public summary; never raw reasoning content.
+  summary: string[];
+} & AssistantContentState;
+
+export type AssistantPlanEvent = {
+  type: "assistant.plan";
+  id: string;
+  text: string;
+} & AssistantContentState;
+
+export type AssistantContentEvent =
+  AssistantMessageEvent | AssistantReasoningEvent | AssistantPlanEvent;
+
+export type PlanStep = {
+  step: string;
+  status: "pending" | "inProgress" | "completed";
+};
+
+export type PlanUpdatedEvent = {
+  type: "plan.updated";
+  id: string;
+  explanation: string | null;
+  steps: PlanStep[];
+  state: "running" | "completed" | "interrupted" | "error";
+};
 
 export type AgentTimelineEvent =
   | { type: "user.message"; id: string; text: string }
-  | AssistantMessageEvent
+  | AssistantContentEvent
+  | PlanUpdatedEvent
   | { type: "assistant.message.removed"; id: string }
   | {
       type: "tool.started";

@@ -51,6 +51,7 @@ const thread: CodexThread = {
           type: "agentMessage",
           id: "agent-1",
           text: "done",
+          phase: "final_answer",
         },
       ],
     },
@@ -103,6 +104,7 @@ test("maps Codex history into materialized timeline rows", () => {
     type: "assistant.message",
     id: "agent-1",
     text: "done",
+    phase: "final_answer",
   });
 });
 
@@ -227,6 +229,7 @@ test("maps a targeted child thread into subagent metadata, output, and state", (
             type: "agentMessage",
             id: "child-message",
             text: "Review complete",
+            phase: "final_answer",
           },
         ],
       },
@@ -253,6 +256,7 @@ test("maps a targeted child thread into subagent metadata, output, and state", (
         type: "assistant.message",
         id: "racco-agent:child-message",
         text: "Review complete",
+        phase: "final_answer",
       },
     },
     {

@@ -83,7 +83,12 @@ export type CodexThreadItem =
       id: string;
       fragments: Array<{ text: string; hookRunId: string }>;
     }
-  | { type: "agentMessage"; id: string; text: string }
+  | {
+      type: "agentMessage";
+      id: string;
+      text: string;
+      phase: "commentary" | "final_answer" | null;
+    }
   | { type: "plan"; id: string; text: string }
   | { type: "reasoning"; id: string; summary: string[]; content: string[] }
   | {
@@ -214,6 +219,27 @@ export type DeltaNotification = {
   turnId: string;
   itemId: string;
   delta: string;
+};
+
+export type ReasoningSummaryDeltaNotification = DeltaNotification & {
+  summaryIndex: number;
+};
+
+export type ReasoningSummaryPartNotification = {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  summaryIndex: number;
+};
+
+export type TurnPlanNotification = {
+  threadId: string;
+  turnId: string;
+  explanation: string | null;
+  plan: Array<{
+    step: string;
+    status: "pending" | "inProgress" | "completed";
+  }>;
 };
 
 export type TurnNotification = {
