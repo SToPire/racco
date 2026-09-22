@@ -18,10 +18,22 @@ export function ToolCard({ row, selected, onSelect }: ToolCardProps) {
       type="button"
     >
       <span className="tool-card-description">
-        <strong>{presentation.label}</strong>
-        <span>{presentation.summary}</span>
-        {presentation.outcome && <small>{presentation.outcome}</small>}
-        {presentation.progress && <small>{presentation.progress}</small>}
+        <span className="tool-card-heading">
+          <strong title={presentation.label}>{presentation.label}</strong>
+          <span className="tool-card-summary" title={presentation.summary}>
+            {presentation.summary}
+          </span>
+          {presentation.outcome && (
+            <small className="tool-card-outcome" title={presentation.outcome}>
+              {presentation.outcome}
+            </small>
+          )}
+        </span>
+        {presentation.progress && (
+          <small className="tool-card-progress" title={presentation.progress}>
+            {presentation.progress}
+          </small>
+        )}
         {presentation.preview && (
           <span className={`tool-preview tool-preview-${row.status}`}>
             {presentation.preview}

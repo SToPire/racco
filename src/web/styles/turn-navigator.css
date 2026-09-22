@@ -103,15 +103,16 @@
 .tool-card {
   display: flex;
   width: 100%;
+  min-height: 32px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   margin-left: 45px;
-  padding: 12px 13px;
+  padding: 5px 8px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-subtle);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
   font-size: 0.78rem;
@@ -161,24 +162,56 @@
 }
 .tool-card-description {
   display: grid;
+  flex: 1;
   min-width: 0;
-  gap: 4px;
+  gap: 3px;
   overflow-wrap: anywhere;
 }
-.tool-card-description > span {
+.tool-card-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 20px;
+}
+.tool-card-heading > strong {
+  max-width: 96px;
+  flex: 0 0 auto;
+}
+.tool-card-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-muted);
   font-family: var(--font-code);
   font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tool-card-description > small {
+.tool-card-outcome,
+.tool-card-progress {
+  overflow: hidden;
   color: var(--text-faint);
   font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-card-outcome {
+  max-width: 35%;
+  flex: 0 0 auto;
 }
 .tool-card-description > .tool-preview {
-  margin: 3px 0 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin: 0;
   padding: 0;
+  color: var(--text-muted);
+  font-family: var(--font-code);
   white-space: pre-wrap;
   font-size: 0.7rem;
+  line-height: 16px;
 }
 .tool-card-description > .tool-preview-failed {
   color: var(--danger);
@@ -186,12 +219,17 @@
 .tool-card > .tool-status {
   flex: 0 0 auto;
   align-self: start;
+  background: transparent;
 }
 
 .tool-group-items {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 2px;
+}
+
+.tool-history .tool-group-items,
+.tool-history + .tool-group-items {
+  margin-top: 4px;
 }
 
 .tool-group .tool-card {

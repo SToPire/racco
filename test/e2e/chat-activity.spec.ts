@@ -80,7 +80,25 @@ for (const viewport of [
     ).toContainText("rendering chunks");
     await expect(page.locator('[data-timeline-row="read-1"]')).toBeHidden();
     await page.locator(".tool-history > summary").click();
-    await expect(page.locator('[data-timeline-row="read-1"]')).toBeVisible();
+    const read = page.locator('[data-timeline-row="read-1"]');
+    await expect(read).toBeVisible();
+    await expect(read).toContainText("src/component-1.tsx");
+    await expect
+      .poll(async () => (await read.boundingBox())?.height ?? Infinity)
+      .toBeLessThanOrEqual(34);
+    await expect
+      .poll(
+        async () =>
+          (
+            await page
+              .locator('[data-timeline-row="test-failure"]')
+              .boundingBox()
+          )?.height ?? Infinity,
+      )
+      .toBeLessThanOrEqual(68);
+    await page.screenshot({
+      path: testInfo.outputPath(`chat-expanded-${viewport.width}.png`),
+    });
     await page.locator(".tool-history > summary").click();
     await page.screenshot({
       path: testInfo.outputPath(`chat-${viewport.width}.png`),

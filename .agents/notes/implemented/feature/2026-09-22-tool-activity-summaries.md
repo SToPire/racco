@@ -26,6 +26,8 @@ Status: implemented
 
 紧凑工具行限制名称宽度，长 MCP 名称不能挤掉动作和状态；完整名称仍可在标题提示和工具详情读取。
 
+工具名、对象和已有结果统计横向排列，缩小留白并弱化常驻边框；长摘要截断，完整内容仍由工具详情承载。运行进度和错误、输出预览按需增加有限行数，避免把有用信息重新藏进折叠层。这延续摘要可见的决定，参考 [DeepSeek Harness 的工具行](https://github.com/deepseek-ai/deepseek-harness/blob/c36a83ff6bb95e3f82cf79f9be7c724270a8aa61/packages/client/ui-tool/src/client/tool/components/ToolRow.module.css)以减少纵向占用；代价是长对象需要悬停或打开详情阅读。
+
 Claude 编辑的变更规模与后台任务身份复用[原生结构化结果](../bug-fix/2026-09-22-claude-structured-tool-results.md)投影，与详情采用同一事实来源；任务启动调用完成仍不代表后台任务完成。
 
 文件差异的原生格式归一、统计和着色边界由[统一差异语义](../bug-fix/2026-09-22-file-change-diff-contract.md)规定，原文符号和类似文件头的代码不能改变增删事实。
