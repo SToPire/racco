@@ -294,6 +294,135 @@ test("routes complete live child messages and results through task identity", ()
   );
 });
 
+test("maps the SDK heartbeat pulse to the actual Bash call and finishes without a false child warning", () => {
+  const mapper = new ClaudeLiveMapper();
+  const events = mapper.map(
+    assistantBlock("bash-start", "api-bash", [
+      {
+        type: "tool_use",
+        id: "bash-call",
+        name: "Bash",
+        input: { command: "sleep 30" },
+      },
+    ]),
+  );
+  events.push(
+    ...mapper.map({
+      type: "tool_progress",
+      tool_use_id: "bash-call-heartbeat-0",
+      tool_name: "Bash",
+      parent_tool_use_id: "bash-call",
+      elapsed_time_seconds: 5,
+      heartbeat: true,
+      uuid: randomUUID(),
+      session_id: "session-1",
+    }),
+  );
+  events.push(
+    ...mapper.map({
+      type: "user",
+      parent_tool_use_id: null,
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "bash-call", content: "done" },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(mapper.finish("completed"), []);
+  const rows = buildTimeline(events);
+  assert.equal(rows.length, 1);
+  const [tool] = rows;
+  assert(tool?.type === "tool");
+  assert.equal(tool.id, "bash-call");
+  assert.equal(tool.status, "completed");
+  assert.equal(tool.progress?.elapsedSeconds, 5);
+});
+
+test("SDK delegated Bash forwarding cannot assign the child's elapsed time to the Agent invocation", () => {
+  const mapper = new ClaudeLiveMapper();
+  const events = mapper.map(
+    assistantBlock("spawn-message", "api-spawn", [
+      {
+        type: "tool_use",
+        id: "spawn",
+        name: "Agent",
+        input: { prompt: "Run tests" },
+      },
+    ]),
+  );
+  events.push(
+    ...mapper.map({
+      type: "system",
+      subtype: "task_started",
+      task_id: "worker",
+      tool_use_id: "spawn",
+      task_type: "local_agent",
+      description: "Run tests",
+      uuid: randomUUID(),
+      session_id: "session-1",
+    }),
+  );
+  events.push(
+    ...mapper.map(
+      assistantBlock(
+        "child-bash-message",
+        "api-child",
+        [
+          {
+            type: "tool_use",
+            id: "child-bash",
+            name: "Bash",
+            input: { command: "pnpm test" },
+          },
+        ],
+        "spawn",
+      ),
+    ),
+  );
+  // The SDK's child callback drops the inner parent when forwarding Bash
+  // progress; its outer wrapper supplies the Agent invocation as the parent.
+  assert.deepEqual(
+    mapper.map({
+      type: "tool_progress",
+      tool_use_id: "bash-progress-0",
+      tool_name: "Bash",
+      parent_tool_use_id: "spawn",
+      elapsed_time_seconds: 12,
+      uuid: randomUUID(),
+      session_id: "session-1",
+    }),
+    [],
+  );
+  events.push(
+    ...mapper.map({
+      type: "tool_progress",
+      tool_use_id: "child-bash-heartbeat-0",
+      tool_name: "Bash",
+      parent_tool_use_id: "child-bash",
+      elapsed_time_seconds: 8,
+      heartbeat: true,
+      uuid: randomUUID(),
+      session_id: "session-1",
+    }),
+  );
+  const rows = buildTimeline(events);
+  const invocation = rows.find((row) => row.id === "spawn");
+  assert(invocation?.type === "tool");
+  assert.equal(invocation.progress, undefined);
+  const child = rows.find((row) => row.type === "subagent");
+  assert(child?.type === "subagent");
+  assert.equal(child.timeline.length, 1);
+  const [bash] = child.timeline;
+  assert(bash?.type === "tool");
+  assert.equal(bash.id, "child-bash");
+  assert.equal(bash.progress?.elapsedSeconds, 8);
+  assert(
+    !mapper.finish("completed").some((event) => event.type === "system.notice"),
+  );
+});
+
 function stream(
   event: SDKPartialAssistantMessage["event"],
 ): SDKPartialAssistantMessage {

@@ -3,6 +3,7 @@ import type {
   SDKTaskNotificationMessage,
   SDKTaskProgressMessage,
   SDKTaskStartedMessage,
+  SDKToolProgressMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentTimelineEvent,
@@ -29,6 +30,13 @@ type Task = Owner & {
   settled: boolean;
 };
 type TaskUpdate = SDKTaskProgressMessage | SDKTaskNotificationMessage;
+type PendingToolProgress = {
+  elapsedSeconds?: number;
+  retry?: {
+    uuid: string;
+    detail: NonNullable<SDKToolProgressMessage["subagent_retry"]>;
+  };
+};
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -50,6 +58,11 @@ export class ClaudeActivityTracker {
   readonly #calls = new Map<string, ToolCall>();
   readonly #pendingTools = new Map<string, Owner>();
   readonly #settledTools = new Set<string>();
+  readonly #pendingToolProgress = new Map<
+    string,
+    Map<string, PendingToolProgress>
+  >();
+  readonly #toolElapsedSeconds = new Map<string, number>();
   readonly #agents = new Map<string, Agent>();
   readonly #agentByTool = new Map<string, string>();
   readonly #pendingChildEvents = new Map<string, AgentTimelineEvent[]>();
@@ -82,6 +95,8 @@ export class ClaudeActivityTracker {
       } else if (event.type === "tool.completed") {
         this.#pendingTools.delete(event.id);
         this.#settledTools.add(event.id);
+        this.#pendingToolProgress.delete(event.id);
+        this.#toolElapsedSeconds.delete(event.id);
         const call = this.#calls.get(event.id);
         const details = record(event.details);
         const output =
@@ -136,6 +151,21 @@ export class ClaudeActivityTracker {
         }
       }
       result.push(...this.#route([event], parentToolUseId, ownerAgentId));
+      if (event.type === "tool.started") {
+        const progress = this.#pendingToolProgress
+          .get(event.id)
+          ?.get(event.tool);
+        this.#pendingToolProgress.delete(event.id);
+        if (progress !== undefined && !this.#settledTools.has(event.id)) {
+          result.push(
+            ...this.#emitToolProgress(
+              event.id,
+              progress,
+              this.#calls.get(event.id)!,
+            ),
+          );
+        }
+      }
     }
     return result;
   }
@@ -217,20 +247,39 @@ export class ClaudeActivityTracker {
         message.elapsed_time_seconds < 0
       )
         throw new Error("Invalid Claude tool progress duration");
-      const events: AgentTimelineEvent[] = [];
-      if (!this.#calls.has(message.tool_use_id))
-        events.push({
-          type: "tool.started",
-          id: message.tool_use_id,
-          tool: message.tool_name,
-          input: undefined,
-        });
-      events.push({
-        type: "tool.progress",
-        id: message.tool_use_id,
-        elapsedSeconds: message.elapsed_time_seconds,
-      });
-      return this.observe(events, message.parent_tool_use_id);
+      // Pulse IDs are not call IDs. A forwarded child Bash pulse may name the
+      // delegating Agent call as its parent, so parent identity alone is not
+      // enough: its native tool name must match before applying an observation.
+      const callId = message.parent_tool_use_id;
+      if (callId === null || this.#settledTools.has(callId)) return [];
+      const call = this.#calls.get(callId);
+      if (call !== undefined && call.name !== message.tool_name) return [];
+      const sources =
+        this.#pendingToolProgress.get(callId) ??
+        new Map<string, PendingToolProgress>();
+      const progress = sources.get(message.tool_name) ?? {};
+      if (message.subagent_retry !== undefined) {
+        progress.retry = { uuid: message.uuid, detail: message.subagent_retry };
+      } else if (
+        message.heartbeat === true ||
+        message.tool_name === "Bash" ||
+        message.tool_name === "PowerShell"
+      ) {
+        progress.elapsedSeconds = Math.max(
+          progress.elapsedSeconds ?? 0,
+          message.elapsed_time_seconds,
+        );
+      } else {
+        // Agent retry resolution and REPL call notifications carry a zero
+        // placeholder, not an elapsed-time measurement.
+        return [];
+      }
+      if (call === undefined) {
+        sources.set(message.tool_name, progress);
+        this.#pendingToolProgress.set(callId, sources);
+        return [];
+      }
+      return this.#emitToolProgress(callId, progress, call);
     }
     if (message.type === "tool_use_summary") {
       const parents = new Set(
@@ -276,7 +325,8 @@ export class ClaudeActivityTracker {
 
   finish(status: Exclude<ToolCompletionStatus, "completed">): TimelineEvent[] {
     const events: TimelineEvent[] = [];
-    for (const [id, owner] of this.#pendingTools)
+    for (const [id, owner] of this.#pendingTools) {
+      this.#settledTools.add(id);
       events.push(
         ...this.#route(
           [{ type: "tool.completed", id, status }],
@@ -284,7 +334,10 @@ export class ClaudeActivityTracker {
           owner.ownerAgentId,
         ),
       );
+    }
     this.#pendingTools.clear();
+    this.#pendingToolProgress.clear();
+    this.#toolElapsedSeconds.clear();
     for (const task of this.#tasks.values()) {
       if (task.settled || task.agent) continue;
       events.push(
@@ -374,6 +427,39 @@ export class ClaudeActivityTracker {
     return [];
   }
 
+  #emitToolProgress(
+    callId: string,
+    progress: PendingToolProgress,
+    owner: Owner,
+  ): TimelineEvent[] {
+    const events: AgentTimelineEvent[] = [];
+    const previousElapsed = this.#toolElapsedSeconds.get(callId);
+    if (
+      progress.elapsedSeconds !== undefined &&
+      (previousElapsed === undefined ||
+        progress.elapsedSeconds > previousElapsed)
+    ) {
+      this.#toolElapsedSeconds.set(callId, progress.elapsedSeconds);
+      events.push({
+        type: "tool.progress",
+        id: callId,
+        elapsedSeconds: progress.elapsedSeconds,
+      });
+    }
+    if (progress.retry !== undefined) {
+      const { uuid, detail } = progress.retry;
+      events.push({
+        type: "system.notice",
+        id: `claude-tool-retry:${uuid}`,
+        level: "warning",
+        text: `Agent API 重试 ${detail.attempt}/${detail.max_retries} · ${detail.error_category}${detail.error_status === null ? "" : ` (${detail.error_status})`} · ${detail.retry_delay_ms} ms 后重试`,
+      });
+    }
+    return events.length === 0
+      ? []
+      : this.#route(events, owner.parentToolUseId, owner.ownerAgentId);
+  }
+
   #setAgentState(
     agentId: string,
     state: SubagentState,
@@ -410,6 +496,8 @@ export class ClaudeActivityTracker {
       if (ownerId !== agentId) continue;
       this.#pendingTools.delete(id);
       this.#settledTools.add(id);
+      this.#pendingToolProgress.delete(id);
+      this.#toolElapsedSeconds.delete(id);
       events.push(
         ...this.#route(
           [{ type: "tool.completed", id, status }],
