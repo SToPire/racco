@@ -509,6 +509,41 @@
   color: var(--text-faint);
   user-select: none;
 }
+
+.file-line-number-selected {
+  border-radius: 3px;
+  background: var(--selection-bg);
+  color: var(--selection-text);
+  font-weight: 700;
+  outline: 2px solid var(--selection-border);
+}
+
+.project-file-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.project-file-unavailable {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: not-allowed;
+}
+
+.file-change > header .project-file-link,
+.file-change > header .project-file-unavailable {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .file-preview-status {
   display: flex;
   justify-content: space-between;

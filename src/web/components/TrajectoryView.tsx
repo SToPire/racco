@@ -9,6 +9,7 @@ import {
 } from "../trajectory";
 import { FileChanges } from "./FileChanges";
 import { MarkdownContent } from "./MarkdownContent";
+import { FileReferenceScope } from "../FileNavigationContext";
 
 type InspectorTab = "summary" | "payload" | "result" | "raw";
 
@@ -67,7 +68,7 @@ export function TrajectoryInspector({
   onReveal?: (entry: TrajectoryEntry) => void;
 }) {
   const [tab, setTab] = useState<InspectorTab>("summary");
-  return (
+  const content = (
     <aside
       className={`trajectory-inspector${onReveal && (entry.rowId !== undefined || entry.agentId !== undefined) ? " with-reveal" : ""}`}
       aria-label="交互详情"
@@ -160,6 +161,11 @@ export function TrajectoryInspector({
         {tab === "raw" && <pre>{json(entry.raw)}</pre>}
       </div>
     </aside>
+  );
+  return entry.agentId === undefined ? (
+    content
+  ) : (
+    <FileReferenceScope baseDirectory={entry.cwd}>{content}</FileReferenceScope>
   );
 }
 

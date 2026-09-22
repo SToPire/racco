@@ -13,10 +13,14 @@ export function FilePreview({
   worktree,
   enabled,
   activePath,
+  line,
+  locationRequestId,
 }: {
   worktree: WorktreeEntry;
   enabled: boolean;
   activePath?: string;
+  line?: number;
+  locationRequestId?: number;
 }) {
   const [preview, setPreview] = useState<ProjectFilePreview>();
   const [fileError, setFileError] = useState<{
@@ -120,7 +124,12 @@ export function FilePreview({
               </button>
             </div>
           ) : currentPreview?.kind === "text" ? (
-            <CodePreview path={activePath} content={currentPreview.content} />
+            <CodePreview
+              path={activePath}
+              content={currentPreview.content}
+              line={line}
+              locationRequestId={locationRequestId}
+            />
           ) : currentPreview?.kind === "image" ? (
             <div className="file-image-preview">
               <img src={currentPreview.dataUrl} alt={activePath} />
@@ -142,6 +151,13 @@ export function FilePreview({
                   ? `${currentPreview.content.split("\n").length} 行 · UTF-8`
                   : "")}
             </span>
+            {line !== undefined && currentPreview?.kind === "text" && (
+              <span role="status">
+                {line <= currentPreview.content.split("\n").length
+                  ? `第 ${line} 行`
+                  : `第 ${line} 行不存在`}
+              </span>
+            )}
             {currentPreview && (
               <span>
                 {currentPreview.size < 1024

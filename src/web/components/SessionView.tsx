@@ -25,6 +25,7 @@ import { TurnNavigator } from "./TurnNavigator";
 import { useModelSelection } from "../hooks/useModelSelection";
 import { useConversationScroll } from "../hooks/useConversationScroll";
 import type { TrajectoryEntry } from "../trajectory";
+import { FileReferenceScope } from "../FileNavigationContext";
 
 type SessionViewProps = {
   active: boolean;
@@ -259,14 +260,22 @@ export function SessionView({
               <p>{loaded ? "等待第一条消息…" : "正在读取对话…"}</p>
             </div>
           ) : (
-            <Timeline
-              sessionId={session.sessionId}
-              denseTools={selectedSubagent !== undefined}
-              onSelectTool={onSelectTool}
-              provider={session.provider}
-              rows={selectedRows}
-              selectedToolId={selectedToolId}
-            />
+            <FileReferenceScope
+              baseDirectory={
+                selectedSubagent === undefined
+                  ? session.cwd
+                  : selectedSubagent.cwd
+              }
+            >
+              <Timeline
+                sessionId={session.sessionId}
+                denseTools={selectedSubagent !== undefined}
+                onSelectTool={onSelectTool}
+                provider={session.provider}
+                rows={selectedRows}
+                selectedToolId={selectedToolId}
+              />
+            </FileReferenceScope>
           )}
           {selectedSubagent === undefined && subagents.length > 0 && (
             <SubagentCards subagents={subagents} onSelect={selectAgent} />

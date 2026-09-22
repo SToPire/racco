@@ -1,15 +1,26 @@
-import { type CSSProperties, useEffect, useState } from "react";
-import { useRacco } from "./hooks/useRacco";
-import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
-import { useProjectPicker } from "./hooks/useProjectPicker";
-import { SessionList } from "./components/SessionList";
-import { SessionView } from "./components/SessionView";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { WorktreeEntry } from "../shared/protocol";
 import { DirectoryBrowser } from "./components/DirectoryBrowser";
 import { NewSessionView } from "./components/NewSessionView";
 import { ProjectDock, type DockPanel } from "./components/ProjectDock";
+import { SessionList } from "./components/SessionList";
+import { SessionView } from "./components/SessionView";
 import { ToolInspector } from "./components/ToolInspector";
+import {
+  FileNavigationContext,
+  FileReferenceScope,
+} from "./FileNavigationContext";
+import type { FileOpenRequest, ProjectFileLocation } from "./file-navigation";
+import { useProjectPicker } from "./hooks/useProjectPicker";
+import { useRacco } from "./hooks/useRacco";
+import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
 import { findTimelineTool } from "./store";
-import type { WorktreeEntry } from "../shared/protocol";
 
 export function App() {
   const navigation = useWorkspaceNavigation();
@@ -71,7 +82,16 @@ export function App() {
   const [selectedWorktreePath, setSelectedWorktreePath] = useState("");
   /** Worktree chosen in the new-session view; empty means the primary one. */
   const [newSessionWorktreePath, setNewSessionWorktreePath] = useState("");
+  const [fileRequest, setFileRequest] = useState<FileOpenRequest>();
+  const fileRequestSequence = useRef(0);
+  const onFileOpened = useCallback((requestId: number) => {
+    setFileRequest((current) =>
+      current?.requestId === requestId ? undefined : current,
+    );
+  }, []);
+
   useEffect(() => setSelectedToolId(undefined), [activeRef]);
+
   function startNewSession(worktree?: WorktreeEntry) {
     racco.clearHomeError();
     const target =
@@ -88,10 +108,20 @@ export function App() {
         "",
     );
   }
+
   const selectedTool = findTimelineTool(rows, selectedToolId);
+  const selectedToolOwner = rows.find(
+    (row) =>
+      row.type === "subagent" &&
+      row.timeline.some((candidate) => candidate === selectedTool),
+  );
   const contextWorktree = worktrees.find(
     (worktree) => worktree.path === selectedWorktreePath,
   );
+  const sessionWorktree = worktrees.find(
+    (worktree) => worktree.path === session?.cwd,
+  );
+
   // Opening a different session selects its directory once. Subsequent manual
   // selections remain usable while that session stays open.
   useEffect(() => {
@@ -124,6 +154,7 @@ export function App() {
     selectedWorktreePath,
     worktrees,
   ]);
+
   const dockWorktreePath =
     contextWorktree?.path ??
     worktrees.find((worktree) => worktree.available)?.path ??
@@ -150,159 +181,193 @@ export function App() {
     }
   }
 
+  function openReferencedFile(location: ProjectFileLocation) {
+    if (session === undefined) return;
+    setSelectedToolId(undefined);
+    setSelectedWorktreePath(session.cwd);
+    setDockPanel("files");
+    fileRequestSequence.current += 1;
+    setFileRequest({
+      ...location,
+      worktreePath: session.cwd,
+      requestId: fileRequestSequence.current,
+    });
+  }
+
   return (
-    <main
-      style={{ "--project-dock-width": `${dockWidth}px` } as CSSProperties}
-      className={`app-layout${historyOpen ? " history-open" : ""}${selectedTool !== undefined ? " inspector-open" : ""}${dockPanel ? " dock-open" : ""}`}
-    >
-      <SessionList
-        worktrees={worktrees}
-        worktreeErrors={worktreeErrors}
-        selectedWorktreePath={selectedWorktreePath}
-        onSelectWorktree={selectWorktree}
-        refreshingProjectId={racco.busyWorktreeProjectId}
-        activeRef={activeRef}
-        error={homeError}
-        loading={loading}
-        onNew={startNewSession}
-        onDeleteProject={deleteProject}
-        onDeleteSession={deleteSession}
-        onDeleteWorktree={async (worktree) => {
-          const lines = [
-            `删除 Worktree「${worktree.name}」？`,
-            `目录：${worktree.path}`,
-            "分支会保留，目录本身会被删除，无法撤销。",
-          ].filter((line) => line !== "");
-          if (!window.confirm(lines.join("\n\n"))) return;
-          // Dirtiness is decided by the server on delete (the client's flag can
-          // be stale until an explicit refresh). If the directory turns out
-          // dirty, confirm explicitly before force-retrying; uncommitted work
-          // gets its own confirmation rather than being buried in the first one.
-          try {
-            await deleteWorktree(worktree.projectId, worktree.path);
-          } catch (error) {
-            if (!(error instanceof Error)) return;
-            const dirtyLines = [
-              `「${worktree.name}」含未提交的修改或未跟踪的文件。`,
-              "删除会一并丢弃这些内容，无法恢复。",
-              "确认继续删除吗？",
-            ];
-            if (!window.confirm(dirtyLines.join("\n\n"))) return;
-            await deleteWorktree(worktree.projectId, worktree.path, true);
-          }
-        }}
-        onRefreshWorktrees={(projectId) =>
-          void refreshProjectWorktrees(projectId)
-        }
-        onImportProject={() => openProjectPicker(false)}
-        onOpen={openSession}
-        projects={projects}
-        sessions={sessions}
-      />
-
-      <section className="workspace">
-        {activeRef !== undefined && session === undefined && (
-          <div className="conversation-loading">
-            <span className="button-spinner" />
-            <p>正在读取对话…</p>
-            {sessionError && <p className="error-banner">{sessionError}</p>}
-          </div>
-        )}
-        {sessionViews.map((view) => (
-          <SessionView
-            key={view.session.sessionId}
-            active={activeRef?.sessionId === view.session.sessionId}
-            loaded={view.loaded}
-            connection={connection}
-            error={
-              activeRef?.sessionId === view.session.sessionId
-                ? sessionError
-                : undefined
+    <FileNavigationContext.Provider
+      value={
+        session === undefined
+          ? undefined
+          : {
+              projectRoot: session.cwd,
+              baseDirectory: session.cwd,
+              available: sessionWorktree?.available === true,
+              onOpenFile: openReferencedFile,
             }
-            interactions={view.interactions}
-            onBack={showHistory}
-            onInterrupt={interruptTurn}
-            onCompact={compactSession}
-            onResolve={resolveInteraction}
-            onSelectTool={setSelectedToolId}
-            onSend={sendTurn}
-            rows={view.rows}
-            selectedToolId={selectedToolId}
-            sending={sending}
-            session={view.session}
-          />
-        ))}
-        {activeRef === undefined && (
-          <NewSessionView
-            active={!historyOpen}
-            connected={connection === "open"}
-            creating={creating}
-            error={homeError}
-            health={health}
-            onBack={showHistory}
-            onCreate={createSession}
-            onImportProject={() => openProjectPicker(true)}
-            onProjectChange={selectNewSessionProject}
-            onWorktreeChange={selectNewSessionWorktree}
-            onCreateWorktree={createWorktree}
-            worktreeError={worktreeErrors[newSessionProjectId]}
-            busyWorktree={racco.busyWorktreeProjectId === newSessionProjectId}
-            projectId={newSessionProjectId}
+      }
+    >
+      <main
+        style={{ "--project-dock-width": `${dockWidth}px` } as CSSProperties}
+        className={`app-layout${historyOpen ? " history-open" : ""}${selectedTool !== undefined ? " inspector-open" : ""}${dockPanel ? " dock-open" : ""}`}
+      >
+        <SessionList
+          worktrees={worktrees}
+          worktreeErrors={worktreeErrors}
+          selectedWorktreePath={selectedWorktreePath}
+          onSelectWorktree={selectWorktree}
+          refreshingProjectId={racco.busyWorktreeProjectId}
+          activeRef={activeRef}
+          error={homeError}
+          loading={loading}
+          onNew={startNewSession}
+          onDeleteProject={deleteProject}
+          onDeleteSession={deleteSession}
+          onDeleteWorktree={async (worktree) => {
+            const lines = [
+              `删除 Worktree「${worktree.name}」？`,
+              `目录：${worktree.path}`,
+              "分支会保留，目录本身会被删除，无法撤销。",
+            ].filter((line) => line !== "");
+            if (!window.confirm(lines.join("\n\n"))) return;
+            try {
+              await deleteWorktree(worktree.projectId, worktree.path);
+            } catch (error) {
+              if (!(error instanceof Error)) return;
+              const dirtyLines = [
+                `「${worktree.name}」含未提交的修改或未跟踪的文件。`,
+                "删除会一并丢弃这些内容，无法恢复。",
+                "确认继续删除吗？",
+              ];
+              if (!window.confirm(dirtyLines.join("\n\n"))) return;
+              await deleteWorktree(worktree.projectId, worktree.path, true);
+            }
+          }}
+          onRefreshWorktrees={(projectId) =>
+            void refreshProjectWorktrees(projectId)
+          }
+          onImportProject={() => openProjectPicker(false)}
+          onOpen={openSession}
+          projects={projects}
+          sessions={sessions}
+        />
+
+        <section className="workspace">
+          {activeRef !== undefined && session === undefined && (
+            <div className="conversation-loading">
+              <span className="button-spinner" />
+              <p>正在读取对话…</p>
+              {sessionError && <p className="error-banner">{sessionError}</p>}
+            </div>
+          )}
+          {sessionViews.map((view) => (
+            <SessionView
+              key={view.session.sessionId}
+              active={activeRef?.sessionId === view.session.sessionId}
+              loaded={view.loaded}
+              connection={connection}
+              error={
+                activeRef?.sessionId === view.session.sessionId
+                  ? sessionError
+                  : undefined
+              }
+              interactions={view.interactions}
+              onBack={showHistory}
+              onInterrupt={interruptTurn}
+              onCompact={compactSession}
+              onResolve={resolveInteraction}
+              onSelectTool={setSelectedToolId}
+              onSend={sendTurn}
+              rows={view.rows}
+              selectedToolId={selectedToolId}
+              sending={sending}
+              session={view.session}
+            />
+          ))}
+          {activeRef === undefined && (
+            <NewSessionView
+              active={!historyOpen}
+              connected={connection === "open"}
+              creating={creating}
+              error={homeError}
+              health={health}
+              onBack={showHistory}
+              onCreate={createSession}
+              onImportProject={() => openProjectPicker(true)}
+              onProjectChange={selectNewSessionProject}
+              onWorktreeChange={selectNewSessionWorktree}
+              onCreateWorktree={createWorktree}
+              worktreeError={worktreeErrors[newSessionProjectId]}
+              busyWorktree={
+                racco.busyWorktreeProjectId === newSessionProjectId
+              }
+              projectId={newSessionProjectId}
+              projects={projects}
+              worktrees={worktrees}
+              worktreePath={newSessionWorktreePath}
+            />
+          )}
+        </section>
+
+        {directoryPicker !== undefined && (
+          <DirectoryBrowser
+            initialPath={directoryPicker.initialPath}
             projects={projects}
-            worktrees={worktrees}
-            worktreePath={newSessionWorktreePath}
+            onClose={() => setDirectoryPicker(undefined)}
+            onImport={importSelectedDirectory}
           />
         )}
-      </section>
 
-      {directoryPicker !== undefined && (
-        <DirectoryBrowser
-          initialPath={directoryPicker.initialPath}
+        {selectedTool !== undefined && (
+          <FileReferenceScope
+            baseDirectory={
+              selectedToolOwner?.type === "subagent"
+                ? selectedToolOwner.cwd
+                : session?.cwd
+            }
+          >
+            <ToolInspector
+              key={selectedTool.id}
+              onClose={() => setSelectedToolId(undefined)}
+              row={selectedTool}
+            />
+          </FileReferenceScope>
+        )}
+        <ProjectDock
+          active={dockPanel}
+          width={dockWidth}
           projects={projects}
-          onClose={() => setDirectoryPicker(undefined)}
-          onImport={importSelectedDirectory}
+          worktrees={worktrees}
+          worktreePath={dockWorktreePath}
+          fileRequest={fileRequest}
+          onFileOpened={onFileOpened}
+          onWorktreeChange={selectWorktree}
+          onToggle={(panel) =>
+            setDockPanel((current) => (current === panel ? undefined : panel))
+          }
+          onResize={setDockWidth}
+          sessions={sessions}
+          onImport={(provider, nativeId, path) =>
+            racco.importSession(
+              provider,
+              nativeId,
+              worktrees.find((worktree) => worktree.path === path)?.projectId ??
+                "",
+              path,
+            )
+          }
+          onDeleteNative={(provider, nativeId, path) =>
+            deleteNativeSession(
+              provider,
+              nativeId,
+              worktrees.find((worktree) => worktree.path === path)?.projectId ??
+                "",
+              path,
+            )
+          }
+          onOpen={openSession}
         />
-      )}
-
-      {selectedTool !== undefined && (
-        <ToolInspector
-          key={selectedTool.id}
-          onClose={() => setSelectedToolId(undefined)}
-          row={selectedTool}
-        />
-      )}
-      <ProjectDock
-        active={dockPanel}
-        width={dockWidth}
-        projects={projects}
-        worktrees={worktrees}
-        worktreePath={dockWorktreePath}
-        onWorktreeChange={selectWorktree}
-        onToggle={(panel) =>
-          setDockPanel((current) => (current === panel ? undefined : panel))
-        }
-        onResize={setDockWidth}
-        sessions={sessions}
-        onImport={(provider, nativeId, path) =>
-          racco.importSession(
-            provider,
-            nativeId,
-            worktrees.find((worktree) => worktree.path === path)?.projectId ??
-              "",
-            path,
-          )
-        }
-        onDeleteNative={(provider, nativeId, path) =>
-          deleteNativeSession(
-            provider,
-            nativeId,
-            worktrees.find((worktree) => worktree.path === path)?.projectId ??
-              "",
-            path,
-          )
-        }
-        onOpen={openSession}
-      />
-    </main>
+      </main>
+    </FileNavigationContext.Provider>
   );
 }

@@ -9,6 +9,7 @@ import { UiIcon } from "./UiIcon";
 import { FileIcon } from "./files/FileIcon";
 import { ProjectFiles } from "./files/ProjectFiles";
 import { ProjectSessions } from "./ProjectSessions";
+import type { FileOpenRequest } from "../file-navigation";
 
 export type DockPanel = "files" | "sessions";
 
@@ -21,6 +22,8 @@ type Props = {
   /** The selected worktree's path; the dock is rooted here, not at the project. */
   worktreePath: string;
   onWorktreeChange: (path: string) => void;
+  fileRequest?: FileOpenRequest;
+  onFileOpened: (requestId: number) => void;
   onToggle: (panel: DockPanel) => void;
   onResize: (width: number) => void;
   sessions: SessionSummary[];
@@ -44,6 +47,8 @@ export function ProjectDock({
   worktrees,
   worktreePath,
   onWorktreeChange,
+  fileRequest,
+  onFileOpened,
   onToggle,
   onResize,
   sessions,
@@ -234,6 +239,12 @@ export function ProjectDock({
               worktree={worktree}
               enabled={active === "files"}
               controls={active === "files" ? controls : null}
+              fileRequest={
+                fileRequest?.worktreePath === worktree.path
+                  ? fileRequest
+                  : undefined
+              }
+              onFileOpened={onFileOpened}
             />
           )}
         </div>
