@@ -298,9 +298,7 @@ export function App() {
               onWorktreeChange={selectNewSessionWorktree}
               onCreateWorktree={createWorktree}
               worktreeError={worktreeErrors[newSessionProjectId]}
-              busyWorktree={
-                racco.busyWorktreeProjectId === newSessionProjectId
-              }
+              busyWorktree={racco.busyWorktreeProjectId === newSessionProjectId}
               projectId={newSessionProjectId}
               projects={projects}
               worktrees={worktrees}

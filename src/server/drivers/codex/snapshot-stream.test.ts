@@ -721,7 +721,7 @@ for (const warmRoot of [false, true]) {
       cwd: process.cwd(),
       updatedAt: "2026-09-22T00:00:00.000Z",
     });
-    const hub = new SessionHub([f.driver], repository);
+    const hub = new SessionHub([f.driver], repository, process.cwd());
     t.after(() => hub.close());
     const ref = { sessionId: managed.sessionId };
     const sent: ServerMessage[] = [];

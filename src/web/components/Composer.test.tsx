@@ -11,7 +11,7 @@ import type { ModelSelection } from "./ModelSettingsControls";
 const selection: ModelSelection = {
   catalog: {
     provider: "codex",
-    projectId: "project",
+    path: "/work/project",
     ...fixtureModelCatalog(),
   },
   draft: fixtureModelSettings,

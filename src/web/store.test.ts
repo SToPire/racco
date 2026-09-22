@@ -22,7 +22,12 @@ test("snapshot building matches streaming across replacements, removals, tools a
         tool: "shell",
         input: { command: id },
       },
-      { type: "tool.completed", id: `tool-${id}`, success: true, output: id },
+      {
+        type: "tool.completed",
+        id: `tool-${id}`,
+        status: "completed",
+        output: id,
+      },
       {
         type: "assistant.message",
         id: `reply-${id}`,

@@ -12,7 +12,7 @@ Chat 的工具组只显示调用数量，展开后的工具仍缺少动作和对
 
 最高优先级是利用已有数据恢复默认视图的可理解性：[工具活动摘要](2026-09-22-tool-activity-summaries.md)与[结果优先的详情](2026-09-22-tool-inspector-results.md)区分动作意图和执行结果，运行、失败及缺失结果直接可见。较早的成功活动可以压缩，完整参数和输出仍按需可查。
 
-其次保障连续工作：[子任务卡](2026-09-22-subagent-task-summaries.md)保持阅读对象，[滚动策略](2026-09-22-conversation-reading-position.md)尊重用户回看，[跨视图控制](2026-09-22-continuous-session-controls.md)保留问答、停止和草稿。可读 Chat 与[轨迹定位](2026-09-22-trajectory-location.md)、[项目文件引用](2026-09-22-project-file-references.md)相互连接；子任务本地步骤不冒充主线轮次，文件引用按所属 Agent 的目录解析并受项目边界约束。
+其次保障连续工作：[子任务卡](2026-09-22-subagent-task-summaries.md)保持阅读对象，[滚动策略](2026-09-22-conversation-reading-position.md)尊重用户回看，[跨视图控制](2026-09-22-continuous-session-controls.md)保留问答、停止和草稿。可读 Chat 与[轨迹定位](2026-09-22-trajectory-location.md)、[Worktree 文件引用](2026-09-22-project-file-references.md)相互连接；子任务本地步骤不冒充主线轮次，文件引用按所属 Agent 的目录解析并受会话 Worktree 边界约束。
 
 进一步补齐原生事实：[Codex 展示性事件](2026-09-22-codex-visible-activity.md)、[工具生命周期](2026-09-22-tool-lifecycle-states.md)、[Claude 结构化结果](../bug-fix/2026-09-22-claude-structured-tool-results.md)及[任务归属](2026-09-22-claude-task-ownership.md)共同保留可获得的语义。[Codex 后台子事件](../bug-fix/2026-09-22-codex-background-child-events.md)不依赖父轮次仍在运行。每项用户行为保持独立决策，共享协议的生产端、消费端与验证作为一个完整契约共同更新。
 

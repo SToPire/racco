@@ -29,7 +29,7 @@ async function openSessionTimeline(page: Page, sessionId: string) {
   };
 }
 
-test("markdown references select the session project, reuse tabs and locate lines without escaping the project", async ({
+test("markdown references select the session worktree, reuse tabs and locate lines without escaping the worktree", async ({
   page,
   racco,
 }) => {
@@ -64,10 +64,12 @@ test("markdown references select the session project, reuse tabs and locate line
     ].join("\n\n"),
   });
   await page.getByRole("button", { name: "展开文件侧栏" }).click();
-  const projectSelector = page.getByRole("combobox", { name: "文件侧栏项目" });
-  await projectSelector.selectOption(other.projectId);
+  const worktreeSelector = page.getByRole("combobox", {
+    name: "文件侧栏 Worktree",
+  });
+  await worktreeSelector.selectOption(other.path);
   await page.getByRole("button", { name: "查看第90行", exact: true }).click();
-  await expect(projectSelector).toHaveValue(project.projectId);
+  await expect(worktreeSelector).toHaveValue(project.path);
   const preview = page.getByLabel("文件内容 src/long.ts", { exact: true });
   await expect(preview).toContainText("export const line90 = 90;");
   const selectedLine = page.locator(".file-line-number-selected");

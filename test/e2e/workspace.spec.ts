@@ -179,9 +179,6 @@ test("Files tabs remain separate from conversation and inspector state", async (
     dock.getByRole("tabpanel", { name: "index.ts", exact: true }),
   ).toContainText("answer = 42");
   await expect(page.locator(".file-tree")).toBeHidden();
-  await page
-    .locator(".session-view:not([hidden]) .tool-group > summary")
-    .click();
   await page.locator(".session-view:not([hidden]) .tool-card").click();
   await expect(
     page.getByRole("complementary", { name: "工具详情" }),

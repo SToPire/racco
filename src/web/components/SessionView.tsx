@@ -98,9 +98,8 @@ export function SessionView({
         ? mainRows
         : [
             ...(selectedSubagent.prompt === undefined ||
-            selectedSubagent.timeline.find(
-              (row) => row.type === "user.message",
-            )?.text === selectedSubagent.prompt
+            selectedSubagent.timeline.find((row) => row.type === "user.message")
+              ?.text === selectedSubagent.prompt
               ? []
               : [
                   {

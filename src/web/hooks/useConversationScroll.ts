@@ -16,6 +16,8 @@ export function useConversationScroll(
 ) {
   const positions = useRef(new Map<string, ReadingPosition>());
   const current = useRef<ReadingPosition>({ top: 0, following: true });
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [following, setFollowing] = useState(true);
   const navigationHold = useRef(false);
 
@@ -51,6 +53,20 @@ export function useConversationScroll(
     });
     current.current.top = element.scrollTop;
     let frame = 0;
+    let restoring = true;
+    let restoreFrame = requestAnimationFrame(() => {
+      restoreFrame = requestAnimationFrame(() => {
+        if (!activeRef.current) return;
+        element.scrollTo({
+          top: current.current.following
+            ? element.scrollHeight
+            : current.current.top,
+          behavior: "instant",
+        });
+        current.current.top = element.scrollTop;
+        restoring = false;
+      });
+    });
     const resize = new ResizeObserver(() => scheduleLayout());
     const observeChildren = () => {
       resize.observe(element);
@@ -60,6 +76,7 @@ export function useConversationScroll(
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
+        if (!activeRef.current) return;
         if (current.current.following)
           element!.scrollTo({
             top: element!.scrollHeight,
@@ -70,6 +87,7 @@ export function useConversationScroll(
       });
     }
     const onScroll = () => {
+      if (!activeRef.current || restoring) return;
       const atBottom =
         element.scrollHeight - element.scrollTop - element.clientHeight <= 24;
       const resume = atBottom && !navigationHold.current;
@@ -115,6 +133,7 @@ export function useConversationScroll(
         following: current.current.following,
       });
       if (frame) cancelAnimationFrame(frame);
+      cancelAnimationFrame(restoreFrame);
       resize.disconnect();
       mutation.disconnect();
       element.removeEventListener("scroll", onScroll);
