@@ -122,11 +122,7 @@ function waitForTurn(socket, expected) {
 }
 
 const project = await importTestProject();
-const modelSettings = await smokeModelSettings(
-  baseUrl,
-  provider,
-  project.projectId,
-);
+const modelSettings = await smokeModelSettings(baseUrl, provider, project.path);
 const socket = await openSocket();
 try {
   const firstExpected = `${token}_RACCO_OK`;
@@ -140,6 +136,7 @@ try {
       requestId: createRequestId,
       provider,
       projectId: project.projectId,
+      path: project.path,
       prompt: `Reply with exactly ${firstExpected}. Do not use any tools.`,
     }),
   );

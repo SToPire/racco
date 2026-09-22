@@ -5,6 +5,7 @@ import type {
   ProjectEntry,
   Provider,
   ModelSettings,
+  WorktreeEntry,
 } from "../../shared/protocol";
 import { ProviderLogo } from "./ProviderLogo";
 import { RaccoLogo } from "./RaccoLogo";
@@ -20,43 +21,82 @@ type NewSessionViewProps = {
   active: boolean;
   health?: HealthResponse;
   projects: ProjectEntry[];
+  /** All projects' worktrees; the view filters by the selected project. */
+  worktrees: WorktreeEntry[];
   projectId: string;
+  /** Selected worktree path; empty means the project's primary one. */
+  worktreePath: string;
   creating: boolean;
   connected: boolean;
   error?: string;
+  /** Per-project worktree failure, shown next to the worktree picker. */
+  worktreeError?: string;
+  busyWorktree: boolean;
   onBack: () => void;
   onCreate: (
     provider: Provider,
     projectId: string,
+    path: string,
     prompt: string,
     modelSettings: ModelSettings,
   ) => Promise<boolean>;
   onImportProject: () => void;
   onProjectChange: (projectId: string) => void;
+  onWorktreeChange: (path: string) => void;
+  onCreateWorktree: (
+    projectId: string,
+    name: string,
+  ) => Promise<WorktreeEntry | undefined>;
 };
 
 export function NewSessionView({
   active,
   health,
   projects,
+  worktrees,
   projectId,
+  worktreePath,
   creating,
   connected,
   error,
+  worktreeError,
+  busyWorktree,
   onBack,
   onCreate,
   onImportProject,
   onProjectChange,
+  onWorktreeChange,
+  onCreateWorktree,
 }: NewSessionViewProps) {
   const input = useRef<HTMLTextAreaElement>(null);
   const [prompt, setPrompt] = useState("");
   const [provider, setProvider] = useState<Provider>("codex");
+  const [creatingWorktree, setCreatingWorktree] = useState(false);
+  const [newWorktreeName, setNewWorktreeName] = useState("");
+  const [newWorktreeError, setNewWorktreeError] = useState<string>();
   useEffect(() => {
     if (active) input.current?.focus();
   }, [active]);
+  const selectedProject = projects.find(
+    (project) => project.projectId === projectId,
+  );
+  const projectAvailable = selectedProject?.available === true;
+  const projectWorktrees = worktrees.filter(
+    (worktree) => worktree.projectId === projectId,
+  );
+  // An empty selection means the primary worktree. It is resolved to the
+  // derived entry rather than to the project path so that the availability the
+  // server reported for that directory is the one that gates sending.
+  const selectedWorktree =
+    worktreePath === ""
+      ? projectWorktrees.find((worktree) => worktree.kind === "primary")
+      : projectWorktrees.find((worktree) => worktree.path === worktreePath);
+  const targetPath = selectedWorktree?.path ?? selectedProject?.path ?? "";
+  const targetAvailable =
+    projectAvailable && (selectedWorktree?.available ?? false);
   const selection = useModelSelection(
     provider,
-    projectId,
+    targetPath,
     null,
     true,
     connected,
@@ -67,12 +107,31 @@ export function NewSessionView({
     if (availableProject !== undefined)
       onProjectChange(availableProject.projectId);
   }, [projectId, projects, onProjectChange]);
+  // A path from a previous project would silently point at a worktree that is
+  // not in the current one; fall back to the primary as soon as that happens.
+  useEffect(() => {
+    if (projectId === "" || worktreePath === "") return;
+    if (projectWorktrees.some((worktree) => worktree.path === worktreePath))
+      return;
+    onWorktreeChange("");
+  }, [projectId, worktreePath, projectWorktrees, onWorktreeChange]);
+
+  async function submitNewWorktree() {
+    const name = newWorktreeName.trim();
+    if (name === "" || busyWorktree) return;
+    setNewWorktreeError(undefined);
+    const created = await onCreateWorktree(projectId, name);
+    if (created === undefined) return;
+    setCreatingWorktree(false);
+    setNewWorktreeName("");
+    onWorktreeChange(created.path);
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const text = prompt.trim();
     if (
-      !projectAvailable ||
+      !targetAvailable ||
       !providerAvailable ||
       text.length === 0 ||
       creating ||
@@ -81,14 +140,10 @@ export function NewSessionView({
       !selection.draft
     )
       return;
-    void onCreate(provider, projectId, text, selection.draft);
+    void onCreate(provider, projectId, targetPath, text, selection.draft);
   }
 
   const providerAvailable = health?.providers[provider] === "ready";
-  const selectedProject = projects.find(
-    (project) => project.projectId === projectId,
-  );
-  const projectAvailable = selectedProject?.available === true;
 
   return (
     <section className="new-session-view">
@@ -130,6 +185,92 @@ export function NewSessionView({
               onClick: onImportProject,
             }}
           />
+          <SelectionMenu
+            label="Worktree"
+            value={selectedWorktree?.path ?? null}
+            options={projectWorktrees.map((worktree) => ({
+              value: worktree.path,
+              label: `${worktree.name}${
+                worktree.kind === "primary"
+                  ? "（主工作区）"
+                  : worktree.branch === null
+                    ? "（detached）"
+                    : `（${worktree.branch}）`
+              }${worktree.available ? "" : "（目录不可用）"}`,
+              disabled: !worktree.available,
+            }))}
+            disabled={creating}
+            icon={<UiIcon name="branch" />}
+            placeholder={
+              projectId === ""
+                ? "请先选择项目"
+                : projectWorktrees.length === 0
+                  ? "暂无 Worktree"
+                  : "请选择 Worktree"
+            }
+            placement="below-start"
+            onChange={onWorktreeChange}
+          />
+          {projectId !== "" && !creatingWorktree && (
+            <button
+              className="new-session-link-button"
+              disabled={busyWorktree || !projectAvailable}
+              onClick={() => {
+                setCreatingWorktree(true);
+                setNewWorktreeError(undefined);
+              }}
+              title="在当前项目下创建新的 Worktree"
+              type="button"
+            >
+              <UiIcon name="plus" />
+              新建 Worktree…
+            </button>
+          )}
+          {creatingWorktree && (
+            <div className="new-session-worktree-form">
+              <input
+                aria-label="新 Worktree 名称"
+                autoFocus
+                disabled={busyWorktree}
+                onChange={(event) => setNewWorktreeName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void submitNewWorktree();
+                  } else if (event.key === "Escape") {
+                    setCreatingWorktree(false);
+                    setNewWorktreeName("");
+                    setNewWorktreeError(undefined);
+                  }
+                }}
+                placeholder="分支名，例如 feature/login"
+                value={newWorktreeName}
+              />
+              <button
+                disabled={busyWorktree || newWorktreeName.trim() === ""}
+                onClick={() => void submitNewWorktree()}
+                type="button"
+              >
+                {busyWorktree ? <span className="button-spinner" /> : "创建"}
+              </button>
+              <button
+                disabled={busyWorktree}
+                onClick={() => {
+                  setCreatingWorktree(false);
+                  setNewWorktreeName("");
+                  setNewWorktreeError(undefined);
+                }}
+                type="button"
+              >
+                取消
+              </button>
+            </div>
+          )}
+          {(newWorktreeError ?? worktreeError) && (
+            <small className="new-session-warning">
+              {newWorktreeError ?? worktreeError}
+            </small>
+          )}
         </div>
         <form className="new-session-composer" onSubmit={submit}>
           {error && <p className="error-banner">{error}</p>}
@@ -171,7 +312,7 @@ export function NewSessionView({
                 className="round-send-button"
                 disabled={
                   !providerAvailable ||
-                  !projectAvailable ||
+                  !targetAvailable ||
                   prompt.trim().length === 0 ||
                   creating ||
                   !connected ||
@@ -197,9 +338,12 @@ export function NewSessionView({
           )}
           {projectId !== "" && !projectAvailable ? (
             <small>所选项目已删除或路径不可用，请重新选择项目。</small>
+          ) : targetAvailable ? (
+            <small className="new-session-target" title={targetPath}>
+              将在 {selectedWorktree?.name ?? selectedProject?.name} 中创建
+            </small>
           ) : (
-            providerAvailable &&
-            !projectAvailable && <small>请先选择或导入一个项目</small>
+            <small>所选 Worktree 目录不可用，请重新选择。</small>
           )}
         </form>
       </div>

@@ -19,6 +19,7 @@ test("requires an imported project ID when creating a session", () => {
     requestId: "create-1",
     provider: "codex",
     projectId: "project-1",
+    path: "/work/project-1",
     prompt: "hello",
     modelSettings: fixtureModelSettings,
   });
@@ -26,6 +27,7 @@ test("requires an imported project ID when creating a session", () => {
     type: "session.create",
     requestId: "create-2",
     provider: "codex",
+    path: "/work/project-2",
     prompt: "hello",
     modelSettings: fixtureModelSettings,
   });
@@ -51,7 +53,7 @@ test("every task requires the complete current model settings contract", () => {
       requestId: "request",
       prompt: "hello",
       ...(type === "session.create"
-        ? { provider: "codex", projectId: "project" }
+        ? { provider: "codex", projectId: "project", path: "/work/project" }
         : { sessionId: "session" }),
     };
     assert.equal(ClientCommandSchema.safeParse(base).success, false);
@@ -86,6 +88,7 @@ test("rejects unknown command and interaction response fields", () => {
       requestId: "create-1",
       provider: "codex",
       projectId: "project-1",
+      path: "/work/project-1",
       cwd: "/work/project",
       prompt: "hello",
       modelSettings: fixtureModelSettings,

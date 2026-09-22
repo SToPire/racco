@@ -23,8 +23,9 @@ test("native session discovery stays scoped and read-only; imports are explicit,
     await rm(directory, { recursive: true, force: true });
   });
   const { app, projects, sessions } = fixture;
-  const url = `/api/projects/${projects[0].projectId}/native-sessions`;
-  const listed = await app.inject(`${url}?provider=codex`);
+  const url = `/api/worktrees/native-sessions`;
+  const alphaPath = encodeURIComponent(projects[0].path);
+  const listed = await app.inject(`${url}?provider=codex&path=${alphaPath}`);
   assert.equal(listed.statusCode, 200);
   assert.equal(listed.headers["cache-control"], "no-store");
   assert.deepEqual(
@@ -48,8 +49,8 @@ test("native session discovery stays scoped and read-only; imports are explicit,
   );
   assert.equal((await app.inject("/api/sessions")).json().length, 2);
   assert.equal(
-    (await app.inject(`${url}?provider=claude`)).json().sessions[0]
-      .providerSessionId,
+    (await app.inject(`${url}?provider=claude&path=${alphaPath}`)).json()
+      .sessions[0].providerSessionId,
     "native-claude-alpha",
   );
   for (const query of [
@@ -57,25 +58,32 @@ test("native session discovery stays scoped and read-only; imports are explicit,
     "?provider=bad",
     "?provider=codex&cwd=/",
     "?provider=codex&cursor=",
+    "?provider=codex&path=",
+    `?provider=codex&path=${alphaPath}&extra=1`,
   ])
     assert.equal((await app.inject(url + query)).statusCode, 400);
   assert.equal(
-    (await app.inject("/api/projects/missing/native-sessions?provider=codex"))
-      .statusCode,
-    404,
+    (await app.inject(`${url}?provider=codex&path=%2Fnonexistent`)).statusCode,
+    400,
   );
   for (const headers of [
     { origin: "https://elsewhere.example" },
     { "sec-fetch-site": "cross-site" },
   ])
     assert.equal(
-      (await app.inject({ url: `${url}?provider=codex`, headers })).statusCode,
+      (
+        await app.inject({
+          url: `${url}?provider=codex&path=${alphaPath}`,
+          headers,
+        })
+      ).statusCode,
       403,
     );
   const payload = {
     provider: "codex",
     providerSessionId: "native-codex-alpha",
     projectId: projects[0].projectId,
+    path: projects[0].path,
   };
   assert.equal(
     (
@@ -96,7 +104,9 @@ test("native session discovery stays scoped and read-only; imports are explicit,
   assert.equal(imports[0].json().sessionId, imports[1].json().sessionId);
   assert.equal(imports[0].json().selectedModelSettings, null);
   assert.equal((await app.inject("/api/sessions")).json().length, 3);
-  const updated = (await app.inject(`${url}?provider=codex`)).json();
+  const updated = (
+    await app.inject(`${url}?provider=codex&path=${alphaPath}`)
+  ).json();
   assert.equal(
     updated.sessions.find(
       (item: { providerSessionId: string }) =>
@@ -136,6 +146,7 @@ test("native session delete removes provider files, managed records and rejects 
       provider: "codex",
       providerSessionId: "native-codex-alpha",
       projectId: projects[0]!.projectId,
+      path: projects[0]!.path,
     },
   });
   assert.equal(unmanaged.statusCode, 200);
@@ -149,7 +160,9 @@ test("native session delete removes provider files, managed records and rejects 
   // Deleting a managed native session removes the record and the file.
   const claudeSession = (
     await app.inject(
-      `/api/projects/${projects[1]!.projectId}/native-sessions?provider=claude`,
+      `/api/worktrees/native-sessions?provider=claude&path=${encodeURIComponent(
+        projects[1]!.path,
+      )}`,
     )
   )
     .json()
@@ -164,6 +177,7 @@ test("native session delete removes provider files, managed records and rejects 
       provider: "claude",
       providerSessionId: "native-claude-beta",
       projectId: projects[1]!.projectId,
+      path: projects[1]!.path,
     },
   });
   assert.equal(managed.statusCode, 200);
@@ -193,6 +207,7 @@ test("native session delete removes provider files, managed records and rejects 
       provider: "codex",
       providerSessionId: "fixture-codex",
       projectId: projects[1]!.projectId,
+      path: projects[1]!.path,
     },
   });
   assert.equal(foreign.statusCode, 400);
@@ -213,6 +228,7 @@ test("native session delete removes provider files, managed records and rejects 
             provider: "codex",
             providerSessionId: "fixture-codex",
             projectId: projects[0]!.projectId,
+            path: projects[0]!.path,
           },
         })
       ).statusCode,
@@ -220,9 +236,15 @@ test("native session delete removes provider files, managed records and rejects 
     );
   for (const payload of [
     {},
-    { provider: "bad", providerSessionId: "x", projectId: "y" },
-    { provider: "codex", projectId: "y" },
-    { provider: "codex", providerSessionId: "x", projectId: "y", extra: 1 },
+    { provider: "bad", providerSessionId: "x", projectId: "y", path: "/tmp/x" },
+    { provider: "codex", projectId: "y", path: "/tmp/x" },
+    {
+      provider: "codex",
+      providerSessionId: "x",
+      projectId: "y",
+      path: "/tmp/x",
+      extra: 1,
+    },
   ])
     assert.equal(
       (
@@ -243,6 +265,7 @@ test("native session delete removes provider files, managed records and rejects 
           provider: "codex",
           providerSessionId: "missing-native",
           projectId: projects[0]!.projectId,
+          path: projects[0]!.path,
         },
       })
     ).statusCode,

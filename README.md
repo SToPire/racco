@@ -32,3 +32,11 @@
 - **多端操作**：响应式 WebUI，在电脑上开始任务，在手机上查看进度、继续对话、回复问题或中断执行。
 - **统一接入**：前后端分离，通过 Codex App Server 与 Claude Agent SDK 封装统一 Agent 驱动，按项目管理、新建或导入原生会话。
 - **过程可视化**：统一流式消息、工具调用和子 Agent 轨迹的事件表达，在对话与执行轨迹视图中查看任务如何推进。
+
+## Worktree
+
+需要 `git`：每个项目下可以并行多个 Worktree，列表实时来自 `git worktree list`，因此终端里手工建的 Worktree 也会出现。Racco 自己创建的 Worktree 放在 `~/.local/share/racco/worktrees/<项目>-<路径摘要>/`，可在 `racco.config.json` 里用 `worktreeRoot` 改到别处（该项只约束创建位置，不影响列表）。
+
+安装步骤把本检出软链到 `~/.local/share/racco`，因此默认的 Worktree 落点位于本检出内，已在 `.gitignore` 中忽略。在本检出中清理时请用 `git clean -df`，**不要**用 `-x`——它会连同这些 Worktree 一起删掉。
+
+列表不会自动刷新：在 Racco 之外改动 Worktree 后，点项目行的刷新按钮。

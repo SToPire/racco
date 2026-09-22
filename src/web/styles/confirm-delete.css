@@ -1,0 +1,167 @@
+/* Confirm dialogs for destructive deletes */
+.confirm-delete-dialog {
+  width: min(520px, calc(100vw - 40px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 90px rgb(0 0 0 / 22%);
+}
+
+.confirm-delete-dialog::backdrop {
+  background: rgb(0 0 0 / 28%);
+  backdrop-filter: blur(3px);
+}
+
+.confirm-delete-dialog h2 {
+  margin: 0;
+  padding: 20px 22px 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.confirm-delete-dialog-copy {
+  margin: 12px 22px 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.confirm-delete-dialog-list {
+  display: grid;
+  gap: 6px;
+  max-height: 190px;
+  margin: 10px 22px 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.confirm-delete-dialog-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.confirm-delete-dialog-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.confirm-delete-dialog-badge {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+
+.confirm-delete-dialog-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 14px 22px 0;
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.confirm-delete-dialog-checkbox input {
+  margin: 2px 0 0;
+  accent-color: var(--danger);
+}
+
+.confirm-delete-dialog-note {
+  margin: 10px 22px 0;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.confirm-delete-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.confirm-delete-dialog-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.confirm-delete-cancel-button {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.confirm-delete-cancel-button:hover {
+  background: var(--surface-hover);
+}
+
+.confirm-delete-confirm-button {
+  border-color: var(--danger) !important;
+  background: var(--danger);
+  color: var(--primary-text);
+}
+
+.confirm-delete-confirm-button:hover {
+  filter: brightness(1.08);
+}
+
+@media (max-width: 600px) {
+  .confirm-delete-dialog {
+    width: calc(100vw - 20px);
+    border-radius: 14px;
+  }
+  .confirm-delete-dialog h2 {
+    padding: 18px 16px 0;
+  }
+  .confirm-delete-dialog-copy {
+    margin: 10px 16px 0;
+  }
+  .confirm-delete-dialog-list {
+    margin: 8px 16px 0;
+  }
+  .confirm-delete-dialog-checkbox {
+    margin: 12px 16px 0;
+  }
+  .confirm-delete-dialog-note {
+    margin: 8px 16px 0;
+  }
+  .confirm-delete-dialog-actions {
+    padding: 12px 16px 16px;
+  }
+  .confirm-delete-dialog-actions button {
+    flex: 1;
+    height: 40px;
+  }
+}

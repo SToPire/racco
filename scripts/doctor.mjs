@@ -35,6 +35,14 @@ try {
 } catch (error) {
   add("systemd-user", false, error.message);
 }
+// Worktree management reads `git worktree list`, so a missing git degrades the
+// project tree to primary-worktree-only rows with a visible error.
+try {
+  const { stdout } = await exec("git", ["--version"]);
+  add("git", true, stdout.trim());
+} catch (error) {
+  add("git", false, error.message);
+}
 let source;
 try {
   source = await buildInfo();

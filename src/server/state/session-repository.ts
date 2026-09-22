@@ -28,7 +28,7 @@ export type ManagedSession = {
   selectedModelSettings: ModelSettings | null;
 };
 
-type ManagedProject = {
+export type ManagedProject = {
   projectId: string;
   name: string;
   path: string;

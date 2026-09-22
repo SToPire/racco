@@ -10,22 +10,32 @@ import type {
   ServerMessage,
   SessionRef,
   SessionSummary,
+  WorktreeEntry,
+  WorktreeCatalog,
 } from "../../shared/protocol";
 import {
+  createWorktree as requestCreateWorktree,
   deleteNativeSession as requestDeleteNativeSession,
   deleteProject as requestDeleteProject,
   deleteSession as requestDeleteSession,
+  deleteWorktree as requestDeleteWorktree,
   getHealth,
   importProject,
   importSession as requestImportSession,
   listProjects,
   listSessions,
+  listWorktrees,
+  refreshWorktrees,
 } from "../api";
 import {
   removeProject,
+  removeProjectWorktrees,
   removeSession,
+  removeWorktree,
+  replaceProjectWorktrees,
   upsertProject,
   upsertSession,
+  upsertWorktree,
 } from "../catalog";
 import { RaccoSocket, type SocketStatus } from "../socket";
 import { applyTimelineEvent, buildTimeline, type TimelineRow } from "../store";
@@ -35,6 +45,37 @@ function matchesRef(
   candidate: SessionRef,
 ): boolean {
   return ref?.sessionId === candidate.sessionId;
+}
+
+/**
+ * Reads every project's worktree list, once, for the initial load. Each project
+ * is independent: one repository that cannot be read leaves the others intact
+ * and shows up as its own degraded catalog rather than failing the whole load.
+ * The primary entry is synthesized by the server even then, so a project is
+ * never left without a row.
+ */
+async function loadAllWorktrees(
+  projects: ProjectEntry[],
+): Promise<
+  Array<{ projectId: string; catalog?: WorktreeCatalog; error?: string }>
+> {
+  return Promise.all(
+    projects.map(async ({ projectId }) => {
+      try {
+        const catalog = await listWorktrees(projectId);
+        return {
+          projectId,
+          catalog,
+          error: catalog.degradedReason ?? undefined,
+        };
+      } catch (error) {
+        return {
+          projectId,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
 }
 
 export function useRacco({
@@ -53,9 +94,16 @@ export function useRacco({
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [health, setHealth] = useState<HealthResponse>();
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
+  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [homeError, setHomeError] = useState<string>();
   const [sessionError, setSessionError] = useState<string>();
+  /** Project whose worktree list is being re-read, or being created in. */
+  const [busyWorktreeProjectId, setBusyWorktreeProjectId] = useState<string>();
+  /** Per-project failure of the manual worktree refresh, keyed by projectId. */
+  const [worktreeErrors, setWorktreeErrors] = useState<Record<string, string>>(
+    {},
+  );
   const [connection, setConnection] = useState<SocketStatus>("closed");
   const [sending, setSending] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -78,6 +126,31 @@ export function useRacco({
       setHealth(nextHealth);
       setSessions(nextSessions);
       setProjects(nextProjects);
+      const results = await loadAllWorktrees(nextProjects);
+      setWorktrees((current) => {
+        let next = current.filter((entry) =>
+          nextProjects.some((project) => project.projectId === entry.projectId),
+        );
+        for (const result of results) {
+          if (result.catalog !== undefined) {
+            next = replaceProjectWorktrees(
+              next,
+              result.projectId,
+              result.catalog.worktrees,
+            );
+          }
+        }
+        return next;
+      });
+      setWorktreeErrors(
+        Object.fromEntries(
+          results.flatMap((result) =>
+            result.error === undefined
+              ? []
+              : [[result.projectId, result.error]],
+          ),
+        ),
+      );
     } catch (error) {
       setHomeError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -138,7 +211,21 @@ export function useRacco({
               (session) => session.projectId !== message.projectId,
             ),
           );
+          setWorktrees((current) =>
+            removeProjectWorktrees(current, message.projectId),
+          );
+          clearWorktreeError(message.projectId);
           maybeNavigateAwayForProjectId(message.projectId);
+          return;
+        }
+
+        if (message.type === "worktree.upserted") {
+          setWorktrees((current) => upsertWorktree(current, message.worktree));
+          return;
+        }
+
+        if (message.type === "worktree.deleted") {
+          setWorktrees((current) => removeWorktree(current, message.path));
           return;
         }
 
@@ -221,18 +308,129 @@ export function useRacco({
   }
 
   async function addProject(path: string): Promise<ProjectEntry> {
-    return rememberProject(await importProject(path));
+    const project = rememberProject(await importProject(path));
+    // A fresh import has no worktrees in local state yet; the catalog read
+    // synthesizes the primary row, so the project is never rendered empty.
+    try {
+      const catalog = await listWorktrees(project.projectId);
+      rememberWorktreeCatalog(catalog);
+    } catch (error) {
+      setWorktreeErrors((current) => ({
+        ...current,
+        [project.projectId]:
+          error instanceof Error ? error.message : String(error),
+      }));
+    }
+    return project;
+  }
+
+  /** Re-reads one project's worktrees from Git. The only refresh there is. */
+  async function refreshProjectWorktrees(projectId: string): Promise<void> {
+    setBusyWorktreeProjectId(projectId);
+    clearWorktreeError(projectId);
+    try {
+      const catalog = await refreshWorktrees(projectId);
+      rememberWorktreeCatalog(catalog);
+    } catch (error) {
+      // The previous list stays on screen; only the error is added.
+      setWorktreeErrors((current) => ({
+        ...current,
+        [projectId]: error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      setBusyWorktreeProjectId(undefined);
+    }
+  }
+
+  async function createWorktree(
+    projectId: string,
+    name: string,
+  ): Promise<WorktreeEntry | undefined> {
+    setBusyWorktreeProjectId(projectId);
+    clearWorktreeError(projectId);
+    try {
+      const catalog = await requestCreateWorktree(projectId, name);
+      rememberWorktreeCatalog(catalog);
+      return catalog.worktrees.find(
+        (worktree) => worktree.kind === "linked" && worktree.branch === name,
+      );
+    } catch (error) {
+      setWorktreeErrors((current) => ({
+        ...current,
+        [projectId]: error instanceof Error ? error.message : String(error),
+      }));
+      return undefined;
+    } finally {
+      setBusyWorktreeProjectId(undefined);
+    }
+  }
+
+  async function deleteWorktree(
+    projectId: string,
+    path: string,
+    force = false,
+  ): Promise<void> {
+    setBusyWorktreeProjectId(projectId);
+    clearWorktreeError(projectId);
+    try {
+      const result = await requestDeleteWorktree(projectId, path, force);
+      rememberWorktreeCatalog(result.catalog);
+      // The sessions that lived in that directory are gone with it; removing
+      // them locally keeps the tree from showing rows the server no longer has.
+      if (result.removedSessionIds.length > 0) {
+        const removed = new Set(result.removedSessionIds);
+        setSessions((current) =>
+          current.filter((session) => !removed.has(session.sessionId)),
+        );
+      }
+    } catch (error) {
+      // A dirty directory is a decision the caller must make (re-confirm and
+      // retry with force), not an error to park in the sidebar. Other failures
+      // are shown in place.
+      const status = (error as { status?: number } | null)?.status;
+      if (status === 409) throw error;
+      setWorktreeErrors((current) => ({
+        ...current,
+        [projectId]: error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      setBusyWorktreeProjectId(undefined);
+    }
+  }
+
+  function rememberWorktreeCatalog(catalog: WorktreeCatalog) {
+    setWorktrees((current) =>
+      replaceProjectWorktrees(current, catalog.projectId, catalog.worktrees),
+    );
+    clearWorktreeError(catalog.projectId);
+    if (catalog.degradedReason !== null) {
+      setWorktreeErrors((current) => ({
+        ...current,
+        [catalog.projectId]: catalog.degradedReason!,
+      }));
+    }
+  }
+
+  function clearWorktreeError(projectId: string) {
+    setWorktreeErrors((current) => {
+      if (current[projectId] === undefined) return current;
+      const next = { ...current };
+      delete next[projectId];
+      return next;
+    });
   }
 
   async function importSession(
     provider: Provider,
     providerSessionId: string,
     projectId: string,
+    path: string,
   ): Promise<SessionSummary> {
     const imported = await requestImportSession(
       provider,
       providerSessionId,
       projectId,
+      path,
     );
     setSessions((current) => upsertSession(current, imported));
     return imported;
@@ -242,11 +440,13 @@ export function useRacco({
     provider: Provider,
     providerSessionId: string,
     projectId: string,
+    path: string,
   ): Promise<void> {
     const removed = await requestDeleteNativeSession(
       provider,
       providerSessionId,
       projectId,
+      path,
     );
     const removedManagedSessionId = removed.removedManagedSessionId;
     if (removedManagedSessionId !== null) {
@@ -273,18 +473,25 @@ export function useRacco({
     navigatingFromDelete.current = false;
   }
 
-  async function deleteProject(projectId: string): Promise<void> {
+  async function deleteProject(
+    projectId: string,
+    removeWorktrees = false,
+  ): Promise<void> {
     setHomeError(undefined);
     // Optimistic removal so the UI reflects the delete even if the WebSocket
     // is disconnected and no broadcast arrives; the server broadcast backstop
-    // in the onMessage handler stays idempotent.
+    // in the onMessage handler stays idempotent. When the worktrees stay on
+    // disk, their local rows go away with the project; re-importing the same
+    // directory re-derives them.
     setProjects((current) => removeProject(current, projectId));
     setSessions((current) =>
       current.filter((session) => session.projectId !== projectId),
     );
+    setWorktrees((current) => removeProjectWorktrees(current, projectId));
+    clearWorktreeError(projectId);
     maybeNavigateAwayForProjectId(projectId);
     try {
-      await requestDeleteProject(projectId);
+      await requestDeleteProject(projectId, removeWorktrees);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setHomeError(message);
@@ -322,6 +529,7 @@ export function useRacco({
   async function createSession(
     provider: Provider,
     projectId: string,
+    path: string,
     prompt: string,
     modelSettings: ModelSettings,
   ): Promise<boolean> {
@@ -344,6 +552,7 @@ export function useRacco({
         requestId,
         provider,
         projectId,
+        path,
         prompt,
         modelSettings,
       });
@@ -438,6 +647,9 @@ export function useRacco({
     session,
     sessions,
     projects,
+    worktrees,
+    worktreeErrors,
+    busyWorktreeProjectId,
     health,
     loading,
     homeError,
@@ -454,6 +666,9 @@ export function useRacco({
     deleteNativeSession,
     deleteProject,
     deleteSession,
+    refreshProjectWorktrees,
+    createWorktree,
+    deleteWorktree,
     createSession,
     sendTurn,
     compactSession,

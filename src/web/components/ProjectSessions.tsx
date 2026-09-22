@@ -1,28 +1,28 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   NativeSession,
-  ProjectEntry,
   Provider,
   SessionSummary,
+  WorktreeEntry,
 } from "../../shared/protocol";
 import { listNativeSessions } from "../api";
 import { ProviderLogo } from "./ProviderLogo";
 import { UiIcon } from "./UiIcon";
 
 type Props = {
-  project: ProjectEntry;
+  worktree: WorktreeEntry;
   enabled: boolean;
   controls: ReactNode;
   sessions: SessionSummary[];
   onImport: (
     provider: Provider,
     nativeId: string,
-    projectId: string,
+    path: string,
   ) => Promise<SessionSummary>;
   onDeleteNative: (
     provider: Provider,
     nativeId: string,
-    projectId: string,
+    path: string,
   ) => Promise<void>;
   onOpen: (session: SessionSummary) => void;
 };
@@ -62,7 +62,7 @@ export function ProjectSessions(props: Props) {
 }
 
 function NativeSessionList({
-  project,
+  worktree,
   enabled,
   provider,
   sessions,
@@ -102,7 +102,7 @@ function NativeSessionList({
     }
     try {
       const page = await listNativeSessions(
-        project.projectId,
+        worktree.path,
         provider,
         cursor,
         controller.signal,
@@ -127,10 +127,10 @@ function NativeSessionList({
   }
 
   useEffect(() => {
-    if (enabled && project.available) void load();
+    if (enabled && worktree.available) void load();
     return () => request.current?.abort();
-    // This component is keyed by project and provider; opening refreshes metadata.
-  }, [enabled, project.available]);
+    // This component is keyed by worktree and provider; opening refreshes metadata.
+  }, [enabled, worktree.available]);
 
   async function open(item: NativeSession) {
     if (pendingImport.current) return;
@@ -148,7 +148,7 @@ function NativeSessionList({
       const session = await onImport(
         provider,
         item.providerSessionId,
-        project.projectId,
+        worktree.path,
       );
       if (!alive.current) return;
       setItems((current) =>
@@ -181,7 +181,7 @@ function NativeSessionList({
     setDeleting(item.providerSessionId);
     setError(undefined);
     try {
-      await onDeleteNative(provider, item.providerSessionId, project.projectId);
+      await onDeleteNative(provider, item.providerSessionId, worktree.path);
       if (!alive.current) return;
       // Deletion invalidates offset-based provider cursors. Reload from the
       // beginning and abort any older page request through load().
@@ -218,15 +218,15 @@ function NativeSessionList({
           className="icon-button"
           aria-label="刷新会话列表"
           title="刷新会话列表"
-          disabled={loading || !project.available}
+          disabled={loading || !worktree.available}
           onClick={() => void load()}
         >
           <UiIcon name="refresh" />
         </button>
       </div>
       <div className="native-session-scroll" aria-busy={loading}>
-        {!project.available ? (
-          <p className="native-session-empty">项目目录不可用。</p>
+        {!worktree.available ? (
+          <p className="native-session-empty">Worktree 目录不可用。</p>
         ) : (
           <>
             {error && (
@@ -242,7 +242,10 @@ function NativeSessionList({
               </div>
             )}
             {shown.length > 0 && (
-              <ul className="native-session-list" aria-label="项目已有会话">
+              <ul
+                className="native-session-list"
+                aria-label="Worktree 已有会话"
+              >
                 {shown.map((item) => {
                   const managed = sessions.some(
                     (session) => session.sessionId === item.managedSessionId,
@@ -316,7 +319,7 @@ function NativeSessionList({
                   ? "已加载会话中没有匹配项。"
                   : nextCursor
                     ? "本页没有可导入的主会话，可继续加载。"
-                    : "当前项目没有可导入的会话。"}
+                    : "当前 Worktree 没有可导入的会话。"}
               </p>
             )}
             {nextCursor !== null && (

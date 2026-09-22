@@ -2,3 +2,12 @@ node_modules/
 dist/
 .tmp/
 *.log
+
+# Worktrees Racco creates under the default root (~/.local/share/racco/worktrees)
+# land inside this checkout, because the install step symlinks the checkout there.
+# They are other working copies, not part of this source tree. Anchored to the
+# checkout root so the source module src/server/worktrees/ is not ignored.
+/worktrees/
+
+# Local deployment notes; kept on disk, not in version control.
+/.deploy-docs/

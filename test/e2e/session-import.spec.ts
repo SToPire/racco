@@ -122,8 +122,8 @@ test("session dock follows the selected project and can import Claude on a narro
   await page.getByRole("button", { name: "展开会话侧栏" }).click();
   const dock = page.getByRole("complementary", { name: "会话侧栏" });
   await expect(
-    dock.getByRole("combobox", { name: "会话侧栏项目" }),
-  ).toHaveValue(racco.projects[1]!.projectId);
+    dock.getByRole("combobox", { name: "会话侧栏 Worktree" }),
+  ).toHaveValue(racco.projects[1]!.path);
   await expect(dock).toContainText("codex Beta history");
   await dock.getByRole("button", { name: "Claude", exact: true }).click();
   await dock
@@ -176,7 +176,9 @@ test("discovery errors can be retried and a late page cannot replace the chosen 
     started = resolve;
   });
   await page.route(
-    `**/projects/${racco.projects[0]!.projectId}/native-sessions?*`,
+    (url) =>
+      url.pathname === "/api/worktrees/native-sessions" &&
+      url.searchParams.get("path") === racco.projects[0]!.path,
     async (route) => {
       const response = await route.fetch();
       started();
@@ -189,7 +191,7 @@ test("discovery errors can be retried and a late page cannot replace the chosen 
     await waiting;
     await page
       .getByRole("region", { name: "项目 beta", exact: true })
-      .locator(".project-tree-header")
+      .locator(".worktree-row")
       .click();
     await expect(dock).toContainText("codex Beta history");
     release();
@@ -229,16 +231,16 @@ test("an import finishing after changing projects does not navigate away", async
       .click();
     await waiting;
     await dock
-      .getByRole("combobox", { name: "会话侧栏项目" })
-      .selectOption(racco.projects[1]!.projectId);
+      .getByRole("combobox", { name: "会话侧栏 Worktree" })
+      .selectOption(racco.projects[1]!.path);
     await expect(dock).toContainText("codex Beta history");
     const completed = page.waitForResponse("**/api/sessions/import");
     release();
     await completed;
     await expect(page).toHaveURL(`/session/${racco.sessions[0]!.sessionId}`);
     await expect(
-      dock.getByRole("combobox", { name: "会话侧栏项目" }),
-    ).toHaveValue(racco.projects[1]!.projectId);
+      dock.getByRole("combobox", { name: "会话侧栏 Worktree" }),
+    ).toHaveValue(racco.projects[1]!.path);
   } finally {
     release();
   }
@@ -261,7 +263,7 @@ test("native sessions can be deleted for real, managed ones also leave Racco", a
   await expect(dock).not.toContainText("codex Alpha history");
   const remaining = await (
     await page.request.get(
-      `/api/projects/${racco.projects[0]!.projectId}/native-sessions?provider=codex`,
+      `/api/worktrees/native-sessions?${new URLSearchParams({ provider: "codex", path: racco.projects[0]!.path })}`,
     )
   ).json();
   expect(
@@ -295,8 +297,8 @@ test("native sessions can be deleted for real, managed ones also leave Racco", a
     name: "会话侧栏",
   });
   await cancelDock
-    .getByRole("combobox", { name: "会话侧栏项目" })
-    .selectOption(racco.projects[1]!.projectId);
+    .getByRole("combobox", { name: "会话侧栏 Worktree" })
+    .selectOption(racco.projects[1]!.path);
   await cancelDock.getByRole("button", { name: "Claude", exact: true }).click();
   const cancelledRow = cancelDock.getByRole("listitem").filter({
     hasText: "claude Beta history",

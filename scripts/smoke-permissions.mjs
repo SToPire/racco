@@ -35,11 +35,7 @@ const projectResponse = await fetch(`${baseUrl}/api/projects`, {
 });
 assert(projectResponse.ok, `project import returned ${projectResponse.status}`);
 const project = await projectResponse.json();
-const modelSettings = await smokeModelSettings(
-  baseUrl,
-  provider,
-  project.projectId,
-);
+const modelSettings = await smokeModelSettings(baseUrl, provider, project.path);
 
 const socket = await new Promise((resolve, reject) => {
   const client = new WebSocket(wsUrl, { origin: baseUrl });
@@ -175,6 +171,7 @@ try {
       requestId: createRequestId,
       provider,
       projectId: project.projectId,
+      path: project.path,
       prompt:
         interactionKind === "question"
           ? `Call AskUserQuestion with one single-select question and two short options. After receiving the answer, reply with exactly ${expected}.`

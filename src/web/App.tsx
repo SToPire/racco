@@ -9,6 +9,7 @@ import { NewSessionView } from "./components/NewSessionView";
 import { ProjectDock, type DockPanel } from "./components/ProjectDock";
 import { ToolInspector } from "./components/ToolInspector";
 import { findTimelineTool } from "./store";
+import type { WorktreeEntry } from "../shared/protocol";
 
 export function App() {
   const navigation = useWorkspaceNavigation();
@@ -27,6 +28,8 @@ export function App() {
     session,
     sessions,
     projects,
+    worktrees,
+    worktreeErrors,
     health,
     loading,
     homeError,
@@ -41,6 +44,9 @@ export function App() {
     deleteNativeSession,
     deleteProject,
     deleteSession,
+    deleteWorktree,
+    refreshProjectWorktrees,
+    createWorktree,
     createSession,
     sendTurn,
     compactSession,
@@ -55,32 +61,94 @@ export function App() {
   } = useProjectPicker(
     projects,
     newSessionProjectId,
-    setNewSessionProjectId,
+    selectNewSessionProject,
     racco.addProject,
   );
   const [selectedToolId, setSelectedToolId] = useState<string>();
   const [dockPanel, setDockPanel] = useState<DockPanel>();
   const [dockWidth, setDockWidth] = useState(560);
-  const [dockProjectId, setDockProjectId] = useState("");
+  /** The worktree selected in the tree and mirrored by the dock. */
+  const [selectedWorktreePath, setSelectedWorktreePath] = useState("");
+  /** Worktree chosen in the new-session view; empty means the primary one. */
+  const [newSessionWorktreePath, setNewSessionWorktreePath] = useState("");
   useEffect(() => setSelectedToolId(undefined), [activeRef]);
-  function startNewSession(projectId?: string) {
+  function startNewSession(worktree?: WorktreeEntry) {
     racco.clearHomeError();
+    const target =
+      worktree ??
+      worktrees.find(
+        (entry) => entry.path === selectedWorktreePath && entry.available,
+      ) ??
+      worktrees.find((entry) => entry.available);
+    setNewSessionWorktreePath(target?.path ?? "");
+    setSelectedWorktreePath(target?.path ?? "");
     navigation.startNewSession(
-      projectId ??
+      target?.projectId ??
         projects.find((project) => project.available)?.projectId ??
         "",
     );
   }
   const selectedTool = findTimelineTool(rows, selectedToolId);
-  const contextProjectId = session?.projectId ?? newSessionProjectId;
+  const contextWorktree = worktrees.find(
+    (worktree) => worktree.path === selectedWorktreePath,
+  );
+  // Opening a different session selects its directory once. Subsequent manual
+  // selections remain usable while that session stays open.
   useEffect(() => {
-    if (contextProjectId) setDockProjectId(contextProjectId);
-  }, [contextProjectId, activeRef?.sessionId, historyOpen]);
-  const projectId = projects.some(
-    (project) => project.projectId === dockProjectId,
-  )
-    ? dockProjectId
-    : (projects[0]?.projectId ?? "");
+    if (session?.cwd !== undefined) {
+      setSelectedWorktreePath(session.cwd);
+    }
+  }, [session?.sessionId, session?.cwd]);
+  useEffect(() => {
+    const path =
+      newSessionWorktreePath ||
+      projects.find((project) => project.projectId === newSessionProjectId)
+        ?.path;
+    if (
+      activeRef === undefined &&
+      path !== undefined &&
+      worktrees.some((entry) => entry.path === path)
+    ) {
+      setSelectedWorktreePath(path);
+      return;
+    }
+    if (worktrees.some((entry) => entry.path === selectedWorktreePath)) return;
+    const fallback =
+      worktrees.find((worktree) => worktree.available) ?? worktrees[0];
+    if (fallback !== undefined) setSelectedWorktreePath(fallback.path);
+  }, [
+    activeRef,
+    newSessionProjectId,
+    newSessionWorktreePath,
+    projects,
+    selectedWorktreePath,
+    worktrees,
+  ]);
+  const dockWorktreePath =
+    contextWorktree?.path ??
+    worktrees.find((worktree) => worktree.available)?.path ??
+    worktrees[0]?.path ??
+    "";
+
+  function selectNewSessionProject(projectId: string) {
+    setNewSessionProjectId(projectId);
+    setNewSessionWorktreePath("");
+  }
+
+  function selectNewSessionWorktree(path: string) {
+    setNewSessionWorktreePath(path);
+  }
+
+  function selectWorktree(path: string) {
+    setSelectedWorktreePath(path);
+    if (activeRef === undefined) {
+      const worktree = worktrees.find((entry) => entry.path === path);
+      if (worktree !== undefined) {
+        setNewSessionProjectId(worktree.projectId);
+        setNewSessionWorktreePath(path);
+      }
+    }
+  }
 
   return (
     <main
@@ -88,14 +156,44 @@ export function App() {
       className={`app-layout${historyOpen ? " history-open" : ""}${selectedTool !== undefined ? " inspector-open" : ""}${dockPanel ? " dock-open" : ""}`}
     >
       <SessionList
-        selectedProjectId={projectId}
-        onSelectProject={setDockProjectId}
+        worktrees={worktrees}
+        worktreeErrors={worktreeErrors}
+        selectedWorktreePath={selectedWorktreePath}
+        onSelectWorktree={selectWorktree}
+        refreshingProjectId={racco.busyWorktreeProjectId}
         activeRef={activeRef}
         error={homeError}
         loading={loading}
         onNew={startNewSession}
         onDeleteProject={deleteProject}
         onDeleteSession={deleteSession}
+        onDeleteWorktree={async (worktree) => {
+          const lines = [
+            `删除 Worktree「${worktree.name}」？`,
+            `目录：${worktree.path}`,
+            "分支会保留，目录本身会被删除，无法撤销。",
+          ].filter((line) => line !== "");
+          if (!window.confirm(lines.join("\n\n"))) return;
+          // Dirtiness is decided by the server on delete (the client's flag can
+          // be stale until an explicit refresh). If the directory turns out
+          // dirty, confirm explicitly before force-retrying; uncommitted work
+          // gets its own confirmation rather than being buried in the first one.
+          try {
+            await deleteWorktree(worktree.projectId, worktree.path);
+          } catch (error) {
+            if (!(error instanceof Error)) return;
+            const dirtyLines = [
+              `「${worktree.name}」含未提交的修改或未跟踪的文件。`,
+              "删除会一并丢弃这些内容，无法恢复。",
+              "确认继续删除吗？",
+            ];
+            if (!window.confirm(dirtyLines.join("\n\n"))) return;
+            await deleteWorktree(worktree.projectId, worktree.path, true);
+          }
+        }}
+        onRefreshWorktrees={(projectId) =>
+          void refreshProjectWorktrees(projectId)
+        }
         onImportProject={() => openProjectPicker(false)}
         onOpen={openSession}
         projects={projects}
@@ -138,9 +236,15 @@ export function App() {
             onBack={showHistory}
             onCreate={createSession}
             onImportProject={() => openProjectPicker(true)}
-            onProjectChange={setNewSessionProjectId}
+            onProjectChange={selectNewSessionProject}
+            onWorktreeChange={selectNewSessionWorktree}
+            onCreateWorktree={createWorktree}
+            worktreeError={worktreeErrors[newSessionProjectId]}
+            busyWorktree={racco.busyWorktreeProjectId === newSessionProjectId}
             projectId={newSessionProjectId}
             projects={projects}
+            worktrees={worktrees}
+            worktreePath={newSessionWorktreePath}
           />
         )}
       </section>
@@ -165,15 +269,32 @@ export function App() {
         active={dockPanel}
         width={dockWidth}
         projects={projects}
-        projectId={projectId}
-        onProjectChange={setDockProjectId}
+        worktrees={worktrees}
+        worktreePath={dockWorktreePath}
+        onWorktreeChange={selectWorktree}
         onToggle={(panel) =>
           setDockPanel((current) => (current === panel ? undefined : panel))
         }
         onResize={setDockWidth}
         sessions={sessions}
-        onImport={racco.importSession}
-        onDeleteNative={deleteNativeSession}
+        onImport={(provider, nativeId, path) =>
+          racco.importSession(
+            provider,
+            nativeId,
+            worktrees.find((worktree) => worktree.path === path)?.projectId ??
+              "",
+            path,
+          )
+        }
+        onDeleteNative={(provider, nativeId, path) =>
+          deleteNativeSession(
+            provider,
+            nativeId,
+            worktrees.find((worktree) => worktree.path === path)?.projectId ??
+              "",
+            path,
+          )
+        }
         onOpen={openSession}
       />
     </main>

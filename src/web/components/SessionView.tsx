@@ -62,7 +62,7 @@ export function SessionView({
 }: SessionViewProps) {
   const selection = useModelSelection(
     session.provider,
-    session.projectId,
+    session.cwd,
     session.selectedModelSettings,
     false,
     connection === "open",

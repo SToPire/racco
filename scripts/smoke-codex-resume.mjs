@@ -72,7 +72,7 @@ try {
   const modelSettings = await smokeModelSettings(
     baseUrl,
     snapshot.session.provider,
-    snapshot.session.projectId,
+    snapshot.session.cwd,
     snapshot.session.selectedModelSettings,
   );
 

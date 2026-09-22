@@ -17,6 +17,8 @@ import type {
   ModelSettings,
   ModelCatalog,
   NativeSessionPage,
+  WorktreeCatalog,
+  WorktreeEntry,
 } from "../shared/protocol.js";
 import { NativeSessionPageSchema } from "../shared/protocol.js";
 import type {
@@ -37,6 +39,9 @@ import {
   toProjectEntry,
   toSessionSummary,
 } from "./state/session-repository.js";
+import { WorktreeService } from "./worktrees/service.js";
+import { WorktreeAccess } from "./worktrees/access.js";
+import { gitCommonDir } from "./worktrees/git.js";
 
 type RuntimeSession = {
   summary: SessionSummary;
@@ -46,7 +51,6 @@ type RuntimeSession = {
   activeTurn?: {
     abortController: AbortController;
     terminalState?: "idle" | "interrupted" | "error";
-    task?: Promise<void>;
   };
 };
 
@@ -90,6 +94,7 @@ function requestHash(parts: unknown[]): string {
 function creationHash(
   provider: Provider,
   projectId: string,
+  path: string,
   prompt: string,
   settings: ModelSettings,
 ): string {
@@ -97,6 +102,7 @@ function creationHash(
     "session.create",
     provider,
     projectId,
+    path,
     prompt,
     settings.modelId,
     settings.reasoningEffort,
@@ -111,6 +117,9 @@ export class SessionHub {
   readonly #interactions = new Map<string, PendingInteraction>();
   readonly #models = new ModelCatalogCache();
   readonly #nativeMutations = new Map<string, Promise<void>>();
+  readonly #worktrees: WorktreeService;
+  readonly #worktreeAccess = new WorktreeAccess();
+  readonly #turnTasks = new Set<Promise<void>>();
   readonly #creating = new Map<
     string,
     { hash: string; task: Promise<ManagedSession> }
@@ -120,7 +129,13 @@ export class SessionHub {
   constructor(
     drivers: AgentDriver[],
     private readonly repository: SessionRepository,
+    worktreeRoot: string,
   ) {
+    this.#worktrees = new WorktreeService(worktreeRoot, (projectId) =>
+      this.repository
+        .list()
+        .filter((session) => session.projectId === projectId),
+    );
     for (const driver of drivers) {
       this.#drivers.set(driver.provider, driver);
       driver.onSessionUpdate((providerSessionId, update) => {
@@ -187,21 +202,109 @@ export class SessionHub {
     return this.#drivers.get(provider)?.ready ? "ready" : "unavailable";
   }
 
-  async listModels(
-    provider: Provider,
-    projectId: string,
-  ): Promise<ModelCatalog> {
+  /**
+   * The model catalog for one working directory. The boundary is the worktree,
+   * not the project: a worktree is just another `cwd`, which is why the driver
+   * interface needed no change.
+   */
+  async listModels(provider: Provider, path: string): Promise<ModelCatalog> {
     if (this.#closed) throw new Error("Racco closed");
-    const project = this.repository.getProject(projectId);
-    if (!project) throw new Error("Project not found");
-    if (!projectDirectoryIsAvailable(project.path))
-      throw new Error("Project directory is unavailable");
+    if (!(await this.worktreePathIsReadable(path)))
+      throw new Error("Worktree directory is unavailable");
     const driver = this.#requireDriver(provider);
-    const catalog = await this.#models.get(driver, project.path);
+    const catalog = await this.#models.get(driver, path);
     if (this.#closed) throw new Error("Racco closed");
-    if (!this.repository.getProject(projectId))
-      throw new Error("Project not found");
-    return { provider, projectId, ...catalog };
+    return { provider, path, ...catalog };
+  }
+
+  /** The worktrees of a project, from the cache. Creates nothing, scans nothing. */
+  async listWorktrees(projectId: string): Promise<WorktreeCatalog> {
+    const project = this.repository.getProject(projectId);
+    if (project === undefined) throw new Error("项目不存在或已删除");
+    return this.#worktrees.catalog(project);
+  }
+
+  /**
+   * Re-reads a project's worktrees from Git. This is the only way an external
+   * change — a `git worktree add` in a terminal — enters Racco; there is no
+   * polling and no filesystem watch.
+   */
+  async refreshWorktrees(projectId: string): Promise<WorktreeCatalog> {
+    const project = this.repository.getProject(projectId);
+    if (project === undefined) throw new Error("项目不存在或已删除");
+    return this.#worktrees.refresh(project);
+  }
+
+  async createWorktree(input: {
+    projectId: string;
+    name: string;
+    baseRef?: string;
+  }): Promise<{ catalog: WorktreeCatalog; worktree: WorktreeEntry }> {
+    const project = this.repository.getProject(input.projectId);
+    if (project === undefined) throw new Error("项目不存在或已删除");
+    if (!projectDirectoryIsAvailable(project.path))
+      throw new Error("项目目录不可用");
+    const created = await this.#worktreeAccess.use(
+      project.projectId,
+      project.path,
+      () => this.#worktrees.create(project, input.name, input.baseRef),
+    );
+    for (const provider of ["codex", "claude"] as const) {
+      this.#models.invalidate(provider, created.worktree.path);
+    }
+    this.#broadcastToClients({
+      type: "worktree.upserted",
+      worktree: created.worktree,
+    });
+    return created;
+  }
+
+  async deleteWorktree(input: {
+    projectId: string;
+    path: string;
+    force?: boolean;
+  }): Promise<{ catalog: WorktreeCatalog; removedSessionIds: string[] }> {
+    return this.#worktreeAccess.remove(
+      input.projectId,
+      input.path,
+      async () => {
+        const project = this.repository.getProject(input.projectId);
+        if (project === undefined) throw new Error("项目不存在或已删除");
+
+        // A worktree holding a running turn is not deleted: the alternative is
+        // silently interrupting work the user is watching.
+        for (const session of this.repository.list()) {
+          if (
+            session.projectId !== input.projectId ||
+            session.cwd !== input.path
+          )
+            continue;
+          const runtime = this.#sessions.get(session.sessionId);
+          if (
+            runtime?.activeTurn !== undefined ||
+            runtime?.summary.compacting
+          ) {
+            throw new Error("该 Worktree 下有正在进行的对话，无法删除");
+          }
+        }
+
+        const result = await this.#worktrees.remove(
+          project,
+          input.path,
+          input.force,
+        );
+        for (const sessionId of result.removedSessionIds) {
+          this.#removeRuntime(sessionId);
+          this.repository.deleteSession(sessionId);
+          this.#broadcastToClients({ type: "session.removed", sessionId });
+        }
+        this.#broadcastToClients({
+          type: "worktree.deleted",
+          path: input.path,
+        });
+        return result;
+      },
+    );
   }
 
   listProjects(): ProjectEntry[] {
@@ -219,6 +322,14 @@ export class SessionHub {
         "Project must be an existing absolute directory other than /",
       );
     }
+    // One repository is registered once. The check is the Git *common* directory,
+    // not the path, so importing a subdirectory of an already-registered
+    // repository is refused with a pointer to the project that owns it, instead
+    // of splitting one repository across two projects.
+    const owner = await this.#projectOwningRepository(canonicalPath);
+    if (owner !== undefined && owner.path !== canonicalPath) {
+      throw new Error(`该仓库已注册为项目「${owner.name}」（${owner.path}）`);
+    }
     const project = this.repository.importProject({
       name: basename(canonicalPath),
       path: canonicalPath,
@@ -228,18 +339,111 @@ export class SessionHub {
     return entry;
   }
 
-  deleteProject(projectId: string): ProjectEntry | undefined {
-    const existing = this.repository.getProject(projectId);
-    if (existing === undefined) return undefined;
-    for (const provider of ["codex", "claude"] as const)
-      this.#models.invalidate(provider, existing.path);
-    const sessionIds = this.repository.deleteProject(projectId);
-    for (const sessionId of sessionIds) {
-      this.#removeRuntime(sessionId);
-      this.#broadcastToClients({ type: "session.removed", sessionId });
+  /**
+   * The registered project that shares a Git common directory with `path`, if
+   * any. A directory that is not in a repository has no owner.
+   */
+  async #projectOwningRepository(
+    path: string,
+  ): Promise<{ name: string; path: string } | undefined> {
+    const commonDir = await gitCommonDir(path);
+    if (commonDir === undefined) return undefined;
+    for (const project of this.repository.listProjects()) {
+      if (project.path === path) continue;
+      if ((await gitCommonDir(project.path)) === commonDir) return project;
     }
-    this.#broadcastToClients({ type: "project.deleted", projectId });
-    return toProjectEntry(existing, false);
+    return undefined;
+  }
+
+  /**
+   * Whether a directory is usable as a worktree root for file browsing, model
+   * catalogs and native-session listings. A usable root is the primary worktree
+   * of a registered project (its project directory) or a derived worktree that a
+   * registered project's catalog claims. An arbitrary directory on the host is
+   * not a worktree root: importing a project is the user's explicit act of
+   * opening the daemon's filesystem, and these read endpoints do not broaden
+   * that to unregistered paths.
+   */
+  async worktreePathIsReadable(path: string): Promise<boolean> {
+    if (!projectDirectoryIsAvailable(path)) return false;
+    // The project's own directory is its primary worktree.
+    if (this.repository.listProjects().some((project) => project.path === path))
+      return true;
+    // A derived worktree must be claimed by a registered project's catalog. A
+    // catalog that cannot be derived is skipped, not fatal: one degraded project
+    // must not make every worktree unreadable.
+    for (const project of this.repository.listProjects()) {
+      try {
+        const catalog = await this.#worktrees.catalog(project);
+        if (catalog.worktrees.some((entry) => entry.path === path)) return true;
+      } catch {
+        // The project's worktrees are unknown right now; keep checking the rest.
+      }
+    }
+    return false;
+  }
+
+  async deleteProject(
+    projectId: string,
+    removeWorktrees = false,
+  ): Promise<ProjectEntry | undefined> {
+    return this.#worktreeAccess.remove(projectId, undefined, async () => {
+      const existing = this.repository.getProject(projectId);
+      if (existing === undefined) return undefined;
+      // Linked worktrees go with the project only when the caller asks; the
+      // project directory itself is the main worktree and is never removed. When
+      // they stay, the directories are left on disk and a later re-import of the
+      // same project directory re-derives them from Git. Failures are reported,
+      // not thrown: a directory that cannot be cleaned up must not trap the user.
+      //
+      // A linked worktree holding a live turn is never force-removed underneath
+      // it, matching the single-worktree delete path: its directory is kept and
+      // reported, not silently aborted. Project deletion still destroys the
+      // project's sessions (including that live turn's record) either way.
+      const report = removeWorktrees
+        ? await this.#worktrees.removeForProject(
+            existing,
+            this.#linkedWorktreesWithLiveTurns(projectId),
+          )
+        : undefined;
+      for (const provider of ["codex", "claude"] as const)
+        this.#models.invalidate(provider, existing.path);
+      const sessionIds = this.repository.deleteProject(projectId);
+      for (const sessionId of sessionIds) {
+        this.#removeRuntime(sessionId);
+        this.#broadcastToClients({ type: "session.removed", sessionId });
+      }
+      this.#broadcastToClients({ type: "project.deleted", projectId });
+      if (report !== undefined) {
+        const stuck = report.removals.filter(
+          (removal) => !removal.removed && !removal.skipped,
+        );
+        if (stuck.length > 0) {
+          throw new Error(
+            `项目已删除，但下列目录可能残留：${stuck
+              .map(
+                (removal) =>
+                  `${removal.path}（${removal.reason ?? "未知原因"}）`,
+              )
+              .join("；")}`,
+          );
+        }
+      }
+      return toProjectEntry(existing, false);
+    });
+  }
+
+  /** Paths of linked worktrees that hold a live or compacting turn. */
+  #linkedWorktreesWithLiveTurns(projectId: string): Set<string> {
+    const busy = new Set<string>();
+    for (const session of this.repository.list()) {
+      if (session.projectId !== projectId) continue;
+      const runtime = this.#sessions.get(session.sessionId);
+      if (runtime?.activeTurn !== undefined || runtime?.summary.compacting) {
+        busy.add(session.cwd);
+      }
+    }
+    return busy;
   }
 
   deleteSession(sessionId: string): SessionSummary | undefined {
@@ -331,13 +535,14 @@ export class SessionHub {
     socket: WebSocket,
     provider: Provider,
     projectId: string,
+    path: string,
     requestId: string,
     prompt: string,
     inputSettings: ModelSettings,
   ): Promise<{ ref: SessionRef; snapshot: SessionSnapshotMessage }> {
     if (this.#closed) throw new Error("Racco closed");
     const modelSettings = ModelSettingsSchema.parse(inputSettings);
-    const hash = creationHash(provider, projectId, prompt, modelSettings);
+    const hash = creationHash(provider, projectId, path, prompt, modelSettings);
     const inflight = this.#creating.get(requestId);
     if (inflight && inflight.hash !== hash)
       throw new Error(
@@ -345,12 +550,15 @@ export class SessionHub {
       );
     let task = inflight?.task;
     if (!task) {
-      task = this.#allocateSession(
-        provider,
-        projectId,
-        requestId,
-        modelSettings,
-        hash,
+      task = this.#worktreeAccess.use(projectId, path, () =>
+        this.#allocateSession(
+          provider,
+          projectId,
+          path,
+          requestId,
+          modelSettings,
+          hash,
+        ),
       );
       this.#creating.set(requestId, { hash, task });
     }
@@ -377,6 +585,7 @@ export class SessionHub {
   async #allocateSession(
     provider: Provider,
     projectId: string,
+    path: string,
     requestId: string,
     modelSettings: ModelSettings,
     hash: string,
@@ -391,20 +600,18 @@ export class SessionHub {
         throw new Error("Session creation failed");
       return existing;
     }
-    const catalog = await this.listModels(provider, projectId);
+    await this.#assertWorktree(projectId, path);
+    const catalog = await this.listModels(provider, path);
     const issue = modelSettingsError(catalog, modelSettings);
     if (issue) throw new Error(issue);
     if (this.#closed) throw new Error("Racco closed");
-    const project = this.repository.getProject(projectId);
-    if (!project || !projectDirectoryIsAvailable(project.path))
-      throw new Error("Project directory is unavailable");
     const driver = this.#requireDriver(provider);
     const sessionId = randomUUID();
     this.repository.createProvisioning({
       sessionId,
       provider,
       projectId,
-      cwd: project.path,
+      cwd: path,
       title: provider === "codex" ? "New Codex session" : "New Claude session",
       requestId,
       requestHash: hash,
@@ -412,7 +619,7 @@ export class SessionHub {
     try {
       const created = await driver.createSession({
         raccoSessionId: sessionId,
-        cwd: project.path,
+        cwd: path,
         modelSettings,
       });
       const managed = this.repository.recordProviderSession({
@@ -436,30 +643,26 @@ export class SessionHub {
 
   async listNativeSessions(
     provider: Provider,
-    projectId: string,
+    path: string,
     cursor?: string,
   ): Promise<NativeSessionPage> {
-    const project = this.repository.getProject(projectId);
-    if (!project) throw new Error("项目不存在或已删除");
-    if (!projectDirectoryIsAvailable(project.path))
-      throw new Error("项目目录不可用");
+    if (!(await this.worktreePathIsReadable(path)))
+      throw new Error("Worktree 目录不可用");
     const driver = this.#requireDriver(provider);
     const page = await driver.listSessions({
-      cwd: project.path,
+      cwd: path,
       cursor,
       signal: AbortSignal.timeout(15_000),
     });
-    if (!this.repository.getProject(projectId)) throw new Error("项目已删除");
     return NativeSessionPageSchema.parse({
-      projectId,
+      path,
       provider,
-      sessions: page.sessions.flatMap((session) => {
+      sessions: page.sessions.map((session) => {
         const managed = this.repository.findByProviderSession(
           provider,
           session.providerSessionId,
         );
-        if (managed && managed.projectId !== projectId) return [];
-        return [{ ...session, managedSessionId: managed?.sessionId ?? null }];
+        return { ...session, managedSessionId: managed?.sessionId ?? null };
       }),
       nextCursor: page.nextCursor,
     });
@@ -469,51 +672,51 @@ export class SessionHub {
     provider: Provider;
     providerSessionId: string;
     projectId: string;
+    path: string;
   }): Promise<SessionSummary> {
-    return this.#withNativeMutation(
-      input.provider,
-      input.providerSessionId,
-      async () => {
-        const project = this.repository.getProject(input.projectId);
-        if (project === undefined) {
-          throw new Error("Project not found");
-        }
-        if (!projectDirectoryIsAvailable(project.path)) {
-          throw new Error("Project directory is unavailable");
-        }
-        const cwd = project.path;
-        const existing = this.repository.findByProviderSession(
-          input.provider,
-          input.providerSessionId,
-        );
-        if (existing !== undefined) {
-          if (existing.projectId !== input.projectId) {
-            throw new Error(
-              "Session is already managed by a different project",
-            );
+    return this.#worktreeAccess.use(input.projectId, input.path, () =>
+      this.#withNativeMutation(
+        input.provider,
+        input.providerSessionId,
+        async () => {
+          if (this.repository.getProject(input.projectId) === undefined) {
+            throw new Error("Project not found");
           }
-          return toSessionSummary(existing);
-        }
+          await this.#assertWorktree(input.projectId, input.path);
+          const cwd = input.path;
+          const existing = this.repository.findByProviderSession(
+            input.provider,
+            input.providerSessionId,
+          );
+          if (existing !== undefined) {
+            if (existing.projectId !== input.projectId) {
+              throw new Error(
+                "Session is already managed by a different project",
+              );
+            }
+            return toSessionSummary(existing);
+          }
 
-        const driver = this.#requireDriver(input.provider);
-        const snapshot = await driver.readSession({
-          providerSessionId: input.providerSessionId,
-          cwd,
-        });
-        const managed = this.repository.importSession({
-          provider: input.provider,
-          providerSessionId: input.providerSessionId,
-          projectId: input.projectId,
-          cwd,
-          title: snapshot.metadata.title,
-          updatedAt: snapshot.metadata.updatedAt,
-        });
-        const runtime = this.#runtimeFor(managed);
-        runtime.events = snapshot.events;
-        runtime.revision += 1;
-        this.#broadcastSessionSummary(runtime);
-        return { ...runtime.summary };
-      },
+          const driver = this.#requireDriver(input.provider);
+          const snapshot = await driver.readSession({
+            providerSessionId: input.providerSessionId,
+            cwd,
+          });
+          const managed = this.repository.importSession({
+            provider: input.provider,
+            providerSessionId: input.providerSessionId,
+            projectId: input.projectId,
+            cwd,
+            title: snapshot.metadata.title,
+            updatedAt: snapshot.metadata.updatedAt,
+          });
+          const runtime = this.#runtimeFor(managed);
+          runtime.events = snapshot.events;
+          runtime.revision += 1;
+          this.#broadcastSessionSummary(runtime);
+          return { ...runtime.summary };
+        },
+      ),
     );
   }
 
@@ -521,47 +724,52 @@ export class SessionHub {
     provider: Provider;
     providerSessionId: string;
     projectId: string;
+    path: string;
   }): Promise<{ removedManagedSessionId: string | null }> {
-    return this.#withNativeMutation(
-      input.provider,
-      input.providerSessionId,
-      async () => {
-        const project = this.repository.getProject(input.projectId);
-        if (project === undefined) {
-          throw new Error("Project not found");
-        }
-        if (!projectDirectoryIsAvailable(project.path)) {
-          throw new Error("Project directory is unavailable");
-        }
-        const managed = this.repository.findByProviderSession(
-          input.provider,
-          input.providerSessionId,
-        );
-        if (managed !== undefined && managed.projectId !== input.projectId) {
-          throw new Error("Session is already managed by a different project");
-        }
-        if (managed !== undefined) {
-          const runtime = this.#runtimeFor(managed);
-          if (runtime.activeTurn !== undefined || runtime.summary.compacting) {
-            throw new Error("Session is busy and cannot be deleted");
+    return this.#worktreeAccess.use(input.projectId, input.path, () =>
+      this.#withNativeMutation(
+        input.provider,
+        input.providerSessionId,
+        async () => {
+          if (this.repository.getProject(input.projectId) === undefined) {
+            throw new Error("Project not found");
           }
-        }
-        const driver = this.#requireDriver(input.provider);
-        await driver.deleteSession({
-          providerSessionId: input.providerSessionId,
-          cwd: project.path,
-        });
-        if (managed !== undefined) {
-          this.#removeRuntime(managed.sessionId);
-          this.repository.deleteSession(managed.sessionId);
-          this.#broadcastToClients({
-            type: "session.removed",
-            sessionId: managed.sessionId,
+          await this.#assertWorktree(input.projectId, input.path);
+          const managed = this.repository.findByProviderSession(
+            input.provider,
+            input.providerSessionId,
+          );
+          if (managed !== undefined && managed.projectId !== input.projectId) {
+            throw new Error(
+              "Session is already managed by a different project",
+            );
+          }
+          if (managed !== undefined) {
+            const runtime = this.#runtimeFor(managed);
+            if (
+              runtime.activeTurn !== undefined ||
+              runtime.summary.compacting
+            ) {
+              throw new Error("Session is busy and cannot be deleted");
+            }
+          }
+          const driver = this.#requireDriver(input.provider);
+          await driver.deleteSession({
+            providerSessionId: input.providerSessionId,
+            cwd: input.path,
           });
-          return { removedManagedSessionId: managed.sessionId };
-        }
-        return { removedManagedSessionId: null };
-      },
+          if (managed !== undefined) {
+            this.#removeRuntime(managed.sessionId);
+            this.repository.deleteSession(managed.sessionId);
+            this.#broadcastToClients({
+              type: "session.removed",
+              sessionId: managed.sessionId,
+            });
+            return { removedManagedSessionId: managed.sessionId };
+          }
+          return { removedManagedSessionId: null };
+        },
+      ),
     );
   }
 
@@ -592,6 +800,26 @@ export class SessionHub {
     }
   }
 
+  /**
+   * Refuses a `path` that is not currently one of the project's worktrees. This
+   * keeps the directory boundary honest: a stale path from a client that has not
+   * refreshed — a worktree removed in a terminal, say — cannot be used to create
+   * or import a session in a directory the project no longer claims.
+   */
+  async #assertWorktree(projectId: string, path: string): Promise<void> {
+    const project = this.repository.getProject(projectId);
+    if (project === undefined) throw new Error("Project not found");
+    if (!projectDirectoryIsAvailable(path))
+      throw new Error("Worktree directory is unavailable");
+    if (path === project.path) return;
+    const catalog = await this.#worktrees.catalog(project);
+    const match = catalog.worktrees.find((entry) => entry.path === path);
+    if (match === undefined) {
+      throw new Error("该目录不是当前项目的 Worktree，请刷新项目列表");
+    }
+    if (!match.available) throw new Error("Worktree 目录不可用");
+  }
+
   #assertNativeAvailable(managed: ManagedSession): void {
     if (
       managed.providerSessionId !== undefined &&
@@ -609,109 +837,122 @@ export class SessionHub {
     inputSettings: ModelSettings,
   ): Promise<boolean> {
     if (this.#closed) throw new Error("Racco closed");
-    const modelSettings = ModelSettingsSchema.parse(inputSettings);
-    let managed = this.#requireManaged(ref.sessionId);
-    this.#assertNativeAvailable(managed);
-    const initial =
-      managed.createRequestId !== undefined &&
-      requestId === `create:${managed.createRequestId}`;
-    if (
-      initial &&
-      managed.createRequestHash !==
-        creationHash(managed.provider, managed.projectId, prompt, modelSettings)
-    ) {
-      throw new Error("Initial turn does not match the creation request");
-    }
-    if (initial && managed.lifecycle === "active") return false;
-    if (!initial && managed.lifecycle !== "active")
-      throw new Error("Session is not active");
-    // Check again after asynchronous discovery: another request may have won meanwhile.
-    try {
-      const catalog = await this.listModels(
-        managed.provider,
-        managed.projectId,
-      );
-      const issue = modelSettingsError(catalog, modelSettings);
-      if (issue) throw new Error(issue);
-    } catch (error) {
+    const target = this.#requireManaged(ref.sessionId);
+    return this.#worktreeAccess.use(target.projectId, target.cwd, async () => {
+      const modelSettings = ModelSettingsSchema.parse(inputSettings);
+      let managed = this.#requireManaged(ref.sessionId);
+      this.#assertNativeAvailable(managed);
+      const initial =
+        managed.createRequestId !== undefined &&
+        requestId === `create:${managed.createRequestId}`;
       if (
         initial &&
-        !this.#closed &&
-        this.repository.get(ref.sessionId)?.lifecycle === "provisioning"
+        managed.createRequestHash !==
+          creationHash(
+            managed.provider,
+            managed.projectId,
+            managed.cwd,
+            prompt,
+            modelSettings,
+          )
       ) {
-        this.repository.failProvisioning(ref.sessionId);
-        this.#broadcastSessionSummary(
-          this.#runtimeFor(this.#requireManaged(ref.sessionId)),
-        );
+        throw new Error("Initial turn does not match the creation request");
       }
-      throw error;
-    }
-    if (this.#closed) throw new Error("Racco closed");
-    managed = this.#requireManaged(ref.sessionId);
-    this.#assertNativeAvailable(managed);
-    if (initial && managed.lifecycle === "active") return false;
-    if (!projectDirectoryIsAvailable(managed.cwd)) {
-      throw new Error("Managed session working directory is unavailable");
-    }
-    const driver = this.#requireDriver(managed.provider);
-    const runtime = this.#runtimeFor(managed);
-    if (runtime.activeTurn !== undefined || runtime.summary.compacting)
-      throw new Error("Session already has an active turn");
+      if (initial && managed.lifecycle === "active") return false;
+      if (!initial && managed.lifecycle !== "active")
+        throw new Error("Session is not active");
+      // Check again after asynchronous discovery: another request may have won meanwhile.
+      try {
+        const catalog = await this.listModels(managed.provider, managed.cwd);
+        const issue = modelSettingsError(catalog, modelSettings);
+        if (issue) throw new Error(issue);
+      } catch (error) {
+        if (
+          initial &&
+          !this.#closed &&
+          this.repository.get(ref.sessionId)?.lifecycle === "provisioning"
+        ) {
+          this.repository.failProvisioning(ref.sessionId);
+          this.#broadcastSessionSummary(
+            this.#runtimeFor(this.#requireManaged(ref.sessionId)),
+          );
+        }
+        throw error;
+      }
+      if (this.#closed) throw new Error("Racco closed");
+      managed = this.#requireManaged(ref.sessionId);
+      this.#assertNativeAvailable(managed);
+      if (initial && managed.lifecycle === "active") return false;
+      if (!projectDirectoryIsAvailable(managed.cwd)) {
+        throw new Error("Managed session working directory is unavailable");
+      }
+      const driver = this.#requireDriver(managed.provider);
+      const runtime = this.#runtimeFor(managed);
+      if (runtime.activeTurn !== undefined || runtime.summary.compacting)
+        throw new Error("Session already has an active turn");
 
-    managed = this.repository.acceptTurn(ref.sessionId, modelSettings, initial);
-
-    const abortController = new AbortController();
-    const activeTurn: NonNullable<RuntimeSession["activeTurn"]> = {
-      abortController,
-    };
-    runtime.activeTurn = activeTurn;
-    this.#refreshRuntime(runtime, this.#requireManaged(ref.sessionId));
-    this.#appendTimelineEvent(runtime, ref.sessionId, {
-      type: "user.message",
-      id: randomUUID(),
-      text: prompt,
-    });
-    this.#broadcastSessionSummary(runtime);
-
-    this.#launchOperation(managed, runtime, activeTurn, (context, signal) =>
-      driver.runTurn({
-        handle: providerHandle(managed),
-        mode: managed.providerState === "allocated" ? "first" : "resume",
-        prompt,
+      managed = this.repository.acceptTurn(
+        ref.sessionId,
         modelSettings,
-        context,
-        signal,
-      }),
-    );
-    return true;
+        initial,
+      );
+
+      const abortController = new AbortController();
+      const activeTurn: NonNullable<RuntimeSession["activeTurn"]> = {
+        abortController,
+      };
+      runtime.activeTurn = activeTurn;
+      this.#refreshRuntime(runtime, this.#requireManaged(ref.sessionId));
+      this.#appendTimelineEvent(runtime, ref.sessionId, {
+        type: "user.message",
+        id: randomUUID(),
+        text: prompt,
+      });
+      this.#broadcastSessionSummary(runtime);
+
+      this.#launchOperation(managed, runtime, activeTurn, (context, signal) =>
+        driver.runTurn({
+          handle: providerHandle(managed),
+          mode: managed.providerState === "allocated" ? "first" : "resume",
+          prompt,
+          modelSettings,
+          context,
+          signal,
+        }),
+      );
+      return true;
+    });
   }
 
   async compact(ref: SessionRef): Promise<void> {
     if (this.#closed) throw new Error("Racco closed");
-    const managed = this.#requireManaged(ref.sessionId);
-    this.#assertNativeAvailable(managed);
-    if (managed.provider !== "codex")
-      throw new Error("Compaction is only supported for Codex sessions");
-    if (
-      managed.lifecycle !== "active" ||
-      managed.providerState !== "materialized"
-    )
-      throw new Error("Session is not ready for compaction");
-    if (!projectDirectoryIsAvailable(managed.cwd))
-      throw new Error("Project directory is unavailable");
-    const driver = this.#requireDriver(managed.provider);
-    if (!driver.compact)
-      throw new Error("Provider does not support compaction");
-    const runtime = this.#runtimeFor(managed);
-    if (runtime.activeTurn !== undefined || runtime.summary.compacting)
-      throw new Error("Session is busy");
-    this.#setCompacting(runtime, true);
-    try {
-      await driver.compact({ handle: providerHandle(managed) });
-    } catch (error) {
-      this.#setCompacting(runtime, false);
-      throw error;
-    }
+    const target = this.#requireManaged(ref.sessionId);
+    return this.#worktreeAccess.use(target.projectId, target.cwd, async () => {
+      const managed = this.#requireManaged(ref.sessionId);
+      this.#assertNativeAvailable(managed);
+      if (managed.provider !== "codex")
+        throw new Error("Compaction is only supported for Codex sessions");
+      if (
+        managed.lifecycle !== "active" ||
+        managed.providerState !== "materialized"
+      )
+        throw new Error("Session is not ready for compaction");
+      if (!projectDirectoryIsAvailable(managed.cwd))
+        throw new Error("Project directory is unavailable");
+      const driver = this.#requireDriver(managed.provider);
+      if (!driver.compact)
+        throw new Error("Provider does not support compaction");
+      const runtime = this.#runtimeFor(managed);
+      if (runtime.activeTurn !== undefined || runtime.summary.compacting)
+        throw new Error("Session is busy");
+      this.#setCompacting(runtime, true);
+      try {
+        await driver.compact({ handle: providerHandle(managed) });
+      } catch (error) {
+        this.#setCompacting(runtime, false);
+        throw error;
+      }
+    });
   }
 
   #setCompacting(runtime: RuntimeSession, compacting: boolean): void {
@@ -759,12 +1000,14 @@ export class SessionHub {
         activeTurn.terminalState = "error";
       })
       .finally(() => {
+        this.#turnTasks.delete(task);
         runtime.activeTurn = undefined;
         this.#rejectInteractions(
           managed.sessionId,
           new Error("Turn completed"),
         );
         const terminal = activeTurn.terminalState ?? "idle";
+        if (this.#sessions.get(managed.sessionId) !== runtime) return;
         if (this.repository.get(managed.sessionId) === undefined) return;
         const persisted = this.repository.updateExecutionState(
           managed.sessionId,
@@ -773,7 +1016,7 @@ export class SessionHub {
         this.#refreshRuntime(runtime, persisted);
         this.#broadcastSessionSummary(runtime);
       });
-    activeTurn.task = task;
+    this.#turnTasks.add(task);
   }
 
   interrupt(ref: SessionRef): boolean {
@@ -825,13 +1068,11 @@ export class SessionHub {
     if (this.#closed) return;
     this.#closed = true;
     this.#models.close();
-    const tasks: Promise<void>[] = [];
+    this.#worktrees.close();
     for (const [sessionId, runtime] of this.#sessions) {
       if (runtime.activeTurn !== undefined) {
         runtime.activeTurn.terminalState = "interrupted";
         runtime.activeTurn.abortController.abort();
-        if (runtime.activeTurn.task !== undefined)
-          tasks.push(runtime.activeTurn.task);
       }
       this.#rejectInteractions(sessionId, new Error("Racco closed"));
     }
@@ -839,7 +1080,7 @@ export class SessionHub {
       [...this.#drivers.values()].map((driver) => driver.close()),
     );
     await Promise.allSettled([
-      ...tasks,
+      ...this.#turnTasks,
       ...[...this.#creating.values()].map((entry) => entry.task),
     ]);
     this.#clients.clear();

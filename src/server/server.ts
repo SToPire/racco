@@ -17,6 +17,7 @@ import type { RaccoConfig } from "./config.js";
 import { projectFileRoutes } from "./project-files/routes.js";
 import { directoryRoutes } from "./directories/routes.js";
 import { SessionHub } from "./session-hub.js";
+import { WorktreeDirtyError } from "./worktrees/manager.js";
 import { openRaccoStateDatabase } from "./state/database.js";
 import { SessionRepository } from "./state/session-repository.js";
 
@@ -59,10 +60,10 @@ export async function buildServer(
   const state = openRaccoStateDatabase(config.stateDir);
   const repository = new SessionRepository(state.database, state.close);
   await app.register(projectFileRoutes, {
-    getProject: (id: string) => repository.getProject(id),
+    worktreeIsAvailable: (path: string) => hub.worktreePathIsReadable(path),
   });
   const drivers = options.createDrivers(app.log);
-  const hub = new SessionHub(drivers, repository);
+  const hub = new SessionHub(drivers, repository, config.worktreeRoot);
   app.addHook("onClose", async () => {
     await hub.close();
   });
@@ -100,6 +101,7 @@ export async function buildServer(
     },
     storage: {
       stateDir: config.stateDir,
+      worktreeRoot: config.worktreeRoot,
       schemaVersion: CURRENT_SCHEMA_VERSION,
     },
     providers: Object.fromEntries(
@@ -124,7 +126,7 @@ export async function buildServer(
   }));
 
   const ModelsQuerySchema = z.strictObject({
-    projectId: z.string().min(1),
+    path: z.string().min(1),
   });
   app.get<{ Params: { provider: string }; Querystring: unknown }>(
     "/api/providers/:provider/models",
@@ -143,8 +145,145 @@ export async function buildServer(
           .send({ message: "Invalid model catalog request" });
       try {
         reply.header("Cache-Control", "no-store");
-        return await hub.listModels(provider.data, query.data.projectId);
+        return await hub.listModels(provider.data, query.data.path);
       } catch (error) {
+        return reply.code(400).send({
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  const WorktreesQuerySchema = z.strictObject({
+    projectId: z.string().min(1),
+  });
+  app.get<{ Querystring: unknown }>(
+    "/api/worktrees",
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      if (
+        request.headers["sec-fetch-site"] === "cross-site" ||
+        !hasAllowedOrigin(request.headers.origin, request.headers.host)
+      )
+        return reply
+          .code(403)
+          .send({ message: "不允许跨站读取 Worktree 列表" });
+      const query = WorktreesQuerySchema.safeParse(request.query);
+      if (!query.success)
+        return reply
+          .code(400)
+          .send({ message: "Invalid worktree list request" });
+      try {
+        return await hub.listWorktrees(query.data.projectId);
+      } catch (error) {
+        return reply.code(404).send({
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  // Re-reads from Git. This is the only path by which an external change — a
+  // `git worktree add` in a terminal — reaches Racco; nothing polls.
+  app.post<{ Querystring: unknown }>(
+    "/api/worktrees/refresh",
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      if (
+        request.headers["sec-fetch-site"] === "cross-site" ||
+        !hasAllowedOrigin(request.headers.origin, request.headers.host)
+      )
+        return reply
+          .code(403)
+          .send({ message: "不允许跨站刷新 Worktree 列表" });
+      const query = WorktreesQuerySchema.safeParse(request.query);
+      if (!query.success)
+        return reply
+          .code(400)
+          .send({ message: "Invalid worktree refresh request" });
+      try {
+        return await hub.refreshWorktrees(query.data.projectId);
+      } catch (error) {
+        return reply.code(400).send({
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  const CreateWorktreeSchema = z.strictObject({
+    name: z.string().min(1),
+    baseRef: z.string().min(1).optional(),
+  });
+  app.post<{ Params: { projectId: string }; Body: unknown }>(
+    "/api/projects/:projectId/worktrees",
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      if (
+        request.headers["sec-fetch-site"] === "cross-site" ||
+        !hasAllowedOrigin(request.headers.origin, request.headers.host)
+      )
+        return reply.code(403).send({ message: "不允许跨站创建 Worktree" });
+      const parsed = CreateWorktreeSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply
+          .code(400)
+          .send({ message: "Invalid worktree creation request" });
+      try {
+        const created = await hub.createWorktree({
+          projectId: request.params.projectId,
+          name: parsed.data.name,
+          ...(parsed.data.baseRef === undefined
+            ? {}
+            : { baseRef: parsed.data.baseRef }),
+        });
+        return created.catalog;
+      } catch (error) {
+        return reply.code(400).send({
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  const DeleteWorktreeSchema = z.strictObject({
+    projectId: z.string().min(1),
+    path: z.string().min(1),
+    force: z
+      .string()
+      .optional()
+      .transform((value) =>
+        value === undefined ? false : value === "true" || value === "1",
+      ),
+  });
+  app.delete<{ Querystring: unknown }>(
+    "/api/worktrees",
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      if (
+        request.headers["sec-fetch-site"] === "cross-site" ||
+        !hasAllowedOrigin(request.headers.origin, request.headers.host)
+      )
+        return reply.code(403).send({ message: "不允许跨站删除 Worktree" });
+      const query = DeleteWorktreeSchema.safeParse(request.query);
+      if (!query.success)
+        return reply
+          .code(400)
+          .send({ message: "Invalid worktree delete request" });
+      try {
+        const result = await hub.deleteWorktree(query.data);
+        return {
+          catalog: result.catalog,
+          removedSessionIds: result.removedSessionIds,
+        };
+      } catch (error) {
+        if (error instanceof WorktreeDirtyError) {
+          // The client must re-confirm and retry with force=true before a dirty
+          // directory is discarded; this is a decision point, not a failure.
+          return reply.code(409).send({
+            message: error.message,
+          });
+        }
         return reply.code(400).send({
           message: error instanceof Error ? error.message : String(error),
         });
@@ -155,10 +294,11 @@ export async function buildServer(
   const SessionListQuerySchema = z.strictObject({});
   const NativeSessionsQuerySchema = z.strictObject({
     provider: ProviderSchema,
+    path: z.string().min(1),
     cursor: z.string().min(1).max(8192).optional(),
   });
-  app.get<{ Params: { projectId: string }; Querystring: unknown }>(
-    "/api/projects/:projectId/native-sessions",
+  app.get<{ Querystring: unknown }>(
+    "/api/worktrees/native-sessions",
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
       if (
@@ -171,12 +311,10 @@ export async function buildServer(
         return reply
           .code(400)
           .send({ message: "Invalid native session list request" });
-      if (!repository.getProject(request.params.projectId))
-        return reply.code(404).send({ message: "项目不存在或已删除" });
       try {
         return await hub.listNativeSessions(
           query.data.provider,
-          request.params.projectId,
+          query.data.path,
           query.data.cursor,
         );
       } catch (error) {
@@ -222,11 +360,28 @@ export async function buildServer(
     },
   );
 
-  app.delete<{ Params: { projectId: string } }>(
+  const DeleteProjectQuerySchema = z.strictObject({
+    removeWorktrees: z
+      .string()
+      .optional()
+      .transform((value) =>
+        value === undefined ? false : value === "true" || value === "1",
+      ),
+  });
+  app.delete<{ Params: { projectId: string }; Querystring: unknown }>(
     "/api/projects/:projectId",
     async (request, reply) => {
       try {
-        const removed = hub.deleteProject(request.params.projectId);
+        const query = DeleteProjectQuerySchema.safeParse(request.query);
+        if (!query.success) {
+          return reply
+            .code(400)
+            .send({ message: "Invalid project delete request" });
+        }
+        const removed = await hub.deleteProject(
+          request.params.projectId,
+          query.data.removeWorktrees,
+        );
         if (removed === undefined) {
           return reply.code(404).send({ message: "Project not found" });
         }
@@ -243,11 +398,13 @@ export async function buildServer(
     provider: ProviderSchema,
     providerSessionId: z.string().min(1),
     projectId: z.string().min(1),
+    path: z.string().min(1),
   });
   const DeleteNativeSessionSchema = z.strictObject({
     provider: ProviderSchema,
     providerSessionId: z.string().min(1),
     projectId: z.string().min(1),
+    path: z.string().min(1),
   });
   app.post<{ Body: unknown }>(
     "/api/sessions/import",
@@ -369,6 +526,7 @@ export async function buildServer(
                 socket,
                 command.provider,
                 command.projectId,
+                command.path,
                 command.requestId,
                 command.prompt,
                 command.modelSettings,

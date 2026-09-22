@@ -38,7 +38,7 @@ test("browser navigation restores the narrow history list separately from the ho
   await expect(sidebar).toBeHidden();
 });
 
-for (const button of ["在 beta 中新建对话", "新建对话"]) {
+for (const button of ["在项目 beta 中新建对话", "新建对话"]) {
   test(`the narrow composer regains focus and preserves its draft after ${button}`, async ({
     page,
   }) => {
@@ -50,6 +50,11 @@ for (const button of ["在 beta 中新建对话", "新建对话"]) {
     await page.getByRole("button", { name: "返回对话历史" }).click();
     await expect(input).toBeHidden();
     await page.getByRole("button", { name: button, exact: true }).click();
+    if (button === "在项目 beta 中新建对话") {
+      await expect(
+        page.getByRole("button", { name: "项目", exact: true }),
+      ).toHaveText("beta");
+    }
     await expect(input).toBeFocused();
     await page.keyboard.type(" continued");
     await expect(input).toHaveValue("draft continued");
@@ -120,7 +125,7 @@ test("project creation, turn completion and live catalog updates across browsers
     .locator(".project-tree-header")
     .hover();
   await page
-    .getByRole("button", { name: "在 alpha 中新建对话", exact: true })
+    .getByRole("button", { name: "在项目 alpha 中新建对话", exact: true })
     .click();
   const projectPicker = page.getByRole("button", { name: "项目", exact: true });
   await expect(projectPicker).toHaveText(racco.projects[0]!.name);

@@ -13,12 +13,12 @@ import { selectModel, suggestedSettings } from "../model-selection";
 
 export function useModelSelection(
   provider: Provider,
-  projectId: string,
+  path: string,
   saved: ModelSettings | null,
   newSession = false,
   connected = true,
 ) {
-  const scope = `${provider}:${projectId}`;
+  const scope = `${provider}:${path}`;
   const [draft, setDraft] = useState<ModelSettings | null>(saved);
   const [catalog, setCatalog] = useState<ModelCatalog>();
   const [loading, setLoading] = useState(false);
@@ -56,12 +56,12 @@ export function useModelSelection(
       setNotice(undefined);
       if (providerChanged || !newSession) setDraft(savedRef.current);
     }
-    if (!projectId || !connected) {
+    if (!path || !connected) {
       setLoading(false);
       return () => controller.abort();
     }
     setLoading(true);
-    void listModels(provider, projectId, controller.signal)
+    void listModels(provider, path, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return;
         setCatalog(result);
@@ -76,10 +76,10 @@ export function useModelSelection(
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [provider, projectId, scope, newSession, connected]);
+  }, [provider, path, scope, newSession, connected]);
 
   const currentCatalog =
-    catalog?.provider === provider && catalog.projectId === projectId
+    catalog?.provider === provider && catalog.path === path
       ? catalog
       : undefined;
   const currentDraft = previous.current.scope === scope ? draft : null;

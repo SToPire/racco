@@ -1,10 +1,10 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type {
-  ProjectEntry,
   ProjectFileEntry,
   ProjectTreeListing,
+  WorktreeEntry,
 } from "../../../shared/protocol";
-import { listProjectFiles } from "../../api";
+import { listWorktreeFiles } from "../../api";
 import { FileIcon } from "./FileIcon";
 import { UiIcon } from "../UiIcon";
 import { fileTabId } from "./FileTabs";
@@ -15,12 +15,12 @@ type TreeState = {
   error?: string;
 };
 export function FileTree({
-  project,
+  worktree,
   enabled,
   activePath,
   onOpenFile,
 }: {
-  project: ProjectEntry;
+  worktree: WorktreeEntry;
   enabled: boolean;
   activePath?: string;
   onOpenFile: (path: string) => void;
@@ -33,7 +33,7 @@ export function FileTree({
     const controller = new AbortController();
     controllers.current.set(path, controller);
     setDirectories((current) => ({ ...current, [path]: { loading: true } }));
-    void listProjectFiles(project.projectId, path, controller.signal)
+    void listWorktreeFiles(worktree.path, path, controller.signal)
       .then(
         (listing) => {
           if (!controller.signal.aborted)
@@ -164,7 +164,7 @@ export function FileTree({
         <button
           aria-expanded={expanded.has("")}
           onClick={() => toggleDirectory("")}
-          title={project.path}
+          title={worktree.path}
           type="button"
         >
           <span
@@ -172,7 +172,7 @@ export function FileTree({
           >
             <UiIcon name="chevron-right" />
           </span>
-          <strong>{project.name}</strong>
+          <strong>{worktree.name}</strong>
         </button>
         <button
           className="icon-button"

@@ -120,36 +120,42 @@ test("supports images and empty files, with bounded reads for large or binary fi
     );
 });
 
-test("file endpoints require a registered project, validate input and reject cross-site access", async (t) => {
+test("file endpoints require an available worktree, validate input and reject cross-site access", async (t) => {
   const { root } = await fixture(t);
   const app = Fastify();
   await app.register(projectFileRoutes, {
-    getProject: (id) => (id === "registered" ? { path: root } : undefined),
+    worktreeIsAvailable: async (path) => path === root,
   });
   t.after(() => app.close());
-  const file = "/api/projects/registered/file?path=README.md";
+  const file = `/api/worktrees/file?path=${encodeURIComponent(root)}&file=README.md`;
   const response = await app.inject({ url: file });
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers["cache-control"], "no-store");
   assert.equal(
-    (await app.inject({ url: "/api/projects/registered/tree" })).statusCode,
+    (
+      await app.inject({
+        url: `/api/worktrees/tree?path=${encodeURIComponent(root)}`,
+      })
+    ).statusCode,
     200,
   );
   assert.equal(
-    (await app.inject({ url: "/api/projects/unknown/file?path=README.md" }))
-      .statusCode,
+    (
+      await app.inject({
+        url: "/api/worktrees/file?path=%2Ftmp%2Fnope&file=README.md",
+      })
+    ).statusCode,
     404,
   );
   for (const query of [
     "",
     "?path=",
-    "?path=README.md&extra=1",
-    "?path=README.md&path=.env",
-    "?path=%00",
+    `?path=${encodeURIComponent(root)}&extra=1`,
+    `?path=${encodeURIComponent(root)}&file=README.md&file=.env`,
+    `?path=${encodeURIComponent(root)}&file=%00`,
   ]) {
     assert.equal(
-      (await app.inject({ url: "/api/projects/registered/file" + query }))
-        .statusCode,
+      (await app.inject({ url: "/api/worktrees/file" + query })).statusCode,
       400,
     );
   }
@@ -174,20 +180,26 @@ test("file endpoints require a registered project, validate input and reject cro
   assert.equal(
     (
       await app.inject({
-        url: "/api/projects/registered/file?path=outside-link",
+        url: `/api/worktrees/file?path=${encodeURIComponent(root)}&file=outside-link`,
       })
     ).statusCode,
     403,
   );
   assert.equal(
-    (await app.inject({ url: "/api/projects/registered/file?path=missing" }))
-      .statusCode,
+    (
+      await app.inject({
+        url: `/api/worktrees/file?path=${encodeURIComponent(root)}&file=missing`,
+      })
+    ).statusCode,
     404,
   );
   await writeFile(join(root, "denied"), "unreadable", { mode: 0o000 });
   assert.equal(
-    (await app.inject({ url: "/api/projects/registered/file?path=denied" }))
-      .statusCode,
+    (
+      await app.inject({
+        url: `/api/worktrees/file?path=${encodeURIComponent(root)}&file=denied`,
+      })
+    ).statusCode,
     403,
   );
   await chmod(join(root, "denied"), 0o600);

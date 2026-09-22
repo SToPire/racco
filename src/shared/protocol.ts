@@ -15,7 +15,8 @@ export type Provider = z.infer<typeof ProviderSchema>;
 
 export const ModelCatalogSchema = ProviderModelCatalogSchema.safeExtend({
   provider: ProviderSchema,
-  projectId: z.string().min(1),
+  /** The worktree whose directory the catalog was read from. */
+  path: z.string().min(1),
 });
 export type ModelCatalog = z.infer<typeof ModelCatalogSchema>;
 
@@ -27,8 +28,13 @@ export const NativeSessionSchema = z.strictObject({
 });
 export type NativeSession = z.infer<typeof NativeSessionSchema>;
 
+/**
+ * Native sessions are discovered inside one worktree, which is what `path`
+ * names. It replaced `projectId` because the directory boundary of discovery is
+ * now the worktree, not the project.
+ */
 export const NativeSessionPageSchema = z.strictObject({
-  projectId: z.string().min(1),
+  path: z.string().min(1),
   provider: ProviderSchema,
   sessions: z.array(NativeSessionSchema),
   nextCursor: z.string().min(1).nullable(),
@@ -174,6 +180,8 @@ export const ClientCommandSchema = z.discriminatedUnion("type", [
     requestId: RequestIdSchema,
     provider: ProviderSchema,
     projectId: z.string().min(1),
+    /** The worktree the session runs in; its directory is the session's cwd. */
+    path: z.string().min(1),
     prompt: z.string().min(1),
     modelSettings: ModelSettingsSchema,
   }),
@@ -220,6 +228,8 @@ export type ServerMessage =
   | { type: "error"; requestId?: string; message: string }
   | { type: "project.upserted"; project: ProjectEntry }
   | { type: "project.deleted"; projectId: string }
+  | { type: "worktree.upserted"; worktree: WorktreeEntry }
+  | { type: "worktree.deleted"; path: string }
   | { type: "session.upserted"; session: SessionSummary }
   | { type: "session.removed"; sessionId: string }
   | SessionSnapshotMessage
@@ -262,6 +272,42 @@ export type ProjectEntry = {
   path: string;
   available: boolean;
   createdAt: string;
+};
+
+/**
+ * One worktree under a project. `path` is the identity — the absolute path Git
+ * reports — and it is also what `sessions.cwd` holds, so a session is attached
+ * to the worktree whose path equals its `cwd`. Nothing else is stored: the list
+ * is derived from `git worktree list`, never registered.
+ */
+export type WorktreeEntry = {
+  projectId: string;
+  path: string;
+  kind: "primary" | "linked";
+  /** Last path segment, for display only. */
+  name: string;
+  branch: string | null;
+  head: string | null;
+  available: boolean;
+  locked: boolean;
+  prunable: boolean;
+  /** Git refuses to remove a main working tree, so the project's own row is not removable. */
+  removable: boolean;
+  /** Whether `git status --porcelain` reports uncommitted or untracked work. */
+  dirty: boolean;
+  sessionCount: number;
+};
+
+/**
+ * A project's worktrees plus the state of the listing itself. An empty result is
+ * never a valid catalog (see the derivation layer), so `worktrees` holds at
+ * least the primary entry, and `degradedReason` explains when the list may be
+ * stale or incomplete.
+ */
+export type WorktreeCatalog = {
+  projectId: string;
+  worktrees: WorktreeEntry[];
+  degradedReason: string | null;
 };
 
 export type ProjectFileEntry = {

@@ -77,12 +77,13 @@ async function modelTestHub() {
       context.setState("interrupted");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   return {
     hub,
     driver,
     repository,
     projectId,
+    cwd,
     received,
     allocations: () => allocations,
     setReady: (value: boolean) => {
@@ -96,10 +97,18 @@ test("rejects invalid model/effort pairs before allocating a native session", as
   const f = await modelTestHub();
   try {
     await assert.rejects(
-      f.hub.createSession(f.socket, "codex", f.projectId, "bad", "task", {
-        modelId: "fixture-fast",
-        reasoningEffort: "xhigh",
-      }),
+      f.hub.createSession(
+        f.socket,
+        "codex",
+        f.projectId,
+        f.cwd,
+        "bad",
+        "task",
+        {
+          modelId: "fixture-fast",
+          reasoningEffort: "xhigh",
+        },
+      ),
       /不可选/,
     );
     assert.equal(f.allocations(), 0);
@@ -130,6 +139,7 @@ test("broadcasts withdrawn and stopped text and replays it consistently on recon
       recordingSocket(firstMessages),
       "codex",
       f.projectId,
+      f.cwd,
       "stream-lifecycle",
       "hello",
       fixtureModelSettings,
@@ -194,6 +204,7 @@ test("coalesces creation and binds accepted requests to both model and effort", 
         f.socket,
         "codex",
         f.projectId,
+        f.cwd,
         "same",
         "task",
         fixtureModelSettings,
@@ -231,6 +242,7 @@ test("coalesces creation and binds accepted requests to both model and effort", 
         f.socket,
         "codex",
         f.projectId,
+        f.cwd,
         "same",
         "changed task",
         fixtureModelSettings,
@@ -260,6 +272,7 @@ test("a provisioning session with a native ID can complete after recovery withou
       f.socket,
       "codex",
       f.projectId,
+      f.cwd,
       "recover",
       "task",
       fixtureModelSettings,
@@ -273,6 +286,7 @@ test("a provisioning session with a native ID can complete after recovery withou
       f.socket,
       "codex",
       f.projectId,
+      f.cwd,
       "recover",
       "task",
       fixtureModelSettings,
@@ -300,6 +314,7 @@ test("competing clients cannot combine settings or start concurrent turns", asyn
     const session = await f.hub.importSession({
       provider: "codex",
       projectId: f.projectId,
+      path: f.cwd,
       providerSessionId: "imported",
     });
     const alternate = { modelId: "fixture-fast", reasoningEffort: "medium" };
@@ -366,12 +381,13 @@ test("publishes idle only after the active turn is cleared", async () => {
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   hub.registerClient(socket);
   const created = await hub.createSession(
     socket,
     "claude",
     fixtureProjectId(repository, cwd),
+    cwd,
     "create-1",
     "first",
     fixtureModelSettings,
@@ -459,11 +475,12 @@ test("publishes the accepted user message before the provider responds", async (
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const created = await hub.createSession(
     socket,
     "codex",
     fixtureProjectId(repository, cwd),
+    cwd,
     "create-immediate-user",
     "hello",
     fixtureModelSettings,
@@ -543,7 +560,7 @@ test("does not overwrite live events when a targeted provider read races with a 
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const imported = repository.importSession({
     provider: "claude",
     providerSessionId: "native-race",
@@ -625,11 +642,12 @@ test("keeps an allocated session readable without scanning provider history", as
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const created = await hub.createSession(
     socket,
     "claude",
     fixtureProjectId(repository, cwd),
+    cwd,
     "create-pending",
     "initial",
     fixtureModelSettings,
@@ -643,6 +661,7 @@ test("keeps an allocated session readable without scanning provider history", as
 });
 
 test("rejects unregistered Racco IDs before calling a provider", async () => {
+  const cwd = await fixtureCwd();
   const repository = memoryRepository();
   let reads = 0;
   const driver: AgentDriver = {
@@ -672,7 +691,7 @@ test("rejects unregistered Racco IDs before calling a provider", async () => {
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
 
   assert.equal(
     await hub.snapshot({ sessionId: "native-or-unknown-id" }),
@@ -720,11 +739,12 @@ test("repairs an allocated session with a targeted startup lookup", async () => 
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const created = await hub.createSession(
     recordingSocket(),
     "claude",
     fixtureProjectId(repository, cwd),
+    cwd,
     "create-recovered",
     "initial",
     fixtureModelSettings,
@@ -788,11 +808,12 @@ test("does not resubmit an initial message for an already activated session", as
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const created = await hub.createSession(
     recordingSocket(),
     "claude",
     fixtureProjectId(repository, cwd),
+    cwd,
     "create-idempotent",
     "hello",
     fixtureModelSettings,
@@ -866,18 +887,20 @@ test("imports only the explicitly requested native session and deduplicates it",
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const projectId = fixtureProjectId(repository, cwd);
 
   const first = await hub.importSession({
     provider: "codex",
     providerSessionId: "native-import",
     projectId,
+    path: cwd,
   });
   const second = await hub.importSession({
     provider: "codex",
     providerSessionId: "native-import",
     projectId,
+    path: cwd,
   });
 
   assert.equal(first.sessionId, second.sessionId);
@@ -926,11 +949,12 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
       });
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const created = await hub.createSession(
     recordingSocket(),
     "codex",
     fixtureProjectId(repository, cwd),
+    cwd,
     "create-shutdown",
     "wait",
     fixtureModelSettings,
@@ -951,7 +975,7 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
 test("imports canonical projects into the database without scanning a parent", async () => {
   const cwd = await fixtureCwd();
   const repository = memoryRepository();
-  const hub = new SessionHub([], repository);
+  const hub = new SessionHub([], repository, await fixtureCwd());
 
   const first = await hub.importProject(cwd);
   const second = await hub.importProject(cwd);
@@ -993,13 +1017,14 @@ test("rejects session creation unless the project is already imported", async ()
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
 
   await assert.rejects(
     hub.createSession(
       recordingSocket(),
       "codex",
       "unknown-project",
+      cwd,
       "create-unknown",
       "initial",
       fixtureModelSettings,
@@ -1051,11 +1076,12 @@ test("broadcasts a real session turn to every subscribed client", async () => {
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   const created = await hub.createSession(
     socketA,
     "codex",
     fixtureProjectId(repository, cwd),
+    cwd,
     "create-shared",
     "hello",
     fixtureModelSettings,
@@ -1118,7 +1144,7 @@ test("broadcasts project and session catalog updates to every connected client",
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   hub.registerClient(socketA);
   hub.registerClient(socketB);
 
@@ -1140,6 +1166,7 @@ test("broadcasts project and session catalog updates to every connected client",
     socketA,
     "codex",
     project.projectId,
+    project.path,
     "create-catalog",
     "hello",
     fixtureModelSettings,
@@ -1193,7 +1220,7 @@ test("compaction keeps a shared busy flag until completion without database writ
   f.driver.onSessionUpdate = (listener) => {
     notify = listener;
   };
-  const hub = new SessionHub([f.driver], f.repository);
+  const hub = new SessionHub([f.driver], f.repository, f.cwd);
   let calls = 0;
   f.driver.compact = async () => {
     calls++;
@@ -1203,6 +1230,7 @@ test("compaction keeps a shared busy flag until completion without database writ
       provider: "codex",
       providerSessionId: "native",
       projectId: f.projectId,
+      path: f.cwd,
     });
     const sent: ServerMessage[] = [];
     const socket = recordingSocket(sent);
@@ -1249,7 +1277,7 @@ test("compaction keeps a shared busy flag until completion without database writ
       usedTokens: 12000,
       maxTokens: 272000,
     });
-    const freshHub = new SessionHub([f.driver], f.repository);
+    const freshHub = new SessionHub([f.driver], f.repository, f.cwd);
     assert.equal((await freshHub.snapshot(ref))?.session.contextUsage, null);
     const beforeFailure = f.repository.get(ref.sessionId);
     f.driver.compact = async () => {
@@ -1269,7 +1297,7 @@ test("metadata.changed updates the session title and broadcasts upsert", async (
   f.driver.onSessionUpdate = (listener) => {
     notify = listener;
   };
-  const hub = new SessionHub([f.driver], f.repository);
+  const hub = new SessionHub([f.driver], f.repository, f.cwd);
   try {
     const sent: ServerMessage[] = [];
     const socket = recordingSocket(sent);
@@ -1278,6 +1306,7 @@ test("metadata.changed updates the session title and broadcasts upsert", async (
       provider: "codex",
       providerSessionId: "native-title",
       projectId: f.projectId,
+      path: f.cwd,
     });
     sent.length = 0;
     const updatedAt = new Date("2030-01-01T00:00:00Z").toISOString();
@@ -1343,18 +1372,20 @@ test("deleteNativeSession removes the provider file and the managed record atomi
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   try {
     const imported = await hub.importSession({
       provider: "codex",
       providerSessionId: "native-delete-me",
       projectId,
+      path: cwd,
     });
     hub.registerClient(socket);
     const result = await hub.deleteNativeSession({
       provider: "codex",
       providerSessionId: "native-delete-me",
       projectId,
+      path: cwd,
     });
     assert.deepEqual(result, {
       removedManagedSessionId: imported.sessionId,
@@ -1377,6 +1408,7 @@ test("deleteNativeSession removes the provider file and the managed record atomi
       provider: "codex",
       providerSessionId: "native-standalone",
       projectId,
+      path: cwd,
     });
     assert.deepEqual(unmanaged, { removedManagedSessionId: null });
     assert.deepEqual(deletedHandles[1], {
@@ -1423,12 +1455,13 @@ test("deleteNativeSession rejects foreign management, busy sessions and stale pr
       context.setState("interrupted");
     },
   };
-  const hub = new SessionHub([driver], repository);
+  const hub = new SessionHub([driver], repository, cwd);
   try {
     const imported = await hub.importSession({
       provider: "codex",
       providerSessionId: "native-busy",
       projectId,
+      path: cwd,
     });
     await hub.startTurn(imported, "task", "turn-1", fixtureModelSettings);
     await assert.rejects(
@@ -1436,6 +1469,7 @@ test("deleteNativeSession rejects foreign management, busy sessions and stale pr
         provider: "codex",
         providerSessionId: "native-busy",
         projectId,
+        path: cwd,
       }),
       /busy/,
     );
@@ -1447,6 +1481,7 @@ test("deleteNativeSession rejects foreign management, busy sessions and stale pr
         provider: "codex",
         providerSessionId: "native-busy",
         projectId: "missing-project",
+        path: cwd,
       }),
       /Project not found/,
     );
@@ -1461,6 +1496,7 @@ test("deleteNativeSession rejects foreign management, busy sessions and stale pr
         provider: "codex",
         providerSessionId: "native-busy",
         projectId: otherProjectId,
+        path: await realpath(join(cwd, "src")),
       }),
       /different project/,
     );
@@ -1488,6 +1524,7 @@ test("native deletion blocks starts across model discovery and compaction, and r
     provider: "codex" as const,
     providerSessionId: "native-race",
     projectId: f.projectId,
+    path: f.cwd,
   };
   try {
     const ref = await f.hub.importSession(input);
@@ -1565,6 +1602,7 @@ for (const first of ["import", "delete"] as const) {
       provider: "codex" as const,
       providerSessionId: "native-unmanaged",
       projectId: f.projectId,
+      path: f.cwd,
     };
     let exists = true;
     let reads = 0;
@@ -1638,6 +1676,7 @@ test("reports creation errors immediately and returns a generic error on retry",
       f.socket,
       "codex",
       f.projectId,
+      f.cwd,
       "failed-create",
       "hello",
       fixtureModelSettings,
@@ -1662,6 +1701,7 @@ test("broadcasts execution errors immediately while retaining the execution stat
       recordingSocket(messages),
       "codex",
       f.projectId,
+      f.cwd,
       "failed-turn",
       "hello",
       fixtureModelSettings,
@@ -1686,4 +1726,82 @@ test("broadcasts execution errors immediately while retaining the execution stat
   } finally {
     await f.hub.close();
   }
+});
+
+test("deleteProject leaves linked worktrees on disk unless asked to remove them", async (t) => {
+  const { mkdir, mkdtemp, rm, stat, writeFile } =
+    await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runGit } = await import("./worktrees/git.js");
+
+  async function exists(path: string): Promise<boolean> {
+    try {
+      await stat(path);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const fixture = await mkdtemp(join(tmpdir(), "racco-hub-delete-"));
+  t.after(() => rm(fixture, { force: true, recursive: true }));
+  const project = join(fixture, "repo");
+  await mkdir(project);
+  await runGit(["init", "-q", project]);
+  await runGit(["config", "user.email", "fixture@example.com"], {
+    cwd: project,
+  });
+  await runGit(["config", "user.name", "Fixture"], { cwd: project });
+  await writeFile(join(project, "tracked.txt"), "fixture\n");
+  await runGit(["add", "-A"], { cwd: project });
+  await runGit(["commit", "-qm", "init"], { cwd: project });
+
+  const worktreeRoot = join(fixture, "worktrees");
+  await runGit(
+    ["worktree", "add", "-b", "linked", join(worktreeRoot, "linked")],
+    {
+      cwd: project,
+    },
+  );
+
+  const repository = memoryRepository();
+  const projectId = repository.importProject({
+    name: "fixture",
+    path: project,
+  }).projectId;
+  const hub = new SessionHub([], repository, worktreeRoot);
+  t.after(() => hub.close());
+  const linkedPath = join(worktreeRoot, "linked");
+  assert.equal(await exists(linkedPath), true);
+
+  // Default: linked worktrees stay on disk.
+  await hub.deleteProject(projectId);
+  assert.equal(repository.getProject(projectId), undefined);
+  assert.equal(
+    await exists(linkedPath),
+    true,
+    "linked worktree must survive default delete",
+  );
+
+  // Re-import the same directory: worktrees are re-derived from Git.
+  const projectId2 = repository.importProject({
+    name: "fixture",
+    path: project,
+  }).projectId;
+  const before = await hub.listWorktrees(projectId2);
+  assert.ok(before.worktrees.some((entry) => entry.path === linkedPath));
+
+  // Explicit removeWorktrees: directories go away.
+  await hub.deleteProject(projectId2, true);
+  assert.equal(
+    await exists(linkedPath),
+    false,
+    "linked worktree must be removed when asked",
+  );
+  assert.equal(
+    await exists(project),
+    true,
+    "project directory itself is never removed",
+  );
 });

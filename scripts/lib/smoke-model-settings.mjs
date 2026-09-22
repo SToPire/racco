@@ -1,11 +1,11 @@
 export async function smokeModelSettings(
   baseUrl,
   provider,
-  projectId,
+  path,
   saved = null,
 ) {
   const response = await fetch(
-    `${baseUrl}/api/providers/${provider}/models?${new URLSearchParams({ projectId })}`,
+    `${baseUrl}/api/providers/${provider}/models?${new URLSearchParams({ path })}`,
   );
   if (!response.ok)
     throw new Error(

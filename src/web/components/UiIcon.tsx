@@ -13,6 +13,7 @@ type IconName =
   | "terminal"
   | "agents"
   | "folder"
+  | "branch"
   | "plus";
 
 const paths: Record<IconName, string> = {
@@ -33,6 +34,8 @@ const paths: Record<IconName, string> = {
   agents:
     "M9 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm12 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM2 20v-3a4 4 0 0 1 8 0v3m4 0v-3a4 4 0 0 1 8 0v3",
   search: "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0Zm-1.8 4.2L20 20",
+  branch:
+    "M6 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm0 0v6m0 0a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Zm0 0h6a5 5 0 0 0 5-5V8m0 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z",
 };
 
 export function UiIcon({ name }: { name: IconName }) {

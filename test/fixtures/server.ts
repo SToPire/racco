@@ -6,6 +6,7 @@ import { buildServer } from "../../src/server/server.js";
 import { readBuildInfo } from "../../src/server/runtime/build-info.js";
 import type { BuildInfo } from "../../src/server/runtime/build-info.js";
 import { FixtureDriver } from "./driver.js";
+import { runGit } from "../../src/server/worktrees/git.js";
 
 export async function startFixture(options: {
   directory: string;
@@ -34,6 +35,20 @@ export async function startFixture(options: {
     writeFile(join(alpha, "binary.bin"), Buffer.from([0, 1, 2])),
     writeFile(join(beta, "other.txt"), "Project beta\n"),
   ]);
+  // Each project is a separate repository even when fixtures live under the
+  // source checkout. This also exercises real Git worktrees in browser tests.
+  await Promise.all(
+    [alpha, beta].map(async (cwd) => {
+      await runGit(["init", "-q"], { cwd });
+      await runGit(["config", "user.email", "fixture@example.com"], { cwd });
+      await runGit(["config", "user.name", "Fixture"], { cwd });
+      await runGit(["add", "-A"], { cwd });
+      await runGit(
+        ["-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture"],
+        { cwd },
+      );
+    }),
+  );
   const drivers = [
     new FixtureDriver("codex", join(directory, "providers", "codex")),
     new FixtureDriver("claude", join(directory, "providers", "claude")),
@@ -43,6 +58,7 @@ export async function startFixture(options: {
       host: "127.0.0.1",
       port: options.port ?? 0,
       stateDir: join(directory, "state"),
+      worktreeRoot: join(directory, "worktrees"),
     },
     {
       createDrivers: () => drivers,
@@ -88,6 +104,7 @@ export async function startFixture(options: {
         projectId: project.projectId,
         provider,
         providerSessionId: `fixture-${provider}`,
+        path: project.path,
       },
     });
     if (session.statusCode !== 200) throw new Error(session.body);

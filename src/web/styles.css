@@ -3,6 +3,7 @@
 @import "./styles/workspace.css";
 @import "./styles/brand.css";
 @import "./styles/directory-browser.css";
+@import "./styles/confirm-delete.css";
 @import "./styles/conversation.css";
 @import "./styles/turn-navigator.css";
 @import "./styles/trajectory.css";

@@ -76,7 +76,7 @@ test("Racco branding leaves mobile project and composer controls accessible", as
   await expect(
     page.locator(".sidebar").getByRole("img", { name: "Racco", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "在 beta 中新建对话" }).click();
+  await page.getByRole("button", { name: "在项目 beta 中新建对话" }).click();
   await expect(
     page.getByRole("button", { name: "项目", exact: true }),
   ).toHaveText("beta");

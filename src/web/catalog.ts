@@ -1,4 +1,8 @@
-import type { ProjectEntry, SessionSummary } from "../shared/protocol";
+import type {
+  ProjectEntry,
+  SessionSummary,
+  WorktreeEntry,
+} from "../shared/protocol";
 
 export function upsertSession(
   current: SessionSummary[],
@@ -40,4 +44,47 @@ export function removeSession(
   sessionId: string,
 ): SessionSummary[] {
   return current.filter((candidate) => candidate.sessionId !== sessionId);
+}
+
+/** Worktrees of one project, in display order: primary first, then by name. */
+export function upsertWorktree(
+  current: WorktreeEntry[],
+  worktree: WorktreeEntry,
+): WorktreeEntry[] {
+  return [
+    ...current.filter((candidate) => candidate.path !== worktree.path),
+    worktree,
+  ].sort(compareWorktrees);
+}
+
+export function replaceProjectWorktrees(
+  current: WorktreeEntry[],
+  projectId: string,
+  worktrees: WorktreeEntry[],
+): WorktreeEntry[] {
+  return [
+    ...current.filter((candidate) => candidate.projectId !== projectId),
+    ...worktrees,
+  ].sort(compareWorktrees);
+}
+
+export function removeWorktree(
+  current: WorktreeEntry[],
+  path: string,
+): WorktreeEntry[] {
+  return current.filter((candidate) => candidate.path !== path);
+}
+
+export function removeProjectWorktrees(
+  current: WorktreeEntry[],
+  projectId: string,
+): WorktreeEntry[] {
+  return current.filter((candidate) => candidate.projectId !== projectId);
+}
+
+function compareWorktrees(left: WorktreeEntry, right: WorktreeEntry): number {
+  if (left.kind !== right.kind) return left.kind === "primary" ? -1 : 1;
+  return (
+    left.name.localeCompare(right.name) || left.path.localeCompare(right.path)
+  );
 }

@@ -3,6 +3,7 @@ import type {
   ProjectEntry,
   Provider,
   SessionSummary,
+  WorktreeEntry,
 } from "../../shared/protocol";
 import { UiIcon } from "./UiIcon";
 import { FileIcon } from "./files/FileIcon";
@@ -15,20 +16,23 @@ type Props = {
   active?: DockPanel;
   width: number;
   projects: ProjectEntry[];
-  projectId: string;
-  onProjectChange: (id: string) => void;
+  /** All projects' worktrees, listed under each project in the selector. */
+  worktrees: WorktreeEntry[];
+  /** The selected worktree's path; the dock is rooted here, not at the project. */
+  worktreePath: string;
+  onWorktreeChange: (path: string) => void;
   onToggle: (panel: DockPanel) => void;
   onResize: (width: number) => void;
   sessions: SessionSummary[];
   onImport: (
     provider: Provider,
     nativeId: string,
-    projectId: string,
+    path: string,
   ) => Promise<SessionSummary>;
   onDeleteNative: (
     provider: Provider,
     nativeId: string,
-    projectId: string,
+    path: string,
   ) => Promise<void>;
   onOpen: (session: SessionSummary) => void;
 };
@@ -37,8 +41,9 @@ export function ProjectDock({
   active,
   width,
   projects,
-  projectId,
-  onProjectChange,
+  worktrees,
+  worktreePath,
+  onWorktreeChange,
   onToggle,
   onResize,
   sessions,
@@ -53,7 +58,7 @@ export function ProjectDock({
   const drag = useRef<{ x: number; width: number } | undefined>(undefined);
   const filesLauncher = useRef<HTMLButtonElement>(null);
   const sessionsLauncher = useRef<HTMLButtonElement>(null);
-  const projectSelector = useRef<HTMLSelectElement>(null);
+  const worktreeSelector = useRef<HTMLSelectElement>(null);
   const previousPanel = useRef(active);
   useEffect(() => {
     if (previousPanel.current && !active)
@@ -62,7 +67,7 @@ export function ProjectDock({
         : sessionsLauncher
       ).current?.focus();
     else if (previousPanel.current !== active && active)
-      projectSelector.current?.focus();
+      worktreeSelector.current?.focus();
     previousPanel.current = active;
   }, [active]);
   useEffect(() => {
@@ -88,28 +93,48 @@ export function ProjectDock({
       window.removeEventListener("resize", update);
     };
   }, []);
-  const project = projects.find(
-    (candidate) => candidate.projectId === projectId,
+  const worktree = worktrees.find(
+    (candidate) => candidate.path === worktreePath,
   );
   const resize = (next: number) =>
     onResize(Math.max(360, Math.min(next, maximumWidth)));
   const controls = (
     <div className="project-dock-controls">
       <select
-        ref={projectSelector}
-        aria-label={`${label}侧栏项目`}
-        value={project?.projectId ?? ""}
-        onChange={(event) => onProjectChange(event.target.value)}
-        title={project?.path}
+        ref={worktreeSelector}
+        aria-label={`${label}侧栏 Worktree`}
+        value={worktree?.path ?? ""}
+        onChange={(event) => onWorktreeChange(event.target.value)}
+        title={worktree?.path}
       >
         <option value="" disabled>
-          选择项目
+          选择 Worktree
         </option>
-        {projects.map((candidate) => (
-          <option key={candidate.projectId} value={candidate.projectId}>
-            {candidate.name}
-          </option>
-        ))}
+        {projects.map((project) => {
+          const projectWorktrees = worktrees.filter(
+            (candidate) => candidate.projectId === project.projectId,
+          );
+          return (
+            <optgroup key={project.projectId} label={project.name}>
+              {projectWorktrees.length === 0 && (
+                <option value="" disabled>
+                  暂无 Worktree
+                </option>
+              )}
+              {projectWorktrees.map((candidate) => (
+                <option
+                  key={candidate.path}
+                  value={candidate.path}
+                  disabled={!candidate.available}
+                >
+                  {projectWorktrees.length > 1 || projects.length > 1
+                    ? `${project.name} · ${candidate.name}`
+                    : candidate.name}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
       </select>
       <button
         className="icon-button"
@@ -185,7 +210,7 @@ export function ProjectDock({
           id="files-dock-panel"
           hidden={active !== "files"}
         >
-          {project === undefined ? (
+          {worktree === undefined ? (
             <>
               <div className="file-dock-tabs-row">
                 <span className="file-tab-files">
@@ -199,14 +224,14 @@ export function ProjectDock({
                 <p>
                   {projects.length === 0
                     ? "导入项目后，即可浏览文件。"
-                    : "请选择要浏览的项目。"}
+                    : "请选择要浏览的 Worktree。"}
                 </p>
               </div>
             </>
           ) : (
             <ProjectFiles
-              key={project.projectId}
-              project={project}
+              key={worktree.path}
+              worktree={worktree}
               enabled={active === "files"}
               controls={active === "files" ? controls : null}
             />
@@ -217,10 +242,10 @@ export function ProjectDock({
           id="sessions-dock-panel"
           hidden={active !== "sessions"}
         >
-          {project ? (
+          {worktree ? (
             <ProjectSessions
-              key={project.projectId}
-              project={project}
+              key={worktree.path}
+              worktree={worktree}
               enabled={active === "sessions"}
               controls={active === "sessions" ? controls : null}
               sessions={sessions}
@@ -242,7 +267,7 @@ export function ProjectDock({
                 <p>
                   {projects.length === 0
                     ? "导入项目后，即可浏览已有会话。"
-                    : "请选择要浏览的项目。"}
+                    : "请选择要浏览的 Worktree。"}
                 </p>
               </div>
             </>

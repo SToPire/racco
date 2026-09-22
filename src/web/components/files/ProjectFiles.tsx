@@ -1,15 +1,15 @@
 import { type ReactNode, useState } from "react";
-import type { ProjectEntry } from "../../../shared/protocol";
+import type { WorktreeEntry } from "../../../shared/protocol";
 import { FileTabs, fileTabId } from "./FileTabs";
 import { FileTree } from "./FileTree";
 import { FilePreview } from "./FilePreview";
 
 export function ProjectFiles({
-  project,
+  worktree,
   enabled,
   controls,
 }: {
-  project: ProjectEntry;
+  worktree: WorktreeEntry;
   enabled: boolean;
   controls: ReactNode;
 }) {
@@ -50,13 +50,13 @@ export function ProjectFiles({
       </div>
       <div className="file-dock-body">
         <FileTree
-          project={project}
+          worktree={worktree}
           enabled={enabled}
           activePath={activePath}
           onOpenFile={openFile}
         />
         <FilePreview
-          project={project}
+          worktree={worktree}
           enabled={enabled}
           activePath={activePath}
         />

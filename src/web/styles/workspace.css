@@ -84,9 +84,114 @@
 
 .new-session-context {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
   width: min(720px, 100%);
   padding: 0 8px 8px;
+}
+
+/* Inline "create a worktree here" entry, beside the two pickers. */
+.new-session-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.new-session-link-button:hover:not(:disabled) {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.new-session-link-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.new-session-link-button svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.new-session-worktree-form {
+  display: flex;
+  align-items: center;
+  flex-basis: 100%;
+  gap: 6px;
+}
+
+.new-session-worktree-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+
+.new-session-worktree-form input:focus-visible {
+  border-color: var(--primary);
+  outline: 0;
+}
+
+.new-session-worktree-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 52px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface-subtle);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.new-session-worktree-form button:last-child {
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.new-session-worktree-form button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.new-session-worktree-form button:first-child:not(:disabled) {
+  background: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.new-session-worktree-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* A failed refresh keeps the previous list; this is the only trace of it. */
+.new-session-warning {
+  flex-basis: 100%;
+  margin: 0 4px;
+  color: var(--danger);
+  font-size: 0.68rem;
 }
 
 .new-session-composer textarea {
@@ -199,4 +304,13 @@
   margin: 7px 4px 0;
   color: var(--danger);
   font-size: 0.68rem;
+}
+
+/* Where the conversation will be created. Not a warning, so it overrides the
+   danger colour the sibling status lines above it use. */
+.new-session-composer > small.new-session-target {
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

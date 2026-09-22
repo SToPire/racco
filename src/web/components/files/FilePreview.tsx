@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 import type {
-  ProjectEntry,
   ProjectFilePreview,
+  WorktreeEntry,
 } from "../../../shared/protocol";
-import { readProjectFile } from "../../api";
+import { readWorktreeFile } from "../../api";
 import { UiIcon } from "../UiIcon";
 import { FileIcon } from "./FileIcon";
 import { CodePreview } from "./CodePreview";
 import { fileTabId } from "./FileTabs";
 
 export function FilePreview({
-  project,
+  worktree,
   enabled,
   activePath,
 }: {
-  project: ProjectEntry;
+  worktree: WorktreeEntry;
   enabled: boolean;
   activePath?: string;
 }) {
@@ -32,7 +32,7 @@ export function FilePreview({
     setFileLoading(true);
     setFileError(undefined);
     setCopyStatus("");
-    void readProjectFile(project.projectId, activePath, controller.signal).then(
+    void readWorktreeFile(worktree.path, activePath, controller.signal).then(
       (next) => {
         if (!controller.signal.aborted) {
           setPreview(next);
@@ -50,7 +50,7 @@ export function FilePreview({
       },
     );
     return () => controller.abort();
-  }, [project.projectId, enabled, activePath, fileRevision]);
+  }, [worktree.path, enabled, activePath, fileRevision]);
   const currentPreview = preview?.path === activePath ? preview : undefined;
   const currentFileError =
     fileError !== undefined && fileError.path === activePath
@@ -79,7 +79,7 @@ export function FilePreview({
       {activePath !== undefined && (
         <>
           <div className="file-preview-toolbar">
-            <span title={`${project.path}/${activePath}`}>{activePath}</span>
+            <span title={`${worktree.path}/${activePath}`}>{activePath}</span>
             <small>只读</small>
             <button
               type="button"
