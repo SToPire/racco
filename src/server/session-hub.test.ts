@@ -591,7 +591,7 @@ test("does not overwrite live events when a targeted provider read races with a 
 
   const snapshot = await pendingSnapshot;
   assert(snapshot?.type === "session.snapshot");
-  assert.equal(snapshot.events.length, 2);
+  assert.equal(snapshot.events.length, 3);
   assert(snapshot.events[0]?.type === "user.message");
   assert.equal(snapshot.events[0].text, "race");
   assert.deepEqual(snapshot.events[1], {
@@ -599,6 +599,10 @@ test("does not overwrite live events when a targeted provider read races with a 
     id: "live",
     text: "live",
   });
+  const notice = snapshot.events[2];
+  assert(notice.type === "system.notice");
+  assert.equal(notice.level, "warning");
+  assert.match(notice.text, /本次未更新完整历史，请重试/);
   assert.equal(
     snapshot.events.some((event) => event.id === "stale"),
     false,

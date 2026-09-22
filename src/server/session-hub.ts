@@ -507,6 +507,14 @@ export class SessionHub {
         this.#refreshRuntime(runtime, managed);
         runtime.events = snapshot.events;
         runtime.revision += 1;
+      } else {
+        this.#refreshRuntime(runtime, managed);
+        return this.#snapshotWithNotice(
+          ref.sessionId,
+          runtime,
+          "读取期间收到实时更新，本次未更新完整历史，请重试",
+          "warning",
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1236,6 +1244,7 @@ export class SessionHub {
     sessionId: string,
     runtime: RuntimeSession,
     text: string,
+    level: "warning" | "error" = "error",
   ): SessionSnapshotMessage {
     const snapshot = this.#snapshotMessage(sessionId, runtime);
     return {
@@ -1246,7 +1255,7 @@ export class SessionHub {
           type: "system.notice",
           id: `racco-read-error:${runtime.revision}`,
           text,
-          level: "error",
+          level,
         },
       ],
     };

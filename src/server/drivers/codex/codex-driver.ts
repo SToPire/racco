@@ -66,6 +66,19 @@ type SubagentLink = {
   rootThreadId: string;
   name?: string;
   state?: SubagentState;
+  snapshotGeneration: number;
+  appliedSnapshotGeneration: number;
+  currentTurn?: { id: string; terminal: boolean; completedItems: Set<string> };
+};
+
+type SnapshotRead = {
+  generation: number;
+  changedItems: Set<string>;
+  endedTurns: Set<string>;
+  unalignedItems: Set<string>;
+  endedThread: boolean;
+  stateChanged: boolean;
+  invalid: boolean;
 };
 
 const SessionListSchema = z.object({
@@ -125,8 +138,13 @@ export class CodexDriver implements AgentDriver {
   readonly #compactions = new Map<string, string | undefined>();
   readonly #activityMapper = new CodexActivityMapper();
   readonly #toolLifecycle = new CodexToolLifecycle();
-  readonly #toolOutput = new Map<string, string>();
+  readonly #toolOutput = new Map<
+    string,
+    { output: string; live: boolean; generation: number }
+  >();
   readonly #subagents = new Map<string, SubagentLink>();
+  readonly #snapshotReads = new Map<string, Set<SnapshotRead>>();
+  readonly #unalignedItems = new Map<string, Map<string, string>>();
   #ready = false;
   #sessionUpdate?: (
     providerSessionId: string,
@@ -231,6 +249,7 @@ export class CodexDriver implements AgentDriver {
 
   async close(): Promise<void> {
     this.#ready = false;
+    this.#clearSnapshotReads();
     const error = new Error("Codex provider closed");
     for (const [threadId, context] of this.#contexts) {
       emitAgentEvents(context, this.#finishTools(threadId, "failed"));
@@ -295,20 +314,9 @@ export class CodexDriver implements AgentDriver {
         parentAgentId,
       );
       events.push(...childEvents);
-      // Seed newly discovered children only; a snapshot can race newer live events.
       if (link.state === undefined) {
         const state = childEvents.at(-1);
         if (state?.type === "subagent.state") link.state = state.state;
-        for (const turn of subagentThread.turns) {
-          if (turn.status !== "inProgress") continue;
-          this.#toolLifecycle.observe(
-            subagentThread.id,
-            turn.id,
-            turn.items.flatMap((item) =>
-              mapItemEvents(item, resolveSubagentId),
-            ),
-          );
-        }
       }
     }
     return {
@@ -547,6 +555,9 @@ export class CodexDriver implements AgentDriver {
         },
       );
       summaries.push(...response.data);
+      // Discovery precedes the per-child reads, which can each yield to live events.
+      for (const summary of response.data)
+        this.#rememberSubagent(summary.id, rootThreadId);
       if (response.nextCursor === null) break;
       if (seenCursors.has(response.nextCursor)) {
         throw new Error("Codex returned a repeated subagent cursor");
@@ -557,20 +568,58 @@ export class CodexDriver implements AgentDriver {
 
     const threads: CodexThread[] = [];
     for (const summary of summaries) {
-      const response = await this.#client.request<ThreadReadResponse>(
-        "thread/read",
-        {
-          threadId: summary.id,
-          includeTurns: true,
-        },
-      );
-      if (
-        response.thread.id !== summary.id ||
-        response.thread.parentThreadId == null
-      ) {
-        throw new Error("Codex returned an invalid subagent thread");
+      const link = this.#rememberSubagent(summary.id, rootThreadId);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const read: SnapshotRead = {
+          generation: ++link.snapshotGeneration,
+          changedItems: new Set(),
+          endedTurns: new Set(),
+          unalignedItems: new Set(),
+          endedThread: false,
+          stateChanged: false,
+          invalid: false,
+        };
+        let reads = this.#snapshotReads.get(summary.id);
+        if (reads === undefined) {
+          reads = new Set();
+          this.#snapshotReads.set(summary.id, reads);
+        }
+        reads.add(read);
+        try {
+          const response = await this.#client.request<ThreadReadResponse>(
+            "thread/read",
+            { threadId: summary.id, includeTurns: true },
+          );
+          if (
+            response.thread.id !== summary.id ||
+            response.thread.parentThreadId == null
+          ) {
+            throw new Error("Codex returned an invalid subagent thread");
+          }
+          if (read.invalid)
+            throw new Error(
+              "Codex subagent changed while reading its snapshot",
+            );
+          if (read.unalignedItems.size > 0) {
+            if (attempt === 0) continue;
+            throw new Error(
+              "Codex 流式快照无法对齐，请重试；等待完整内容前不会应用缺少前缀的增量",
+            );
+          }
+          this.#seedThreadContent(
+            response.thread,
+            rootThreadId,
+            read.generation,
+            read,
+          );
+          threads.push(response.thread);
+          break;
+        } finally {
+          reads.delete(read);
+          if (reads.size === 0 && this.#snapshotReads.get(summary.id) === reads)
+            this.#snapshotReads.delete(summary.id);
+        }
       }
-      threads.push(response.thread);
     }
     return threads;
   }
@@ -589,6 +638,8 @@ export class CodexDriver implements AgentDriver {
     const link: SubagentLink = {
       agentId: randomUUID(),
       rootThreadId,
+      snapshotGeneration: 0,
+      appliedSnapshotGeneration: 0,
     };
     this.#subagents.set(providerThreadId, link);
     return link;
@@ -638,6 +689,7 @@ export class CodexDriver implements AgentDriver {
     const threadId =
       typeof params?.threadId === "string" ? params.threadId : undefined;
     if (threadId === undefined) return;
+    if (this.#observeSnapshotNotification(threadId, notification)) return;
     if (this.#compactions.has(threadId)) {
       if (notification.method === "turn/started") {
         const { turn } = notification.params as TurnNotification;
@@ -671,11 +723,15 @@ export class CodexDriver implements AgentDriver {
       const deleted = notification.params as { threadId: string };
       this.#loadedThreads.delete(deleted.threadId);
       this.#observedRoots.delete(deleted.threadId);
+      this.#unalignedItems.delete(deleted.threadId);
       for (const [threadId, link] of this.#subagents) {
         if (
           threadId === deleted.threadId ||
           link.rootThreadId === deleted.threadId
         ) {
+          for (const read of this.#snapshotReads.get(threadId) ?? [])
+            read.invalid = true;
+          this.#unalignedItems.delete(threadId);
           const events = [
             ...this.#finishTools(threadId, "interrupted"),
             ...this.#activityMapper.finish(threadId, "interrupted"),
@@ -800,6 +856,13 @@ export class CodexDriver implements AgentDriver {
       notification.method === "item/completed"
     ) {
       const { item, turnId } = notification.params as ItemNotification;
+      if (item.type === "commandExecution" && item.status === "inProgress") {
+        this.#toolOutput.set(`${threadId}:${item.id}`, {
+          output: item.aggregatedOutput ?? "",
+          live: true,
+          generation: 0,
+        });
+      }
       if (
         item.type === "contextCompaction" &&
         notification.method === "item/started"
@@ -823,8 +886,9 @@ export class CodexDriver implements AgentDriver {
     if (notification.method === "item/commandExecution/outputDelta") {
       const delta = notification.params as DeltaNotification;
       const cacheId = `${delta.threadId}:${delta.itemId}`;
-      const output = (this.#toolOutput.get(cacheId) ?? "") + delta.delta;
-      this.#toolOutput.set(cacheId, output);
+      const output =
+        (this.#toolOutput.get(cacheId)?.output ?? "") + delta.delta;
+      this.#toolOutput.set(cacheId, { output, live: true, generation: 0 });
       if (subagent === undefined) {
         emitter.emit({ type: "tool.output", id: delta.itemId, output });
       } else {
@@ -975,20 +1039,39 @@ export class CodexDriver implements AgentDriver {
       parentThreadId === rootThreadId ? undefined : parent?.agentId;
     const resolveSubagentId = (providerThreadId: string) =>
       this.#rememberSubagent(providerThreadId, rootThreadId).agentId;
-    for (const turn of thread.turns) {
-      if (turn.status !== "inProgress") continue;
-      this.#toolLifecycle.observe(
-        thread.id,
-        turn.id,
-        turn.items.flatMap((item) => mapItemEvents(item, resolveSubagentId)),
-      );
-    }
+    const protectedIds = new Set(
+      thread.turns.flatMap((turn) =>
+        turn.status !== "inProgress"
+          ? []
+          : turn.items
+              .filter(
+                (item) =>
+                  this.#activityMapper.hasPending(thread.id, item.id) ||
+                  (item.type === "commandExecution" &&
+                    item.status === "inProgress" &&
+                    this.#toolOutput.get(`${thread.id}:${item.id}`)?.live) ||
+                  (link.currentTurn?.id === turn.id &&
+                    link.currentTurn.completedItems.has(item.id)),
+              )
+              .map((item) => `${link.agentId}:${item.id}`),
+      ),
+    );
+    if (
+      !this.#seedThreadContent(thread, rootThreadId, ++link.snapshotGeneration)
+    )
+      return;
     for (const event of mapSubagentThread(
       thread,
       link.agentId,
       resolveSubagentId,
       parentAgentId,
     )) {
+      if (
+        event.type === "subagent.event" &&
+        event.agentId === link.agentId &&
+        protectedIds.has(event.event.id)
+      )
+        continue;
       this.#emitRootEvent(rootThreadId, event);
     }
   }
@@ -1042,6 +1125,7 @@ export class CodexDriver implements AgentDriver {
 
   #handleExit(error: Error): void {
     this.#ready = false;
+    this.#clearSnapshotReads();
     for (const threadId of this.#compactions.keys()) {
       this.#sessionUpdate?.(threadId, {
         type: "system.notice",
@@ -1071,12 +1155,262 @@ export class CodexDriver implements AgentDriver {
     if (!this.#ready) throw new Error("Codex provider is unavailable");
   }
 
+  #seedThreadContent(
+    thread: CodexThread,
+    rootThreadId: string,
+    generation: number,
+    read?: SnapshotRead,
+  ): boolean {
+    if (read?.endedThread || read?.invalid) return false;
+    const link = this.#subagents.get(thread.id)!;
+    if (generation < link.appliedSnapshotGeneration) return false;
+    const latest = thread.turns.at(-1);
+    const previousTurn = link.currentTurn;
+    if (
+      previousTurn !== undefined &&
+      (!thread.turns.some((turn) => turn.id === previousTurn.id) ||
+        (previousTurn.terminal &&
+          latest?.id === previousTurn.id &&
+          latest.status === "inProgress"))
+    ) {
+      if (read) throw new Error("Codex 子任务快照早于已观测的轮次状态，请重试");
+      return false;
+    }
+    if (
+      previousTurn !== undefined &&
+      thread.turns.some(
+        (turn) =>
+          turn.id === previousTurn.id &&
+          turn.status === "inProgress" &&
+          turn.items.some(
+            (item) =>
+              !read?.changedItems.has(item.id) &&
+              previousTurn.completedItems.has(item.id) &&
+              "status" in item &&
+              item.status === "inProgress",
+          ),
+      )
+    ) {
+      if (read) throw new Error("Codex 子任务快照早于已观测的工具终态，请重试");
+      return false;
+    }
+    if (
+      latest !== undefined &&
+      (previousTurn === undefined || latest.id !== previousTurn.id)
+    ) {
+      link.currentTurn = {
+        id: latest.id,
+        terminal: latest.status !== "inProgress",
+        completedItems: new Set(),
+      };
+    }
+    if (latest !== undefined && !read?.stateChanged) {
+      link.state = subagentTurnState(latest);
+      if (
+        latest.status !== "inProgress" &&
+        link.currentTurn?.id === latest.id
+      ) {
+        link.currentTurn.terminal = true;
+        link.currentTurn.completedItems.clear();
+      }
+    }
+    link.appliedSnapshotGeneration = generation;
+    const resolveSubagentId = (id: string) =>
+      this.#rememberSubagent(id, rootThreadId).agentId;
+    for (const turn of thread.turns) {
+      if (read?.endedTurns.has(turn.id)) continue;
+      if (turn.status !== "inProgress") {
+        this.#clearUnalignedTurn(thread.id, turn.id);
+        if (!turn.items.some((item) => read?.changedItems.has(item.id))) {
+          this.#activityMapper.finish(thread.id, undefined, turn.id);
+          this.#finishTools(thread.id, "incomplete", turn.id);
+        }
+        continue;
+      }
+      for (const item of turn.items) {
+        if (read?.changedItems.has(item.id)) continue;
+        if (
+          link.currentTurn?.id === turn.id &&
+          link.currentTurn.completedItems.has(item.id)
+        ) {
+          continue;
+        }
+        this.#activityMapper.seed(thread.id, turn.id, item, generation);
+        if (item.type === "commandExecution") {
+          const key = `${thread.id}:${item.id}`;
+          const previous = this.#toolOutput.get(key);
+          if (item.status !== "inProgress") this.#toolOutput.delete(key);
+          else if (
+            !previous?.live &&
+            (previous?.generation ?? -1) <= generation
+          ) {
+            this.#toolOutput.set(key, {
+              output: item.aggregatedOutput ?? "",
+              live: false,
+              generation,
+            });
+          }
+        }
+        this.#toolLifecycle.observe(
+          thread.id,
+          turn.id,
+          mapItemEvents(item, resolveSubagentId),
+        );
+        if (
+          "status" in item &&
+          item.status !== "inProgress" &&
+          link.currentTurn?.id === turn.id
+        )
+          link.currentTurn.completedItems.add(item.id);
+        this.#unalignedItems.get(thread.id)?.delete(item.id);
+      }
+      if (this.#unalignedItems.get(thread.id)?.size === 0)
+        this.#unalignedItems.delete(thread.id);
+    }
+    return true;
+  }
+
+  #observeSnapshotNotification(
+    threadId: string,
+    notification: JsonRpcNotification,
+  ): boolean {
+    const reads = this.#snapshotReads.get(threadId);
+    const link = this.#subagents.get(threadId);
+    if (
+      notification.method === "item/started" ||
+      notification.method === "item/completed"
+    ) {
+      const { item, turnId } = notification.params as ItemNotification;
+      if (link !== undefined && link.currentTurn === undefined)
+        link.currentTurn = {
+          id: turnId,
+          terminal: false,
+          completedItems: new Set(),
+        };
+      if (
+        notification.method === "item/completed" &&
+        link?.currentTurn?.id === turnId
+      )
+        link.currentTurn.completedItems.add(item.id);
+      for (const read of reads ?? []) {
+        read.changedItems.add(item.id);
+        read.unalignedItems.delete(item.id);
+      }
+      const unaligned = this.#unalignedItems.get(threadId);
+      unaligned?.delete(item.id);
+      if (unaligned?.size === 0) this.#unalignedItems.delete(threadId);
+    } else if (
+      [
+        "item/commandExecution/outputDelta",
+        "item/agentMessage/delta",
+        "item/plan/delta",
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/summaryPartAdded",
+      ].includes(notification.method)
+    ) {
+      const delta = notification.params as DeltaNotification;
+      if (
+        link?.currentTurn?.id === delta.turnId &&
+        (link.currentTurn.terminal ||
+          link.currentTurn.completedItems.has(delta.itemId))
+      )
+        return true;
+      for (const read of reads ?? []) read.changedItems.add(delta.itemId);
+      const aligned =
+        notification.method === "item/commandExecution/outputDelta"
+          ? this.#toolOutput.has(`${threadId}:${delta.itemId}`)
+          : this.#activityMapper.hasContent(threadId, delta.itemId);
+      if (
+        !aligned &&
+        (link !== undefined ||
+          (reads?.size ?? 0) > 0 ||
+          this.#unalignedItems.get(threadId)?.has(delta.itemId))
+      ) {
+        let unaligned = this.#unalignedItems.get(threadId);
+        if (unaligned === undefined) {
+          unaligned = new Map();
+          this.#unalignedItems.set(threadId, unaligned);
+        }
+        unaligned.set(delta.itemId, delta.turnId);
+        for (const read of reads ?? []) read.unalignedItems.add(delta.itemId);
+        return true;
+      }
+    } else if (notification.method === "turn/started") {
+      const { turn } = notification.params as TurnNotification;
+      for (const read of reads ?? []) read.stateChanged = true;
+      if (link !== undefined)
+        link.currentTurn = {
+          id: turn.id,
+          terminal: false,
+          completedItems: new Set(),
+        };
+    } else if (notification.method === "turn/completed") {
+      const { turn } = notification.params as TurnNotification;
+      if (
+        link !== undefined &&
+        (link.currentTurn === undefined || link.currentTurn.id === turn.id)
+      ) {
+        link.currentTurn = {
+          id: turn.id,
+          terminal: true,
+          completedItems: new Set(),
+        };
+      }
+      for (const read of reads ?? []) {
+        read.endedTurns.add(turn.id);
+        read.stateChanged = true;
+      }
+      this.#clearUnalignedTurn(threadId, turn.id);
+    } else if (notification.method === "error") {
+      const error = notification.params as ErrorNotification;
+      if (!error.willRetry) {
+        for (const read of reads ?? []) {
+          read.endedTurns.add(error.turnId);
+          read.stateChanged = true;
+        }
+        this.#clearUnalignedTurn(threadId, error.turnId);
+      }
+    } else if (notification.method === "thread/status/changed") {
+      const { status } = notification.params as ThreadStatusNotification;
+      for (const read of reads ?? []) read.stateChanged = true;
+      if (status.type !== "active") {
+        for (const read of reads ?? []) read.endedThread = true;
+        this.#unalignedItems.delete(threadId);
+      }
+    } else if (notification.method === "thread/deleted") {
+      for (const read of reads ?? []) read.invalid = true;
+      this.#unalignedItems.delete(threadId);
+    }
+    return false;
+  }
+
+  #clearUnalignedTurn(threadId: string, turnId: string): void {
+    const unaligned = this.#unalignedItems.get(threadId);
+    for (const [id, ownerTurnId] of unaligned ?? []) {
+      if (ownerTurnId === turnId) unaligned!.delete(id);
+    }
+    if (unaligned?.size === 0) this.#unalignedItems.delete(threadId);
+  }
+
+  #clearSnapshotReads(): void {
+    for (const reads of this.#snapshotReads.values()) {
+      for (const read of reads) read.invalid = true;
+    }
+    this.#snapshotReads.clear();
+    this.#unalignedItems.clear();
+  }
+
   #emitRootEvent(rootThreadId: string, event: TimelineEvent): void {
     if (event.type === "subagent.state") {
       for (const [threadId, link] of this.#subagents) {
         if (link.agentId === event.agentId) {
           link.state = event.state;
           if (event.state !== "starting" && event.state !== "running") {
+            if (link.currentTurn !== undefined) {
+              link.currentTurn.terminal = true;
+              link.currentTurn.completedItems.clear();
+            }
+            this.#unalignedItems.delete(threadId);
             emitAgentEvents(
               { emit: (nested) => this.#emitRootEvent(rootThreadId, nested) },
               [

@@ -54,6 +54,17 @@ export function mapAssistantItem(item: AssistantItem): ContentSnapshot {
 
 /** Accumulates only displayable content. Raw reasoning never enters this state. */
 export class CodexActivityMapper {
+  // Snapshot items have no per-item streaming state. Keep their content available
+  // for a later delta without treating already completed blocks as pending.
+  readonly #baselines = new Map<
+    string,
+    {
+      threadId: string;
+      turnId: string;
+      generation: number;
+      content: ContentSnapshot;
+    }
+  >();
   readonly #pending = new Map<
     string,
     { threadId: string; turnId: string; content: ContentSnapshot }
@@ -63,6 +74,35 @@ export class CodexActivityMapper {
     { turnId: string; event: PlanUpdatedEvent }
   >();
 
+  seed(
+    threadId: string,
+    turnId: string,
+    item: CodexThreadItem,
+    generation: number,
+  ): void {
+    if (!isAssistantItem(item)) return;
+    const key = `${threadId}:${item.id}`;
+    if (
+      this.#pending.has(key) ||
+      (this.#baselines.get(key)?.generation ?? -1) > generation
+    )
+      return;
+    this.#baselines.set(key, {
+      threadId,
+      turnId,
+      generation,
+      content: mapAssistantItem(item),
+    });
+  }
+
+  hasContent(threadId: string, itemId: string): boolean {
+    const key = `${threadId}:${itemId}`;
+    return this.#pending.has(key) || this.#baselines.has(key);
+  }
+
+  hasPending(threadId: string, itemId: string): boolean {
+    return this.#pending.has(`${threadId}:${itemId}`);
+  }
   map(notification: JsonRpcNotification): AgentTimelineEvent[] | undefined {
     if (
       notification.method === "item/started" ||
@@ -73,6 +113,7 @@ export class CodexActivityMapper {
       if (!isAssistantItem(item)) return undefined;
       const key = `${threadId}:${item.id}`;
       const content = mapAssistantItem(item);
+      this.#baselines.delete(key);
       if (notification.method === "item/completed") {
         this.#pending.delete(key);
         return [content];
@@ -107,7 +148,8 @@ export class CodexActivityMapper {
         notification.method === "item/agentMessage/delta"
           ? "assistant.message"
           : "assistant.plan";
-      const previous = this.#pending.get(key)?.content;
+      const previous = (this.#pending.get(key) ?? this.#baselines.get(key))
+        ?.content;
       if (previous !== undefined && previous.type !== type) {
         throw new Error("Codex text delta does not match its item type");
       }
@@ -124,6 +166,7 @@ export class CodexActivityMapper {
                 previous?.type === "assistant.message" ? previous.phase : null,
             }
           : { type, id: delta.itemId, text };
+      this.#baselines.delete(key);
       this.#pending.set(key, {
         threadId: delta.threadId,
         turnId: delta.turnId,
@@ -142,7 +185,8 @@ export class CodexActivityMapper {
         throw new Error("Invalid Codex reasoning summary index");
       }
       const key = `${delta.threadId}:${delta.itemId}`;
-      const previous = this.#pending.get(key)?.content;
+      const previous = (this.#pending.get(key) ?? this.#baselines.get(key))
+        ?.content;
       if (previous !== undefined && previous.type !== "assistant.reasoning") {
         throw new Error("Codex reasoning delta does not match its item type");
       }
@@ -154,6 +198,7 @@ export class CodexActivityMapper {
         id: delta.itemId,
         summary,
       };
+      this.#baselines.delete(key);
       this.#pending.set(key, {
         threadId: delta.threadId,
         turnId: delta.turnId,
@@ -170,6 +215,14 @@ export class CodexActivityMapper {
     turnId?: string,
   ): AgentTimelineEvent[] {
     const events: AgentTimelineEvent[] = [];
+    for (const [key, baseline] of this.#baselines) {
+      if (
+        baseline.threadId === threadId &&
+        (turnId === undefined || baseline.turnId === turnId)
+      ) {
+        this.#baselines.delete(key);
+      }
+    }
     for (const [key, pending] of this.#pending) {
       if (
         pending.threadId !== threadId ||
@@ -194,6 +247,7 @@ export class CodexActivityMapper {
   }
 
   clear(): void {
+    this.#baselines.clear();
     this.#pending.clear();
     this.#plans.clear();
   }
