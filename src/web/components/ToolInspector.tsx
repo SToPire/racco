@@ -1,5 +1,11 @@
 import { UiIcon } from "./UiIcon";
-import { useState, type ReactNode } from "react";
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { FileChange } from "../../shared/protocol";
 import type { ToolTimelineRow } from "../store";
 import { FileChanges } from "./FileChanges";
@@ -92,10 +98,18 @@ function CommandDetails({ row }: { row: ToolTimelineRow }) {
   return (
     <div className="inspector-groups">
       <InspectorGroup
-        title="Execution"
-        summary={displayValue(details.status)}
+        title="Command"
+        summary={typeof cwd === "string" ? cwd : undefined}
         open
       >
+        <pre>{stringify(command)}</pre>
+        <div className="inspector-subfield">
+          <span>Working directory</span>
+          <code className="inspector-path">{displayValue(cwd)}</code>
+        </div>
+      </InspectorGroup>
+
+      <InspectorGroup title="Execution" summary={displayValue(details.status)}>
         <PropertyList
           entries={[
             ["Item ID", details.id],
@@ -108,18 +122,6 @@ function CommandDetails({ row }: { row: ToolTimelineRow }) {
             ["Output", outputSummary],
           ]}
         />
-      </InspectorGroup>
-
-      <InspectorGroup
-        title="Command"
-        summary={typeof cwd === "string" ? cwd : undefined}
-        open
-      >
-        <pre>{stringify(command)}</pre>
-        <div className="inspector-subfield">
-          <span>Working directory</span>
-          <code className="inspector-path">{displayValue(cwd)}</code>
-        </div>
       </InspectorGroup>
 
       <InspectorGroup title="Actions" summary={`${actions.length}`}>
@@ -164,18 +166,117 @@ function InputPanel({ row }: { row: ToolTimelineRow }) {
   return <pre>{stringify(row.input)}</pre>;
 }
 
+function OutputPanel({
+  row,
+  following,
+  onFollowingChange,
+}: {
+  row: ToolTimelineRow;
+  following: boolean;
+  onFollowingChange: (following: boolean) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [copyResult, setCopyResult] = useState<{
+    output: string;
+    message: string;
+  }>();
+  const command =
+    row.tool === "command" ? asRecord(row.details)?.command : undefined;
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (following && scroll !== null) scroll.scrollTop = scroll.scrollHeight;
+  }, [following, row.output]);
+
+  async function copyOutput() {
+    const output = row.output;
+    try {
+      await navigator.clipboard.writeText(output);
+      setCopyResult({ output, message: "已复制" });
+    } catch {
+      setCopyResult({ output, message: "复制失败，请手动选择文本" });
+    }
+  }
+
+  return (
+    <div className="inspector-output-panel">
+      <div className="inspector-output-toolbar">
+        <button
+          className="inspector-follow-button"
+          type="button"
+          aria-pressed={following}
+          onClick={() => onFollowingChange(!following)}
+        >
+          <UiIcon name="chevron-down" />
+          跟随末尾
+        </button>
+        <span role="status">
+          {copyResult?.output === row.output ? copyResult.message : ""}
+        </span>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="复制输出"
+          title="复制输出"
+          disabled={row.output.length === 0}
+          onClick={() => void copyOutput()}
+        >
+          <UiIcon name="copy" />
+        </button>
+      </div>
+      <div
+        className="inspector-output-scroll"
+        ref={scrollRef}
+        onScroll={(event) => {
+          const scroll = event.currentTarget;
+          if (
+            following &&
+            scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 24
+          ) {
+            onFollowingChange(false);
+          }
+        }}
+      >
+        {typeof command === "string" && (
+          <div className="inspector-output-command">
+            <small>Command</small>
+            <code>{command}</code>
+          </div>
+        )}
+        {row.output.length > 0 ? (
+          <pre data-tool-output>{row.output}</pre>
+        ) : (
+          <p className="inspector-empty">
+            {row.status === "running" ? "等待工具输出…" : "工具未返回文本输出"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ToolInspector({ row, onClose }: ToolInspectorProps) {
+  const id = useId();
   const hasInput = row.input !== undefined;
-  const hasOutput = row.output.length > 0 || row.tool === "command";
   const hasRaw = row.details !== undefined;
-  const defaultTab: InspectorTab = hasInput ? "input" : "output";
-  const [requestedTab, setRequestedTab] = useState<InspectorTab>(defaultTab);
-  let activeTab =
-    requestedTab === "input" && !hasInput
+  const hasOutput =
+    row.output.length > 0 || row.tool === "command" || (!hasInput && !hasRaw);
+  const defaultTab: InspectorTab =
+    row.output.length > 0
       ? "output"
-      : requestedTab === "output" && !hasOutput
+      : hasInput
         ? "input"
-        : requestedTab;
+        : hasRaw
+          ? "raw"
+          : "output";
+  const [requestedTab, setRequestedTab] = useState<InspectorTab>();
+  const [following, setFollowing] = useState(row.status === "running");
+  const selectedTab = requestedTab ?? defaultTab;
+  let activeTab =
+    selectedTab === "input" && !hasInput
+      ? "output"
+      : selectedTab === "output" && !hasOutput && hasInput
+        ? "input"
+        : selectedTab;
   if (activeTab === "raw" && !hasRaw) activeTab = hasInput ? "input" : "output";
   const inputLabel =
     row.tool === "command"
@@ -215,6 +316,8 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
       >
         {hasInput && (
           <button
+            id={`${id}-input`}
+            aria-controls={`${id}-panel`}
             aria-selected={activeTab === "input"}
             onClick={() => setRequestedTab("input")}
             role="tab"
@@ -225,6 +328,8 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         )}
         {hasOutput && (
           <button
+            id={`${id}-output`}
+            aria-controls={`${id}-panel`}
             aria-selected={activeTab === "output"}
             onClick={() => setRequestedTab("output")}
             role="tab"
@@ -235,6 +340,8 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         )}
         {hasRaw && (
           <button
+            id={`${id}-raw`}
+            aria-controls={`${id}-panel`}
             aria-selected={activeTab === "raw"}
             onClick={() => setRequestedTab("raw")}
             role="tab"
@@ -245,15 +352,22 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         )}
       </div>
 
-      <section className="inspector-content" role="tabpanel">
+      <section
+        className={`inspector-content${activeTab === "output" ? " inspector-content-output" : ""}`}
+        id={`${id}-panel`}
+        role="tabpanel"
+        aria-labelledby={`${id}-${activeTab}`}
+      >
         {activeTab === "input" ? (
           <InputPanel row={row} />
         ) : activeTab === "raw" ? (
           <pre>{stringify(row.details)}</pre>
-        ) : row.output.length > 0 ? (
-          <pre>{row.output}</pre>
         ) : (
-          <p className="inspector-empty">暂无输出</p>
+          <OutputPanel
+            row={row}
+            following={following}
+            onFollowingChange={setFollowing}
+          />
         )}
       </section>
     </aside>
