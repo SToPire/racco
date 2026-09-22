@@ -17,13 +17,16 @@ export function useConversationScroll(
   const positions = useRef(new Map<string, ReadingPosition>());
   const current = useRef<ReadingPosition>({ top: 0, following: true });
   const [following, setFollowing] = useState(true);
+  const navigationHold = useRef(false);
 
   const pauseFollowing = useCallback(() => {
+    navigationHold.current = true;
     current.current.following = false;
     setFollowing(false);
   }, []);
 
   const followLatest = useCallback(() => {
+    navigationHold.current = false;
     current.current.following = true;
     setFollowing(true);
     const element = containerRef.current;
@@ -39,6 +42,7 @@ export function useConversationScroll(
       ...(positions.current.get(readingKey) ?? { top: 0, following: true }),
     };
     setFollowing(current.current.following);
+    navigationHold.current = !current.current.following;
     element.scrollTo({
       top: current.current.following
         ? element.scrollHeight
@@ -68,10 +72,35 @@ export function useConversationScroll(
     const onScroll = () => {
       const atBottom =
         element.scrollHeight - element.scrollTop - element.clientHeight <= 24;
-      current.current = { top: element.scrollTop, following: atBottom };
-      setFollowing(atBottom);
+      const resume = atBottom && !navigationHold.current;
+      current.current = { top: element.scrollTop, following: resume };
+      setFollowing(resume);
+    };
+    const userScroll = () => {
+      navigationHold.current = false;
+    };
+    const scrollbarPointer = (event: PointerEvent) => {
+      if (event.target === element) userScroll();
+    };
+    const scrollKey = (event: KeyboardEvent) => {
+      if (
+        [
+          "ArrowUp",
+          "ArrowDown",
+          "PageUp",
+          "PageDown",
+          "Home",
+          "End",
+          " ",
+        ].includes(event.key)
+      )
+        userScroll();
     };
     element.addEventListener("scroll", onScroll, { passive: true });
+    element.addEventListener("wheel", userScroll, { passive: true });
+    element.addEventListener("touchmove", userScroll, { passive: true });
+    element.addEventListener("keydown", scrollKey);
+    element.addEventListener("pointerdown", scrollbarPointer);
     const mutation = new MutationObserver(scheduleLayout);
     mutation.observe(element, {
       childList: true,
@@ -89,6 +118,10 @@ export function useConversationScroll(
       resize.disconnect();
       mutation.disconnect();
       element.removeEventListener("scroll", onScroll);
+      element.removeEventListener("wheel", userScroll);
+      element.removeEventListener("touchmove", userScroll);
+      element.removeEventListener("keydown", scrollKey);
+      element.removeEventListener("pointerdown", scrollbarPointer);
     };
   }, [active, containerRef, readingKey]);
 

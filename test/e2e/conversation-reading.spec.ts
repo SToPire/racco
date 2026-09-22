@@ -66,4 +66,27 @@ test("follows live output until the reader scrolls away and restores reading acr
   await expect(
     page.getByRole("button", { name: "回到最新内容 ↓" }),
   ).toHaveCount(0);
+
+  emit({
+    type: "tool.started",
+    id: "last-tool",
+    tool: "Bash",
+    input: { command: "npm test" },
+  });
+  await page.locator('[data-timeline-row="last-tool"]').click();
+  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "在 Chat 中查看" }).click();
+  await expect(
+    page.getByRole("button", { name: "回到最新内容 ↓" }),
+  ).toBeVisible();
+  const revealedTop = await conversation.evaluate(
+    (element) => element.scrollTop,
+  );
+  emit({ type: "assistant.message", id: "after-navigation", text: body });
+  await expect(
+    page.locator('[data-timeline-row="after-navigation"]'),
+  ).toBeAttached();
+  await expect
+    .poll(() => conversation.evaluate((element) => element.scrollTop))
+    .toBe(revealedTop);
 });
