@@ -64,7 +64,7 @@ for (const status of [
   "interrupted",
   "incomplete",
 ] as const) {
-  test(`opens ${status} tool results on Output with copy and follow controls`, () => {
+  test(`opens ${status} tool results on Output with a copy control`, () => {
     const row: ToolTimelineRow = {
       type: "tool",
       id: "tool-1",
@@ -83,8 +83,7 @@ for (const status of [
       /data-tool-output="true">Test log\nFailure detail\n<\/pre>/,
     );
     assert.match(html, /aria-label="复制输出"/);
-    assert.match(html, new RegExp(`aria-pressed="${status === "running"}">`));
-    assert.match(html, /跟随末尾/);
+    assert.doesNotMatch(html, /跟随末尾/);
     assert.doesNotMatch(html, /<pre>\{\n/);
   });
 }

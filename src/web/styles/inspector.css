@@ -88,29 +88,6 @@
   font-size: 11px;
 }
 
-.inspector-follow-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.inspector-follow-button[aria-pressed="true"] {
-  background: var(--surface-active);
-  color: var(--accent);
-}
-
-.inspector-follow-button .ui-icon {
-  width: 12px;
-  height: 12px;
-}
-
 .inspector-output-scroll {
   min-height: 0;
   padding: 14px;

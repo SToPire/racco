@@ -1,11 +1,5 @@
 import { UiIcon } from "./UiIcon";
-import {
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useId, useState, type ReactNode } from "react";
 import type { FileChange } from "../../shared/protocol";
 import type { ToolTimelineRow } from "../store";
 import { FileChanges } from "./FileChanges";
@@ -174,16 +168,11 @@ function InputPanel({ row }: { row: ToolTimelineRow }) {
 
 function OutputPanel({
   row,
-  following,
-  onFollowingChange,
   structured,
 }: {
   row: ToolTimelineRow;
-  following: boolean;
-  onFollowingChange: (following: boolean) => void;
   structured?: ClaudeToolResultView;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [copyResult, setCopyResult] = useState<{
     output: string;
     message: string;
@@ -195,10 +184,6 @@ function OutputPanel({
         ? asRecord(row.input)?.command
         : undefined;
   const copyText = structured?.copyText ?? row.output;
-  useLayoutEffect(() => {
-    const scroll = scrollRef.current;
-    if (following && scroll !== null) scroll.scrollTop = scroll.scrollHeight;
-  }, [following, row.output, row.details]);
 
   async function copyOutput() {
     const output = copyText;
@@ -213,15 +198,6 @@ function OutputPanel({
   return (
     <div className="inspector-output-panel">
       <div className="inspector-output-toolbar">
-        <button
-          className="inspector-follow-button"
-          type="button"
-          aria-pressed={following}
-          onClick={() => onFollowingChange(!following)}
-        >
-          <UiIcon name="chevron-down" />
-          跟随末尾
-        </button>
         <span role="status">
           {copyResult?.output === copyText ? copyResult.message : ""}
         </span>
@@ -236,19 +212,7 @@ function OutputPanel({
           <UiIcon name="copy" />
         </button>
       </div>
-      <div
-        className="inspector-output-scroll"
-        ref={scrollRef}
-        onScroll={(event) => {
-          const scroll = event.currentTarget;
-          if (
-            following &&
-            scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 24
-          ) {
-            onFollowingChange(false);
-          }
-        }}
-      >
+      <div className="inspector-output-scroll">
         {typeof command === "string" && (
           <div className="inspector-output-command">
             <small>Command</small>
@@ -292,7 +256,6 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         ? "raw"
         : "output";
   const [requestedTab, setRequestedTab] = useState<InspectorTab>();
-  const [following, setFollowing] = useState(row.status === "running");
   const selectedTab = requestedTab ?? defaultTab;
   let activeTab =
     selectedTab === "input" && !hasInput
@@ -384,8 +347,6 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         ) : (
           <OutputPanel
             row={row}
-            following={following}
-            onFollowingChange={setFollowing}
             {...(structured === undefined ? {} : { structured })}
           />
         )}
