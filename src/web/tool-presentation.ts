@@ -32,9 +32,7 @@ function paths(values: string[]): string {
   );
 }
 
-function commandSummary(
-  details: Record<string, unknown>,
-): Pick<ToolPresentation, "label" | "summary"> | undefined {
+function commandSummary(details: Record<string, unknown>): string | undefined {
   if (
     !Array.isArray(details.commandActions) ||
     details.commandActions.length === 0
@@ -48,33 +46,25 @@ function commandSummary(
   )
     return undefined;
   const descriptions = actions.map((action) => {
-    if (action.type === "read")
-      return { label: "Read", summary: text(action.path) || text(action.name) };
+    if (action.type === "read") return text(action.path) || text(action.name);
     if (action.type === "listFiles")
-      return {
-        label: "列出文件",
-        summary: text(action.path) || text(action.command),
-      };
-    return {
-      label: "搜索",
-      summary:
-        [text(action.query), text(action.path)].filter(Boolean).join(" · ") ||
-        text(action.command),
-    };
+      return text(action.path) || text(action.command);
+    return (
+      [text(action.query), text(action.path)].filter(Boolean).join(" · ") ||
+      text(action.command)
+    );
   });
   const same = descriptions.every(
-    (description) => description.label === descriptions[0]!.label,
+    (_, index) => actions[index]!.type === actions[0]!.type,
   );
-  return {
-    label: same ? descriptions[0]!.label : "Bash",
-    summary: paths(
-      descriptions.map((description) =>
-        same
-          ? description.summary
-          : `${description.label} ${description.summary}`,
-      ),
-    ),
-  };
+  return same
+    ? `${text(actions[0]!.type)} ${paths(descriptions)}`
+    : paths(
+        descriptions.map(
+          (description, index) =>
+            `${text(actions[index]!.type)} ${description}`,
+        ),
+      );
 }
 
 function fileChangeSummary(
@@ -101,15 +91,12 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
   const input = record(row.input);
   const details = record(row.details);
   const description = text(input.description);
-  let label = row.tool;
   let summary = description;
   let outcome: string | undefined;
   const nativeResult = claudeToolResult(row);
   if (row.tool === "command" || row.tool === "Bash") {
     const action = row.tool === "command" ? commandSummary(details) : undefined;
-    label = description ? "Bash" : (action?.label ?? "Bash");
-    summary =
-      description || action?.summary || text(input.command) || text(row.input);
+    summary = description || action || text(input.command) || text(row.input);
     const facts: string[] = [];
     if (typeof details.exitCode === "number")
       facts.push(`exit ${details.exitCode}`);
@@ -117,35 +104,27 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
       facts.push(`${(details.durationMs / 1000).toFixed(1)}s`);
     outcome = facts.length ? facts.join(" · ") : undefined;
   } else if (row.tool === "fileChange") {
-    label = "修改文件";
     ({ summary, outcome } = fileChangeSummary(row.input));
   } else if (row.tool === "Read" || row.tool === "read_file") {
     summary = text(input.file_path) || text(input.path) || description;
   } else if (["Edit", "Write", "MultiEdit"].includes(row.tool)) {
-    label = row.tool === "Write" ? "写入" : "编辑";
     summary = text(input.file_path) || text(input.path) || description;
     if (nativeResult?.change) {
       ({ summary, outcome } = fileChangeSummary([nativeResult.change]));
     }
   } else if (row.tool === "Grep" || row.tool === "Glob") {
-    label = row.tool === "Grep" ? "搜索" : "查找文件";
     summary =
       [text(input.pattern), text(input.path)].filter(Boolean).join(" · ") ||
       description;
   } else if (row.tool === "Agent" || row.tool === "Task") {
-    label = "子任务";
     summary = description || text(input.prompt);
   } else if (row.tool === "backgroundTask") {
-    label = "后台任务";
     summary = description || text(input.taskId);
   } else if (row.tool === "WebSearch" || row.tool === "webSearch") {
-    label = "搜索网页";
     summary = text(input.query) || description;
   } else if (row.tool === "WebFetch") {
-    label = "读取网页";
     summary = text(input.url) || description;
   } else if (row.tool === "Context injection") {
-    label = "补充上下文";
     summary = Array.isArray(input.fragments)
       ? `${input.fragments.length} 个片段`
       : "";
@@ -178,7 +157,7 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
           .filter(Boolean)
           .join(" · ");
   return {
-    label,
+    label: row.tool,
     summary: compact(summary),
     ...(outcome ? { outcome } : {}),
     ...(preview ? { preview: compact(preview, 280) } : {}),

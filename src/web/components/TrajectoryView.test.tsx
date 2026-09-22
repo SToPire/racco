@@ -13,7 +13,7 @@ const entry: TrajectoryEntry = {
   turn: 2,
   step: 3,
   kind: "tool",
-  label: "Bash",
+  label: "command",
   summary: "git status",
   actor: "Turing",
   agentPath: "root › reviewer",
@@ -45,7 +45,7 @@ test("renders a searchable trajectory containing every normalized row", () => {
   assert.match(html, /1 Turns/);
   assert.match(html, /1 Calls/);
   assert.match(html, /USER/);
-  assert.match(html, /Bash/);
+  assert.match(html, /command/);
   assert.match(html, /ASSISTANT/);
   assert.match(html, /Search/);
 });

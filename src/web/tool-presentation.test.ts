@@ -22,7 +22,7 @@ test("uses native read/search semantics without guessing shell intent", () => {
         ],
       },
     }),
-    { label: "Read", summary: "src/main.ts" },
+    { label: "command", summary: "read src/main.ts" },
   );
   assert.equal(
     describeTool({
@@ -33,7 +33,7 @@ test("uses native read/search semantics without guessing shell intent", () => {
         ],
       },
     }).summary,
-    "tool.started · src/",
+    "search tool.started · src/",
   );
   assert.equal(
     describeTool({
@@ -63,15 +63,15 @@ test("keeps Claude's purpose and targets human-readable", () => {
         new_string: "new",
       },
     }),
-    { label: "编辑", summary: "src/main.ts" },
+    { label: "Edit", summary: "src/main.ts" },
   );
-  assert.equal(
+  assert.deepEqual(
     describeTool({
       ...command,
       tool: "Grep",
       input: { pattern: "command", path: "src" },
-    }).summary,
-    "command · src",
+    }),
+    { label: "Grep", summary: "command · src" },
   );
 });
 
@@ -132,7 +132,7 @@ test("shows real file paths and diff line counts without counting headers", () =
         },
       ],
     }),
-    { label: "修改文件", summary: "a.ts", outcome: "+2 −1" },
+    { label: "fileChange", summary: "a.ts", outcome: "+2 −1" },
   );
 });
 
