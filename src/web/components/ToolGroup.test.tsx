@@ -45,7 +45,7 @@ test("only older completions are folded, never unfinished, failed, or selected t
     "selected",
   );
   const visible = html.replace(/<details[\s\S]*?<\/details>/g, "");
-  assert.match(html, /之前 1 项已完成活动/);
+  assert.match(html, /已完成 1 项/);
   assert.doesNotMatch(visible, /run-old/);
   for (const id of [
     "active",

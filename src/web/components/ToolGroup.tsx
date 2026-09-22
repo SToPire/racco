@@ -44,7 +44,7 @@ export function ToolGroup({
           <summary>
             <UiIcon name="chevron-right" />
             <span>
-              之前 {earlier.length} 项已完成活动 ·{" "}
+              已完成 {earlier.length} 项 ·{" "}
               {[...counts]
                 .map(([label, count]) => `${label} ${count}`)
                 .join(" · ")}
