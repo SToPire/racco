@@ -49,7 +49,7 @@ function commandSummary(
     return undefined;
   const descriptions = actions.map((action) => {
     if (action.type === "read")
-      return { label: "读取", summary: text(action.path) || text(action.name) };
+      return { label: "Read", summary: text(action.path) || text(action.name) };
     if (action.type === "listFiles")
       return {
         label: "列出文件",
@@ -120,7 +120,6 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
     label = "修改文件";
     ({ summary, outcome } = fileChangeSummary(row.input));
   } else if (row.tool === "Read" || row.tool === "read_file") {
-    label = "读取";
     summary = text(input.file_path) || text(input.path) || description;
   } else if (["Edit", "Write", "MultiEdit"].includes(row.tool)) {
     label = row.tool === "Write" ? "写入" : "编辑";

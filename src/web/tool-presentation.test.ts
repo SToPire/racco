@@ -22,7 +22,7 @@ test("uses native read/search semantics without guessing shell intent", () => {
         ],
       },
     }),
-    { label: "读取", summary: "src/main.ts" },
+    { label: "Read", summary: "src/main.ts" },
   );
   assert.equal(
     describeTool({
