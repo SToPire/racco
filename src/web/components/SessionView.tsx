@@ -114,6 +114,13 @@ export function SessionView({
     selectedAgentId ?? "main",
     selectedRows,
   );
+  const turnActive =
+    session.state === "running" || session.state === "waiting_interaction";
+  const inputDisabled =
+    !loaded ||
+    session.compacting ||
+    connection !== "open" ||
+    session.lifecycle !== "active";
 
   function selectAgent(agentId: string | undefined) {
     setSelectedAgentId(agentId);
@@ -255,66 +262,59 @@ export function SessionView({
           />
         )}
 
-      {viewMode === "chat" && (
-        <footer className="session-footer">
-          <div className="composer-stack">
-            {interactions.map((interaction) => (
-              <InteractionCard
-                interaction={interaction}
-                key={interaction.id}
-                onResolve={onResolve}
-              />
-            ))}
-            {(session.state === "running" ||
-              session.state === "waiting_interaction") && (
-              <button
-                className="stop-button"
-                onClick={onInterrupt}
-                type="button"
-              >
-                <span aria-hidden="true" />
-                停止生成
-              </button>
-            )}
-            <Composer
-              compacting={session.compacting}
-              contextControls={
-                session.provider === "codex" ? (
-                  <ContextControls
-                    usage={session.contextUsage}
-                    compacting={session.compacting}
-                    disabled={
-                      sending ||
-                      session.compacting ||
-                      connection !== "open" ||
-                      session.lifecycle !== "active" ||
-                      session.state === "running" ||
-                      session.state === "waiting_interaction"
-                    }
-                    onCompact={onCompact}
-                  />
-                ) : undefined
-              }
-              selection={selection}
-              disabled={
-                !loaded ||
-                session.compacting ||
-                connection !== "open" ||
-                session.lifecycle !== "active" ||
-                session.state === "running" ||
-                session.state === "waiting_interaction"
-              }
-              onSend={sendToMainAgent}
-              sending={sending}
-            />
-            <small className="composer-hint">
-              {selectedSubagent === undefined
+      <footer
+        className={`session-footer${viewMode === "trajectory" ? " session-footer-trajectory" : ""}`}
+      >
+        <div className="composer-stack">
+          {viewMode === "trajectory" && error && (
+            <p className="error-banner">{error}</p>
+          )}
+          {interactions.length > 0 && (
+            <div className="session-interactions">
+              {interactions.map((interaction) => (
+                <InteractionCard
+                  interaction={interaction}
+                  key={interaction.id}
+                  onResolve={onResolve}
+                />
+              ))}
+            </div>
+          )}
+          {turnActive && (
+            <button className="stop-button" onClick={onInterrupt} type="button">
+              <span aria-hidden="true" />
+              停止生成
+            </button>
+          )}
+          <Composer
+            compacting={session.compacting}
+            contextControls={
+              session.provider === "codex" ? (
+                <ContextControls
+                  usage={session.contextUsage}
+                  compacting={session.compacting}
+                  disabled={sending || inputDisabled || turnActive}
+                  onCompact={onCompact}
+                />
+              ) : undefined
+            }
+            selection={selection}
+            inputDisabled={inputDisabled}
+            sendDisabled={inputDisabled || turnActive}
+            onSend={sendToMainAgent}
+            sending={sending}
+          />
+          <small className="composer-hint">
+            {turnActive && !inputDisabled && !sending
+              ? selectedSubagent === undefined
+                ? "可先写草稿 · 当前任务结束后才能发送"
+                : "可先写草稿 · 当前任务结束后发送给 Main Agent"
+              : selectedSubagent === undefined
                 ? "Enter 发送 · Shift + Enter 换行"
                 : "消息发送给 Main Agent · Enter 发送"}
-            </small>
-          </div>
-        </footer>
-      )}
+          </small>
+        </div>
+      </footer>
     </section>
   );
 }

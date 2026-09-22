@@ -5,6 +5,17 @@
   background: linear-gradient(180deg, transparent, var(--app-bg) 18px);
 }
 
+.session-footer-trajectory {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  background: var(--app-bg);
+}
+
+.session-interactions {
+  max-height: min(32dvh, 320px);
+  overflow-y: auto;
+}
+
 .composer-stack {
   width: min(760px, 100%);
   margin: 0 auto;

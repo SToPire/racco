@@ -8,7 +8,8 @@ import {
 } from "./ModelSettingsControls";
 
 type ComposerProps = {
-  disabled: boolean;
+  inputDisabled: boolean;
+  sendDisabled: boolean;
   sending: boolean;
   onSend: (text: string, settings: ModelSettings) => Promise<boolean>;
   selection: ModelSelection;
@@ -17,7 +18,8 @@ type ComposerProps = {
 };
 
 export function Composer({
-  disabled,
+  inputDisabled,
+  sendDisabled,
   sending,
   onSend,
   selection,
@@ -25,14 +27,15 @@ export function Composer({
   compacting = false,
 }: ComposerProps) {
   const [text, setText] = useState("");
+  const editingDisabled = inputDisabled || sending || compacting;
+  const submissionDisabled = sendDisabled || editingDisabled;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const value = text.trim();
     if (
       value.length === 0 ||
-      disabled ||
-      sending ||
+      submissionDisabled ||
       !selection.valid ||
       !selection.draft
     )
@@ -48,15 +51,19 @@ export function Composer({
     >
       <textarea
         aria-label="发送给 Racco"
-        disabled={disabled || sending}
+        disabled={editingDisabled}
         onKeyDown={submitOnEnter}
         onChange={(event) => setText(event.target.value)}
         placeholder={
           compacting
             ? "正在压缩上下文，请稍候…"
-            : disabled
-              ? "Agent 正在处理…"
-              : "给 Agent 发消息"
+            : sending
+              ? "正在发送，请稍候…"
+              : inputDisabled
+                ? "当前暂不可编辑"
+                : sendDisabled
+                  ? "可先准备草稿，任务结束后发送"
+                  : "给 Agent 发消息"
         }
         rows={1}
         value={text}
@@ -64,13 +71,13 @@ export function Composer({
       <div className="composer-toolbar">
         <ModelSettingsControls
           selection={selection}
-          disabled={disabled || sending}
+          disabled={submissionDisabled}
         />
         <button
           className="round-send-button"
           aria-label={sending ? "发送中" : "发送"}
           disabled={
-            disabled || sending || !selection.valid || text.trim().length === 0
+            submissionDisabled || !selection.valid || text.trim().length === 0
           }
           title="发送"
           type="submit"

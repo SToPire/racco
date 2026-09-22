@@ -74,4 +74,6 @@ test("keeps the main conversation visible and offers an active subagent task car
   assert.doesNotMatch(html, /child output/);
   assert.doesNotMatch(html, /trajectory-tool-row/);
   assert.doesNotMatch(html, /\/root\/report_date/);
+  assert.doesNotMatch(html.match(/<textarea\b[^>]*>/)?.[0] ?? "", /disabled/);
+  assert.match(html, /可先写草稿 · 当前任务结束后才能发送/);
 });

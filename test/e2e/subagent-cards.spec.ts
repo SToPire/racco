@@ -31,8 +31,6 @@ test("new subagents preserve the selected conversation and tool until the user o
     .locator(".timeline")
     .getByText("这是固定的开发测试场景。", { exact: false });
   await expect(mainReply).toBeVisible();
-  const closedGroup = page.locator(".tool-group:not([open]) > summary");
-  if (await closedGroup.count()) await closedGroup.first().click();
   await page.locator(".conversation button[aria-pressed]").first().click();
   const inspector = page.getByRole("complementary", { name: "工具详情" });
   await expect(inspector).toBeVisible();
