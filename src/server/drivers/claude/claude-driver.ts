@@ -170,11 +170,14 @@ export class ClaudeDriver implements AgentDriver {
     if (metadata === undefined) {
       throw new Error("Claude session working directory is unavailable");
     }
-    const messages = await readClaudeHistory(
+    const history = await readClaudeHistory(
       handle.providerSessionId,
       handle.cwd,
     );
-    return { metadata, events: mapClaudeHistory(messages) };
+    return {
+      metadata,
+      events: mapClaudeHistory(history.messages, history.subagents),
+    };
   }
 
   async deleteSession(handle: ProviderSessionHandle): Promise<void> {
@@ -293,6 +296,7 @@ export class ClaudeDriver implements AgentDriver {
             CLAUDE_CODE_EFFORT_LEVEL: undefined,
           },
           includePartialMessages: true,
+          forwardSubagentText: true,
           permissionMode: "bypassPermissions",
           allowDangerouslySkipPermissions: true,
           systemPrompt: { type: "preset", preset: "claude_code" },
@@ -352,7 +356,9 @@ export class ClaudeDriver implements AgentDriver {
       for (const event of mapper.finish(
         input.signal.aborted || abortController.signal.aborted
           ? "interrupted"
-          : "error",
+          : turnSucceeded
+            ? "completed"
+            : "error",
       )) {
         input.context.emit(event);
       }

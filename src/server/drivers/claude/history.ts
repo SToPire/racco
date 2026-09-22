@@ -1,12 +1,17 @@
 import {
   getSessionMessages,
+  getSubagentMessages,
   importSessionToStore,
   InMemorySessionStore,
+  listSubagents,
   type SessionKey,
   type SessionMessage,
   type SessionStoreEntry,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ClaudeHistoryMessage } from "./event-mapper.js";
+import type {
+  ClaudeHistoryMessage,
+  ClaudeSubagentHistory,
+} from "./event-mapper.js";
 
 type DisplayMessage = { role: "user" | "assistant"; content: string };
 
@@ -147,7 +152,77 @@ export async function selectClaudeHistory(
   return result;
 }
 
-export async function readClaudeHistory(sessionId: string, cwd: string) {
+export async function selectClaudeSubagentHistory(
+  store: InMemorySessionStore,
+  key: SessionKey,
+  cwd: string,
+): Promise<ClaudeSubagentHistory[]> {
+  const subkeys = await store.listSubkeys(key);
+  const native = new Map<string, SessionStoreEntry>();
+  const metadataByMessage = new Map<string, SessionStoreEntry>();
+  for (const subpath of subkeys) {
+    const entries = store.getEntries({ ...key, subpath });
+    const metadata = entries.findLast(
+      (entry) => entry.type === "agent_metadata",
+    );
+    for (const entry of entries) {
+      if (!entry.uuid) continue;
+      native.set(entry.uuid, entry);
+      if (metadata !== undefined) metadataByMessage.set(entry.uuid, metadata);
+    }
+  }
+  const agentIds = await listSubagents(key.sessionId, {
+    dir: cwd,
+    sessionStore: store,
+  });
+  return Promise.all(
+    agentIds.map(async (agentId) => {
+      const selected = await getSubagentMessages(key.sessionId, agentId, {
+        dir: cwd,
+        sessionStore: store,
+      });
+      const messages: ClaudeHistoryMessage[] = selected.map((message) => {
+        const toolUseResult =
+          message.type === "user"
+            ? native.get(message.uuid)?.toolUseResult
+            : undefined;
+        return toolUseResult === undefined
+          ? message
+          : { ...message, toolUseResult };
+      });
+      const directoryMessage = selected.findLast((message) => {
+        const directory = native.get(message.uuid)?.cwd;
+        return typeof directory === "string" && directory.length > 0;
+      });
+      const metadata = selected
+        .map((message) => metadataByMessage.get(message.uuid))
+        .find((entry) => entry !== undefined);
+      const childCwd = [
+        metadata?.cwd,
+        metadata?.worktreePath,
+        directoryMessage === undefined
+          ? undefined
+          : native.get(directoryMessage.uuid)?.cwd,
+      ].find(
+        (directory): directory is string =>
+          typeof directory === "string" && directory.length > 0,
+      );
+      return {
+        agentId,
+        messages,
+        ...(typeof childCwd === "string" ? { cwd: childCwd } : {}),
+      };
+    }),
+  );
+}
+
+export async function readClaudeHistory(
+  sessionId: string,
+  cwd: string,
+): Promise<{
+  messages: ClaudeHistoryMessage[];
+  subagents: ClaudeSubagentHistory[];
+}> {
   // The ordinary SDK history projection drops local command bodies (top-level
   // `content`, not `message`) and siblings. Read via SDK-managed paths, project
   // only this in-memory copy, then let the SDK select the conversation branch
@@ -160,24 +235,26 @@ export async function readClaudeHistory(sessionId: string, cwd: string) {
       async append(key, entries) {
         if (
           key.sessionId !== sessionId ||
-          key.subpath !== undefined ||
           (transcriptKey && transcriptKey.projectKey !== key.projectKey)
         ) {
           throw new Error(
             "Claude history import returned an unexpected transcript",
           );
         }
-        transcriptKey = key;
+        transcriptKey = {
+          projectKey: key.projectKey,
+          sessionId: key.sessionId,
+        };
         await store.append(key, entries);
       },
       load: (key) => store.load(key),
     },
-    { dir: cwd, includeSubagents: false },
+    { dir: cwd, includeSubagents: true },
   );
-  if (!transcriptKey) return [];
-  return selectClaudeHistory(
-    store.getEntries(transcriptKey),
-    transcriptKey,
-    cwd,
-  );
+  if (!transcriptKey) return { messages: [], subagents: [] };
+  const [messages, subagents] = await Promise.all([
+    selectClaudeHistory(store.getEntries(transcriptKey), transcriptKey, cwd),
+    selectClaudeSubagentHistory(store, transcriptKey, cwd),
+  ]);
+  return { messages, subagents };
 }

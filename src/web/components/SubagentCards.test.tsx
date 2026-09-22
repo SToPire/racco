@@ -45,6 +45,7 @@ test("does not infer a result from transcript replies without a provider status 
     "completed",
     "error",
     "interrupted",
+    "unknown",
   ] as const) {
     assert.doesNotMatch(
       renderAgent({ state, timeline }),
@@ -53,6 +54,8 @@ test("does not infer a result from transcript replies without a provider status 
   }
   assert.match(renderAgent({ state: "running", timeline }), /等待进展更新/);
   assert.match(renderAgent({ timeline }), /已结束，暂无结果摘要/);
+  assert.match(renderAgent({ state: "unknown", timeline }), /状态未知/);
+  assert.match(renderAgent({ state: "unknown", timeline }), /未收到子任务终态/);
 });
 
 test("does not invent a result from interrupted replies, partial replies or commentary before a tool", () => {

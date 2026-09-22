@@ -59,7 +59,7 @@ export type SessionRef = z.infer<typeof SessionRefSchema>;
 export type SessionLifecycle = "provisioning" | "active" | "failed";
 
 export type SubagentState =
-  "starting" | "running" | "completed" | "interrupted" | "error";
+  "starting" | "running" | "completed" | "interrupted" | "error" | "unknown";
 
 export type SessionSummary = SessionRef & {
   provider: Provider;

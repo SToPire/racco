@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { type SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
+import {
+  InMemorySessionStore,
+  type SessionStoreEntry,
+} from "@anthropic-ai/claude-agent-sdk";
 import { mapClaudeHistory } from "./event-mapper.js";
-import { selectClaudeHistory } from "./history.js";
+import { selectClaudeHistory, selectClaudeSubagentHistory } from "./history.js";
+import { buildTimeline } from "../../../web/store.js";
 
 const sessionId = randomUUID();
 function entry(
@@ -255,4 +259,87 @@ test("restores the selected message's current native toolUseResult by UUID", asy
     },
   ]);
   assert.deepEqual(entries, original);
+});
+
+test("reads native child transcripts with SDK identity and keeps their results out of the main conversation", async () => {
+  const store = new InMemorySessionStore();
+  const key = { projectKey: "-history-fixture", sessionId };
+  const result = { stdout: "child stdout", stderr: "", interrupted: false };
+  await store.append({ ...key, subpath: "subagents/agent-native-child" }, [
+    {
+      type: "agent_metadata",
+      agentId: "native-child",
+      toolUseId: "spawn",
+      parentAgentId: null,
+      cwd: "/work/child-worktree",
+    },
+    { ...user("child-prompt", null, "Child task"), isSidechain: true },
+    entry("assistant", "child-tool", "child-prompt", {
+      isSidechain: true,
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "child-bash",
+            name: "Bash",
+            input: { command: "pwd" },
+          },
+        ],
+      },
+    }),
+    entry("user", "child-result", "child-tool", {
+      isSidechain: true,
+      toolUseResult: result,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "child-bash",
+            content: "child stdout",
+          },
+        ],
+      },
+    }),
+    {
+      ...assistant("child-answer", "child-result", "Child answer"),
+      isSidechain: true,
+    },
+  ]);
+  const children = await selectClaudeSubagentHistory(
+    store,
+    key,
+    "/history-fixture",
+  );
+  assert.equal(children.length, 1);
+  assert.equal(children[0]?.agentId, "native-child");
+  assert(
+    children[0]!.messages.every(
+      (message) => message.parent_tool_use_id === "spawn",
+    ),
+  );
+  const rows = buildTimeline(mapClaudeHistory([], children));
+  assert.equal(rows.length, 1);
+  const [child] = rows;
+  assert(child?.type === "subagent");
+  assert.equal(child.cwd, "/work/child-worktree");
+  assert.equal(
+    child.state,
+    "unknown",
+    "a final-looking assistant message is not a task terminal event",
+  );
+  const tool = child.timeline.find((row) => row.type === "tool");
+  assert(tool?.type === "tool");
+  assert.equal(tool.output, "child stdout");
+  assert.deepEqual(tool.details, {
+    type: "claudeToolResult",
+    result,
+    content: "child stdout",
+  });
+  assert(
+    child.timeline.some(
+      (row) => row.type === "assistant.message" && row.text === "Child answer",
+    ),
+  );
 });

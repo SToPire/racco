@@ -12,6 +12,8 @@ Claude 驱动启用 SDK 文本增量事件，在每次查询内累积文本，�
 
 这项决策补充现有输出能力，不替代既有记录。[会话状态简化](../simplification/2026-09-17-session-state-without-turn-ledger.md)的历史归属保持有效：流式标识仅服务于运行时更新，重新读取历史时整体使用 Provider 的完整快照，不新增持久化增量记录。
 
+完整子 Agent 消息与工具结果按原生父工具调用进入所属子对话，任务进度和缺失终态由[Claude 任务归属](../feature/2026-09-22-claude-task-ownership.md)规定。主会话文本流的去重与撤回继续独立处理，不承诺子 Agent token 流。
+
 ## Alternatives considered
 
 **继续仅展示完整内容块：** 实现简单，但无法提供长回复的实时生成反馈。
@@ -22,4 +24,4 @@ Claude 驱动启用 SDK 文本增量事件，在每次查询内累积文本，�
 
 ## Consequences
 
-Claude 主会话文本可边生成边显示，工具和仅有完整消息的输出仍按 SDK 完成事件呈现。运行时增加文本累积和标识映射，网络与前端渲染频率随增量增加；已完成的消息、重放消息和子任务输出不能误撤回当前流。流式合并、失败重试和查询终止由[映射测试](../../../../src/server/drivers/claude/event-mapper.test.ts)及[驱动测试](../../../../src/server/drivers/claude/claude-driver.test.ts)约束，多客户端和重连的一致性由[会话同步测试](../../../../src/server/session-hub.test.ts)约束。
+Claude 主会话文本可边生成边显示，工具输出和仅有完整消息的输出仍按 SDK 完成事件呈现，工具进度作为独立信号显示。运行时增加文本累积和标识映射，网络与前端渲染频率随增量增加；已完成的消息、重放消息和子任务输出不能误撤回当前流。流式合并、失败重试和查询终止由[映射测试](../../../../src/server/drivers/claude/event-mapper.test.ts)及[驱动测试](../../../../src/server/drivers/claude/claude-driver.test.ts)约束，多客户端和重连的一致性由[会话同步测试](../../../../src/server/session-hub.test.ts)约束。

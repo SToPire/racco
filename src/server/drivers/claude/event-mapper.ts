@@ -3,11 +3,18 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
+  AgentTimelineEvent,
   AssistantMessageEvent,
   TimelineEvent,
 } from "../../../shared/protocol.js";
+import { ClaudeActivityTracker } from "./activity-tracker.js";
 
 export type ClaudeHistoryMessage = SessionMessage & { toolUseResult?: unknown };
+export type ClaudeSubagentHistory = {
+  agentId: string;
+  messages: ClaudeHistoryMessage[];
+  cwd?: string;
+};
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -47,7 +54,7 @@ function stringify(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? "";
 }
 
-function mapAssistant(message: unknown, uuid: string): TimelineEvent[] {
+function mapAssistant(message: unknown, uuid: string): AgentTimelineEvent[] {
   const content = messageContent(message);
   if (
     asRecord(message)?.model === "<synthetic>" &&
@@ -56,7 +63,7 @@ function mapAssistant(message: unknown, uuid: string): TimelineEvent[] {
     asRecord(content[0])?.text === "No response requested."
   )
     return [];
-  return content.flatMap((value, index): TimelineEvent[] => {
+  return content.flatMap((value, index): AgentTimelineEvent[] => {
     const block = asRecord(value);
     if (block?.type === "text" && typeof block.text === "string") {
       return block.text.length === 0
@@ -86,7 +93,7 @@ function mapAssistant(message: unknown, uuid: string): TimelineEvent[] {
 function mapToolResults(
   message: unknown,
   structuredResult?: unknown,
-): TimelineEvent[] {
+): AgentTimelineEvent[] {
   const content = messageContent(message);
   const results = content.filter(
     (value) => asRecord(value)?.type === "tool_result",
@@ -94,7 +101,7 @@ function mapToolResults(
   if (structuredResult !== undefined && results.length > 1) {
     throw new Error("Ambiguous Claude structured tool result");
   }
-  return results.flatMap((value): TimelineEvent[] => {
+  return results.flatMap((value): AgentTimelineEvent[] => {
     const block = asRecord(value);
     if (block?.type !== "tool_result") return [];
     return [
@@ -120,7 +127,7 @@ function mapToolResults(
   });
 }
 
-function mapUserText(message: unknown, uuid: string): TimelineEvent[] {
+function mapUserText(message: unknown, uuid: string): AgentTimelineEvent[] {
   const text = messageContent(message)
     .map((value) => asRecord(value))
     .filter((block) => block?.type === "text" && typeof block.text === "string")
@@ -131,8 +138,10 @@ function mapUserText(message: unknown, uuid: string): TimelineEvent[] {
 
 export function mapClaudeHistory(
   messages: ClaudeHistoryMessage[],
+  subagents: ClaudeSubagentHistory[] = [],
 ): TimelineEvent[] {
-  return messages.flatMap((entry) => {
+  const activities = new ClaudeActivityTracker();
+  function project(entry: ClaudeHistoryMessage): AgentTimelineEvent[] {
     if (entry.type === "assistant")
       return mapAssistant(entry.message, entry.uuid);
     if (entry.type === "user") {
@@ -142,7 +151,36 @@ export function mapClaudeHistory(
       ];
     }
     return [];
-  });
+  }
+  const events = messages.flatMap((entry) =>
+    activities.observe(project(entry), entry.parent_tool_use_id),
+  );
+  for (const child of subagents) {
+    const toolUseId =
+      child.messages.find((entry) => entry.parent_tool_use_id !== null)
+        ?.parent_tool_use_id ?? undefined;
+    const parentAgentId =
+      child.messages.find((entry) => entry.parent_agent_id !== null)
+        ?.parent_agent_id ?? undefined;
+    events.push(
+      ...activities.registerAgent(
+        child.agentId,
+        toolUseId,
+        parentAgentId,
+        child.cwd,
+      ),
+    );
+    for (const entry of child.messages)
+      events.push(
+        ...activities.observe(
+          project(entry),
+          entry.parent_tool_use_id,
+          child.agentId,
+        ),
+      );
+  }
+  events.push(...activities.finish("incomplete"));
+  return events;
 }
 
 /** One mapper per query: stream state must not survive an interrupted turn. */
@@ -154,8 +192,11 @@ export class ClaudeLiveMapper {
   readonly #completedTextIds = new Map<string, string>();
   readonly #seenAssistants = new Set<string>();
   readonly #pendingText = new Map<string, string>();
+  readonly #activities = new ClaudeActivityTracker();
 
   map(message: SDKMessage): TimelineEvent[] {
+    const activity = this.#activities.map(message);
+    if (activity !== undefined) return activity;
     if (message.type === "stream_event") {
       // The SDK forwards token deltas for the main session only.
       if (message.parent_tool_use_id !== null) return [];
@@ -205,7 +246,7 @@ export class ClaudeLiveMapper {
         message.parent_tool_use_id === null &&
         message.message.model !== "<synthetic>" &&
         message.error === undefined;
-      const removed: TimelineEvent[] = [];
+      const removed: AgentTimelineEvent[] = [];
       if (
         mainResponse &&
         this.#stream !== undefined &&
@@ -235,7 +276,7 @@ export class ClaudeLiveMapper {
           }
         }
       }
-      return [
+      const projected: AgentTimelineEvent[] = [
         ...removed,
         ...events.map((event) =>
           event.type === "assistant.message"
@@ -250,16 +291,26 @@ export class ClaudeLiveMapper {
             : event,
         ),
       ];
+      return this.#activities.observe(projected, message.parent_tool_use_id);
     }
     if (message.type === "user") {
-      return mapToolResults(message.message, message.tool_use_result);
+      return this.#activities.observe(
+        [
+          ...(message.parent_tool_use_id !== null && message.uuid !== undefined
+            ? mapUserText(message.message, message.uuid)
+            : []),
+          ...mapToolResults(message.message, message.tool_use_result),
+        ],
+        message.parent_tool_use_id,
+      );
     }
     return [];
   }
 
   finish(
-    stopReason: NonNullable<AssistantMessageEvent["stopReason"]>,
+    reason: "completed" | NonNullable<AssistantMessageEvent["stopReason"]>,
   ): TimelineEvent[] {
+    const stopReason = reason === "completed" ? "error" : reason;
     const events: TimelineEvent[] = [...this.#pendingText].map(
       ([id, text]) => ({
         type: "assistant.message",
@@ -270,14 +321,25 @@ export class ClaudeLiveMapper {
     );
     this.#pendingText.clear();
     this.#stream = undefined;
-    return events;
+    return [
+      ...events,
+      ...this.#activities.finish(
+        reason === "completed"
+          ? "incomplete"
+          : reason === "interrupted"
+            ? "interrupted"
+            : "failed",
+      ),
+    ];
   }
 
-  #discardPendingText(): TimelineEvent[] {
-    const events: TimelineEvent[] = [...this.#pendingText.keys()].map((id) => ({
-      type: "assistant.message.removed",
-      id,
-    }));
+  #discardPendingText(): AgentTimelineEvent[] {
+    const events: AgentTimelineEvent[] = [...this.#pendingText.keys()].map(
+      (id) => ({
+        type: "assistant.message.removed",
+        id,
+      }),
+    );
     this.#pendingText.clear();
     return events;
   }

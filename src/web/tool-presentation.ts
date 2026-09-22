@@ -135,6 +135,9 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
   } else if (row.tool === "Agent" || row.tool === "Task") {
     label = "子任务";
     summary = description || text(input.prompt);
+  } else if (row.tool === "backgroundTask") {
+    label = "后台任务";
+    summary = description || text(input.taskId);
   } else if (row.tool === "WebSearch" || row.tool === "webSearch") {
     label = "搜索网页";
     summary = text(input.query) || description;

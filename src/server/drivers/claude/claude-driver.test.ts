@@ -118,6 +118,8 @@ test("Claude discovers without a prompt and passes each model/effort pair into f
     const options = calls[1].options!;
     assert.equal(options.permissionMode, "bypassPermissions");
     assert.equal(options.allowDangerouslySkipPermissions, true);
+    assert.equal(options.agentProgressSummaries, undefined);
+    assert.equal(options.forwardSubagentText, true);
     const canUseTool = options.canUseTool!;
     const permissionOptions = {
       signal: new AbortController().signal,
@@ -367,6 +369,116 @@ test("Claude deleteSession delegates to the SDK scoped to the project directory"
     assert.deepEqual(calls, [
       ["11111111-2222-4333-8444-555555555555", { dir: cwd }],
     ]);
+  } finally {
+    await driver.close();
+  }
+});
+
+test("Claude settles unanswered tools using the actual query end reason", async () => {
+  let abort = new AbortController();
+  const events: TimelineEvent[] = [];
+  const sdk = {
+    async listSessions() {
+      return [];
+    },
+    async deleteSession() {},
+    startup: (async () => ({ close() {} })) as unknown as typeof startup,
+    query: (({ prompt }: Parameters<typeof query>[0]) => ({
+      close() {},
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "assistant",
+          uuid: `assistant-${prompt}`,
+          session_id: "session-1",
+          parent_tool_use_id: null,
+          message: {
+            id: `message-${prompt}`,
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: `pending-${prompt}`,
+                name: "Bash",
+                input: { command: "sleep 30" },
+              },
+              {
+                type: "tool_use",
+                id: `done-${prompt}`,
+                name: "Read",
+                input: { file_path: "app.ts" },
+              },
+            ],
+          },
+        };
+        yield {
+          type: "user",
+          parent_tool_use_id: null,
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: `done-${prompt}`,
+                content: "source",
+              },
+            ],
+          },
+        };
+        if (prompt === "failed") throw new Error("query failed");
+        if (prompt === "interrupted") {
+          abort.abort();
+          return;
+        }
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "done",
+        };
+      },
+    })) as unknown as typeof query,
+  };
+  const driver = new ClaudeDriver({ warn() {} }, sdk);
+  const context: DriverContext = {
+    emit: (event) => events.push(event),
+    setState() {},
+    markProviderMaterialized() {},
+    async requestInteraction() {
+      throw new Error("Unexpected interaction");
+    },
+  };
+  await driver.start();
+  try {
+    for (const prompt of ["completed", "failed", "interrupted"]) {
+      abort = new AbortController();
+      const turn = driver.runTurn({
+        handle: { cwd: process.cwd(), providerSessionId: "session-1" },
+        mode: "resume",
+        prompt,
+        modelSettings: { modelId: "sonnet", reasoningEffort: null },
+        context,
+        signal: abort.signal,
+      });
+      if (prompt === "failed") await assert.rejects(turn, /query failed/);
+      else await turn;
+    }
+    const rows = buildTimeline(events);
+    assert.deepEqual(
+      rows
+        .filter((row) => row.id.startsWith("pending-"))
+        .map((row) => row.type === "tool" && row.status),
+      ["incomplete", "failed", "interrupted"],
+    );
+    assert(
+      rows
+        .filter((row) => row.id.startsWith("done-"))
+        .every(
+          (row) =>
+            row.type === "tool" &&
+            row.status === "completed" &&
+            row.output === "source",
+        ),
+    );
   } finally {
     await driver.close();
   }

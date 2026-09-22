@@ -42,9 +42,11 @@ export function SubagentCards({
                 <span className="subagent-card-empty">
                   {row.state === "completed"
                     ? "已结束，暂无结果摘要"
-                    : row.state === "error" || row.state === "interrupted"
-                      ? "暂无结束说明"
-                      : "等待进展更新"}
+                    : row.state === "unknown"
+                      ? "未收到子任务终态"
+                      : row.state === "error" || row.state === "interrupted"
+                        ? "暂无结束说明"
+                        : "等待进展更新"}
                 </span>
               )}
               <span className="subagent-card-link">查看对话 →</span>

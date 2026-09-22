@@ -221,6 +221,79 @@ test("hides only Claude's synthetic no-response placeholder", () => {
   assert.equal(history("<synthetic>", "A useful command response").length, 1);
 });
 
+test("routes complete live child messages and results through task identity", () => {
+  const mapper = new ClaudeLiveMapper();
+  const events = mapper.map({
+    type: "system",
+    subtype: "task_started",
+    task_id: "native-agent",
+    tool_use_id: "spawn",
+    task_type: "local_agent",
+    description: "Check cache",
+    prompt: "Inspect cache implementation",
+    uuid: randomUUID(),
+    session_id: "session-1",
+  });
+  events.push(
+    ...mapper.map(
+      assistantBlock(
+        "child-complete",
+        "child-api",
+        [
+          { type: "text", text: "Cache checked", citations: [] },
+          {
+            type: "tool_use",
+            id: "child-tool",
+            name: "Read",
+            input: { file_path: "cache.ts" },
+          },
+        ],
+        "spawn",
+      ),
+    ),
+  );
+  events.push(
+    ...mapper.map({
+      type: "user",
+      parent_tool_use_id: "spawn",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "child-tool",
+            content: "cache source",
+          },
+        ],
+      },
+    }),
+  );
+  events.push(
+    ...mapper.map({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "native-agent",
+      status: "completed",
+      summary: "No cache bug found",
+      output_file: "/work/task-output.txt",
+      uuid: randomUUID(),
+      session_id: "session-1",
+    }),
+  );
+  events.push(...mapper.finish("completed"));
+  const rows = buildTimeline(events);
+  assert.equal(rows.length, 1);
+  const [child] = rows;
+  assert(child?.type === "subagent");
+  assert.equal(child.state, "completed");
+  assert.equal(child.statusMessage, "No cache bug found");
+  assert.equal(child.timeline[0]?.type, "assistant.message");
+  assert.equal(
+    child.timeline[1]?.type === "tool" && child.timeline[1].status,
+    "completed",
+  );
+});
+
 function stream(
   event: SDKPartialAssistantMessage["event"],
 ): SDKPartialAssistantMessage {
@@ -400,7 +473,7 @@ test("keeps successive text blocks, tools, subagent output and API messages sepa
   const rows = buildTimeline(events);
   assert.deepEqual(
     rows.map((row) => row.id),
-    ["api-1:text:0", "tool-1", "api-1:text:2", "child:text:0", "api-2:text:0"],
+    ["api-1:text:0", "tool-1", "api-1:text:2", "api-2:text:0"],
   );
   assert.deepEqual(
     rows
@@ -409,7 +482,6 @@ test("keeps successive text blocks, tools, subagent output and API messages sepa
     [
       ["Before tool", undefined],
       ["After tool", undefined],
-      ["Child output", undefined],
       ["Next message", undefined],
     ],
   );
@@ -471,7 +543,9 @@ test("withdraws a failed partial when the SDK falls back to a complete API respo
     buildTimeline(events).map((row) => row.id),
     ["earlier:text:0", "fallback:text:0", "tool-retry", "fallback:text:2"],
   );
-  assert.deepEqual(mapper.finish("error"), []);
+  assert.deepEqual(mapper.finish("error"), [
+    { type: "tool.completed", id: "tool-retry", status: "failed" },
+  ]);
 });
 
 test("withdraws abandoned text before a streamed retry and ignores unrelated assistant envelopes", () => {
@@ -514,13 +588,15 @@ test("withdraws abandoned text before a streamed retry and ignores unrelated ass
   const rows = buildTimeline(events);
   assert.deepEqual(
     rows.map((row) => row.id),
-    ["previous:text:0", "api-retry:text:0", "child:text:0"],
+    ["previous:text:0", "api-retry:text:0"],
   );
   assert.deepEqual(
     buildTrajectory(rows).map((row) => row.status),
-    ["Completed", "Completed", "Completed"],
+    ["Completed", "Completed"],
   );
-  assert.deepEqual(mapper.finish("error"), []);
+  const finished = mapper.finish("error");
+  assert.equal(finished.length, 1);
+  assert.equal(finished[0]?.type, "system.notice");
 });
 
 test("retains unfinished text with a terminal reason and finalizes only once", () => {

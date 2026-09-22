@@ -97,7 +97,10 @@ export function SessionView({
       selectedSubagent === undefined
         ? mainRows
         : [
-            ...(selectedSubagent.prompt === undefined
+            ...(selectedSubagent.prompt === undefined ||
+            selectedSubagent.timeline.find(
+              (row) => row.type === "user.message",
+            )?.text === selectedSubagent.prompt
               ? []
               : [
                   {
@@ -177,7 +180,7 @@ export function SessionView({
         <div className="session-heading-copy">
           <div className="session-title-line">
             <h1>{session.title ?? session.sessionId}</h1>
-            {session.provider === "codex" && subagents.length > 0 && (
+            {subagents.length > 0 && (
               <>
                 <span className="session-agent-separator">/</span>
                 <AgentSwitcher

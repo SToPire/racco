@@ -7,6 +7,7 @@ const STATE_LABELS: Record<SubagentState, string> = {
   completed: "已完成",
   interrupted: "已中断",
   error: "失败",
+  unknown: "状态未知",
 };
 
 export function subagentStateLabel(state: SubagentState): string {
