@@ -37,8 +37,12 @@ test("defaults to retaining the local branch and names every destructive effect"
   assert.match(html, /\/worktrees\/alpha-feature/);
   assert.match(html, /同时删除本地分支 feature\/alpha/);
   assert.doesNotMatch(html, /checked=""/);
-  assert.match(html, /本地分支 feature\/alpha 和已提交历史会保留/);
-  assert.match(html, /未提交或未跟踪的内容/);
+  assert.doesNotMatch(html, /已提交历史会保留/);
+  assert.match(
+    html,
+    /confirm-delete-dialog-danger[^>]*>存在未提交或未跟踪的内容，删除后无法恢复。/,
+  );
+  assert.match(html, /confirm-delete-dialog-path-block/);
   assert.match(html, /同时删除 2 个对话/);
 });
 

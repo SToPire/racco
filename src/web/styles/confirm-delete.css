@@ -63,6 +63,18 @@
   white-space: nowrap;
 }
 
+.confirm-delete-dialog-path-block {
+  display: block;
+  margin: 6px 22px 0;
+}
+
+.confirm-delete-dialog-danger {
+  margin: 10px 22px 0;
+  color: var(--danger);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
 .confirm-delete-dialog-badge {
   flex: 0 0 auto;
   padding: 2px 7px;
@@ -156,6 +168,11 @@
   }
   .confirm-delete-dialog-note {
     margin: 8px 16px 0;
+  }
+  .confirm-delete-dialog-path-block,
+  .confirm-delete-dialog-danger {
+    margin-right: 16px;
+    margin-left: 16px;
   }
   .confirm-delete-dialog-actions {
     padding: 12px 16px 16px;

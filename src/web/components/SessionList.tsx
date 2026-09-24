@@ -592,10 +592,12 @@ export function ConfirmDeleteWorktreeDialog({
           ? "该目录已不存在，将清理 Git Worktree 元数据："
           : "将从磁盘移除 Worktree 目录："}
       </p>
-      <p className="confirm-delete-dialog-path">{worktree.path}</p>
+      <p className="confirm-delete-dialog-path confirm-delete-dialog-path-block">
+        {worktree.path}
+      </p>
       {worktree.dirty && (
-        <p className="confirm-delete-dialog-copy">
-          该目录当前报告有未提交或未跟踪的内容；服务器会在删除时重新检查并要求二次确认。
+        <p className="confirm-delete-dialog-danger">
+          存在未提交或未跟踪的内容，删除后无法恢复。
         </p>
       )}
       {worktree.branch === null ? (
@@ -612,11 +614,12 @@ export function ConfirmDeleteWorktreeDialog({
             />
             同时删除本地分支 {worktree.branch}
           </label>
-          <p className="confirm-delete-dialog-note">
-            {deleteBranch
-              ? "远程分支不受影响；未被其他引用包含的提交之后可能只能通过 Git reflog 恢复。"
-              : `本地分支 ${worktree.branch} 和已提交历史会保留，可重新创建 Worktree。`}
-          </p>
+          {deleteBranch && (
+            <p className="confirm-delete-dialog-note">
+              远程分支不受影响；未被其他引用包含的提交之后可能只能通过 Git
+              reflog 恢复。
+            </p>
+          )}
         </>
       )}
       {worktree.sessionCount > 0 && (
