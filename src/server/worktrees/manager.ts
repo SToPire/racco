@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import type { WorktreeBranchDeletion } from "../../shared/protocol.js";
 import { deriveWorktrees, isMainWorkingTree } from "./derive.js";
 import type { DerivedCatalog } from "./derive.js";
 import { GitCommandError, GitUnavailableError, runGit } from "./git.js";
@@ -33,6 +34,13 @@ export class WorktreeDirtyError extends Error {
   constructor() {
     super("该 Worktree 含未提交的修改或未跟踪的文件，删除会一并丢弃，无法恢复");
     this.name = "WorktreeDirtyError";
+  }
+}
+
+export class WorktreeBranchUnavailableError extends Error {
+  constructor(readonly path: string) {
+    super(`该 Worktree 未关联本地分支，无法同时删除分支：${path}`);
+    this.name = "WorktreeBranchUnavailableError";
   }
 }
 
@@ -145,6 +153,12 @@ export type RemoveWorktreeInput = {
   projectPath: string;
   path: string;
   force?: boolean;
+  deleteBranch?: boolean;
+};
+
+export type RemoveWorktreeResult = {
+  catalog: DerivedCatalog;
+  branchDeletion: WorktreeBranchDeletion | null;
 };
 
 /**
@@ -158,12 +172,14 @@ export type RemoveWorktreeInput = {
  */
 export async function removeWorktree(
   input: RemoveWorktreeInput,
-): Promise<DerivedCatalog> {
+): Promise<RemoveWorktreeResult> {
   const catalog = await deriveWorktrees({ projectPath: input.projectPath });
   const entry = catalog.worktrees.find(
     (candidate) => candidate.path === input.path && candidate.kind === "linked",
   );
   if (entry === undefined) throw new WorktreeNotLinkedError(input.path);
+  if (input.deleteBranch === true && entry.branch === null)
+    throw new WorktreeBranchUnavailableError(entry.path);
 
   if (!input.force && entry.available && (await worktreeIsDirty(entry.path))) {
     throw new WorktreeDirtyError();
@@ -185,7 +201,25 @@ export async function removeWorktree(
     }
     throw error;
   }
-  return deriveWorktrees({ projectPath: input.projectPath });
+  let branchDeletion: WorktreeBranchDeletion | null = null;
+  if (input.deleteBranch === true && entry.branch !== null) {
+    try {
+      await runGit(["branch", "-D", "--", entry.branch], {
+        cwd: input.projectPath,
+      });
+      branchDeletion = { branch: entry.branch, deleted: true };
+    } catch (error) {
+      branchDeletion = {
+        branch: entry.branch,
+        deleted: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  return {
+    catalog: await deriveWorktrees({ projectPath: input.projectPath }),
+    branchDeletion,
+  };
 }
 
 export type CascadeRemoval = {

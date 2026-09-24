@@ -471,11 +471,17 @@ export function useRacco({
     projectId: string,
     path: string,
     force = false,
+    deleteBranch = false,
   ): Promise<void> {
     setBusyWorktreeProjectId(projectId);
     clearWorktreeError(projectId);
     try {
-      const result = await requestDeleteWorktree(projectId, path, force);
+      const result = await requestDeleteWorktree(
+        projectId,
+        path,
+        force,
+        deleteBranch,
+      );
       rememberWorktreeCatalog(result.catalog);
       // The sessions that lived in that directory are gone with it; removing
       // them locally keeps the tree from showing rows the server no longer has.
@@ -489,6 +495,13 @@ export function useRacco({
         setSessions((current) =>
           current.filter((session) => !removed.has(session.sessionId)),
         );
+      }
+      const branchDeletion = result.branchDeletion;
+      if (branchDeletion?.deleted === false) {
+        setWorktreeErrors((current) => ({
+          ...current,
+          [projectId]: `Worktree 已删除，但本地分支 ${branchDeletion.branch} 删除失败：${branchDeletion.reason}`,
+        }));
       }
     } catch (error) {
       // A dirty directory is a decision the caller must make (re-confirm and

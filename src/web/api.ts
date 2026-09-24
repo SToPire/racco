@@ -8,6 +8,7 @@ import type {
   ModelCatalog,
   Provider,
   NativeSessionPage,
+  DeleteWorktreeResult,
   WorktreeCatalog,
 } from "../shared/protocol";
 import {
@@ -171,9 +172,11 @@ export function deleteWorktree(
   projectId: string,
   path: string,
   force = false,
-): Promise<{ catalog: WorktreeCatalog; removedSessionIds: string[] }> {
+  deleteBranch = false,
+): Promise<DeleteWorktreeResult> {
   const query = new URLSearchParams({ projectId, path });
   if (force) query.set("force", "true");
+  if (deleteBranch) query.set("deleteBranch", "true");
   return delJson(`/api/worktrees?${query}`);
 }
 

@@ -223,24 +223,31 @@ export function App() {
           onNew={startNewSession}
           onDeleteProject={deleteProject}
           onDeleteSession={deleteSession}
-          onDeleteWorktree={async (worktree) => {
-            const lines = [
-              `删除 Worktree「${worktree.name}」？`,
-              `目录：${worktree.path}`,
-              "分支会保留，目录本身会被删除，无法撤销。",
-            ].filter((line) => line !== "");
-            if (!window.confirm(lines.join("\n\n"))) return;
+          onDeleteWorktree={async (worktree, deleteBranch) => {
             try {
-              await deleteWorktree(worktree.projectId, worktree.path);
+              await deleteWorktree(
+                worktree.projectId,
+                worktree.path,
+                false,
+                deleteBranch,
+              );
             } catch (error) {
               if (!(error instanceof Error)) return;
               const dirtyLines = [
                 `「${worktree.name}」含未提交的修改或未跟踪的文件。`,
                 "删除会一并丢弃这些内容，无法恢复。",
+                ...(deleteBranch && worktree.branch !== null
+                  ? [`本地分支 ${worktree.branch} 也会被删除。`]
+                  : []),
                 "确认继续删除吗？",
               ];
               if (!window.confirm(dirtyLines.join("\n\n"))) return;
-              await deleteWorktree(worktree.projectId, worktree.path, true);
+              await deleteWorktree(
+                worktree.projectId,
+                worktree.path,
+                true,
+                deleteBranch,
+              );
             }
           }}
           onRefreshWorktrees={(projectId) =>

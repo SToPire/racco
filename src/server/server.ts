@@ -255,6 +255,12 @@ export async function buildServer(
       .transform((value) =>
         value === undefined ? false : value === "true" || value === "1",
       ),
+    deleteBranch: z
+      .string()
+      .optional()
+      .transform((value) =>
+        value === undefined ? false : value === "true" || value === "1",
+      ),
   });
   app.delete<{ Querystring: unknown }>(
     "/api/worktrees",
@@ -271,11 +277,7 @@ export async function buildServer(
           .code(400)
           .send({ message: "Invalid worktree delete request" });
       try {
-        const result = await hub.deleteWorktree(query.data);
-        return {
-          catalog: result.catalog,
-          removedSessionIds: result.removedSessionIds,
-        };
+        return await hub.deleteWorktree(query.data);
       } catch (error) {
         if (error instanceof WorktreeDirtyError) {
           // The client must re-confirm and retry with force=true before a dirty

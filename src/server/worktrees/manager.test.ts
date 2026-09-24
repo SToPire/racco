@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
   removeAllLinkedWorktrees,
   removeWorktree,
   validateWorktreeName,
+  WorktreeBranchUnavailableError,
   WorktreeNameError,
   WorktreeNotLinkedError,
   WorktreeTargetExistsError,
@@ -212,12 +213,103 @@ test("removes a dirty worktree with --force and keeps its branch", async (t) => 
     force: true,
   });
 
-  assert.equal(after.worktrees.length, 1);
+  assert.equal(after.catalog.worktrees.length, 1);
+  assert.equal(after.branchDeletion, null);
   assert.equal(await exists(target), false);
   const branches = await runGit(["branch", "--list", "feat/dirty"], {
     cwd: project,
   });
   assert.notEqual(branches.trim(), "");
+});
+
+test("optionally deletes the checked-out local branch after removing its worktree", async (t) => {
+  const { project, worktreeRoot } = await setUp(t, "delete-branch");
+  const created = await createWorktree({
+    projectPath: project,
+    worktreeRoot,
+    name: "feat/remove-with-tree",
+  });
+  const target = created.worktrees[1].path;
+  await writeFile(join(target, "feature.txt"), "committed only here\n");
+  await runGit(["add", "feature.txt"], { cwd: target });
+  await runGit(["commit", "-qm", "feature work"], { cwd: target });
+
+  const after = await removeWorktree({
+    projectPath: project,
+    path: target,
+    deleteBranch: true,
+  });
+
+  assert.equal(after.catalog.worktrees.length, 1);
+  assert.deepEqual(after.branchDeletion, {
+    branch: "feat/remove-with-tree",
+    deleted: true,
+  });
+  assert.equal(await exists(target), false);
+  assert.equal(
+    (
+      await runGit(["branch", "--list", "feat/remove-with-tree"], {
+        cwd: project,
+      })
+    ).trim(),
+    "",
+  );
+});
+
+test("refuses branch deletion for a detached worktree before removing its directory", async (t) => {
+  const { project, worktreeRoot } = await setUp(t, "detached-delete");
+  const created = await createWorktree({
+    projectPath: project,
+    worktreeRoot,
+    name: "detached-source",
+  });
+  const target = created.worktrees[1].path;
+  await runGit(["checkout", "--detach", "-q"], { cwd: target });
+
+  await assert.rejects(
+    removeWorktree({
+      projectPath: project,
+      path: target,
+      deleteBranch: true,
+    }),
+    WorktreeBranchUnavailableError,
+  );
+  assert.equal(await exists(target), true);
+});
+
+test("reports branch deletion failure after the worktree was already removed", async (t) => {
+  const { project, worktreeRoot } = await setUp(t, "branch-delete-failure");
+  const created = await createWorktree({
+    projectPath: project,
+    worktreeRoot,
+    name: "blocked-delete",
+  });
+  const target = created.worktrees[1].path;
+  const heads = join(project, ".git", "refs", "heads");
+  await chmod(heads, 0o500);
+  let result: Awaited<ReturnType<typeof removeWorktree>>;
+  try {
+    result = await removeWorktree({
+      projectPath: project,
+      path: target,
+      deleteBranch: true,
+    });
+  } finally {
+    await chmod(heads, 0o700);
+  }
+
+  assert.equal(await exists(target), false);
+  assert.equal(result.branchDeletion?.deleted, false);
+  assert.match(
+    result.branchDeletion?.deleted === false
+      ? result.branchDeletion.reason
+      : "",
+    /cannot lock ref|permission denied/i,
+  );
+  assert.match(
+    await runGit(["branch", "--list", "blocked-delete"], { cwd: project }),
+    /blocked-delete/,
+  );
 });
 
 test("removes a worktree whose directory was already deleted", async (t) => {
@@ -232,7 +324,7 @@ test("removes a worktree whose directory was already deleted", async (t) => {
 
   const after = await removeWorktree({ projectPath: project, path: target });
 
-  assert.equal(after.worktrees.length, 1);
+  assert.equal(after.catalog.worktrees.length, 1);
 });
 
 test("refuses to remove a locked worktree instead of overriding the lock", async (t) => {

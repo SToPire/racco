@@ -355,6 +355,17 @@ export type WorktreeCatalog = {
   degradedReason: string | null;
 };
 
+export type WorktreeBranchDeletion =
+  | { branch: string; deleted: true }
+  | { branch: string; deleted: false; reason: string };
+
+export type DeleteWorktreeResult = {
+  catalog: WorktreeCatalog;
+  removedSessionIds: string[];
+  /** Null when the caller chose to retain the local branch. */
+  branchDeletion: WorktreeBranchDeletion | null;
+};
+
 export type ProjectFileEntry = {
   name: string;
   path: string;

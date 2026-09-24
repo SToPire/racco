@@ -28,7 +28,7 @@ type SessionListProps = {
   onDeleteProject?: (projectId: string, removeWorktrees: boolean) => void;
   onDeleteSession?: (sessionId: string) => void;
   onRefreshWorktrees?: (projectId: string) => void;
-  onDeleteWorktree?: (worktree: WorktreeEntry) => void;
+  onDeleteWorktree?: (worktree: WorktreeEntry, deleteBranch: boolean) => void;
 };
 
 const SESSION_STATE_LABELS: Record<SessionState, string> = {
@@ -76,6 +76,9 @@ export function SessionList({
     useState<ProjectEntry | null>(null);
   /** Whether the open delete dialog also removes worktree directories. */
   const [removeWorktreesChecked, setRemoveWorktreesChecked] = useState(false);
+  const [pendingDeleteWorktree, setPendingDeleteWorktree] =
+    useState<WorktreeEntry | null>(null);
+  const [deleteBranchChecked, setDeleteBranchChecked] = useState(false);
   const worktreesByProject = useMemo(() => {
     const grouped = new Map<string, WorktreeEntry[]>();
     for (const worktree of worktrees) {
@@ -454,7 +457,10 @@ export function SessionList({
                                 <button
                                   aria-label={`删除 Worktree ${worktree.name}`}
                                   className="row-delete-button"
-                                  onClick={() => onDeleteWorktree(worktree)}
+                                  onClick={() => {
+                                    setDeleteBranchChecked(false);
+                                    setPendingDeleteWorktree(worktree);
+                                  }}
                                   title="删除 Worktree"
                                   type="button"
                                 >
@@ -526,7 +532,116 @@ export function SessionList({
           }}
         />
       )}
+      {pendingDeleteWorktree !== null && onDeleteWorktree !== undefined && (
+        <ConfirmDeleteWorktreeDialog
+          worktree={pendingDeleteWorktree}
+          deleteBranch={deleteBranchChecked}
+          onChangeDeleteBranch={setDeleteBranchChecked}
+          onCancel={() => setPendingDeleteWorktree(null)}
+          onConfirm={(deleteBranch) => {
+            const worktree = pendingDeleteWorktree;
+            setPendingDeleteWorktree(null);
+            onDeleteWorktree(worktree, deleteBranch);
+          }}
+        />
+      )}
     </aside>
+  );
+}
+
+export function ConfirmDeleteWorktreeDialog({
+  worktree,
+  deleteBranch,
+  onChangeDeleteBranch,
+  onCancel,
+  onConfirm,
+}: {
+  worktree: WorktreeEntry;
+  deleteBranch: boolean;
+  onChangeDeleteBranch: (checked: boolean) => void;
+  onCancel: () => void;
+  onConfirm: (deleteBranch: boolean) => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    if (element === null) return;
+    if (!element.open) element.showModal();
+    return () => {
+      if (element.open) element.close();
+    };
+  }, []);
+  return (
+    <dialog
+      aria-labelledby="confirm-delete-worktree-title"
+      className="confirm-delete-dialog"
+      ref={dialog}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <h2 id="confirm-delete-worktree-title">
+        删除 Worktree {worktree.name}？
+      </h2>
+      <p className="confirm-delete-dialog-copy">
+        {worktree.prunable
+          ? "该目录已不存在，将清理 Git Worktree 元数据："
+          : "将从磁盘移除 Worktree 目录："}
+      </p>
+      <p className="confirm-delete-dialog-path">{worktree.path}</p>
+      {worktree.dirty && (
+        <p className="confirm-delete-dialog-copy">
+          该目录当前报告有未提交或未跟踪的内容；服务器会在删除时重新检查并要求二次确认。
+        </p>
+      )}
+      {worktree.branch === null ? (
+        <p className="confirm-delete-dialog-note">
+          这是 detached Worktree，没有可一并删除的本地分支。
+        </p>
+      ) : (
+        <>
+          <label className="confirm-delete-dialog-checkbox">
+            <input
+              checked={deleteBranch}
+              onChange={(event) => onChangeDeleteBranch(event.target.checked)}
+              type="checkbox"
+            />
+            同时删除本地分支 {worktree.branch}
+          </label>
+          <p className="confirm-delete-dialog-note">
+            {deleteBranch
+              ? "远程分支不受影响；未被其他引用包含的提交之后可能只能通过 Git reflog 恢复。"
+              : `本地分支 ${worktree.branch} 和已提交历史会保留，可重新创建 Worktree。`}
+          </p>
+        </>
+      )}
+      {worktree.sessionCount > 0 && (
+        <p className="confirm-delete-dialog-copy">
+          同时删除 {worktree.sessionCount} 个对话。
+        </p>
+      )}
+      <div className="confirm-delete-dialog-actions">
+        <button
+          className="confirm-delete-cancel-button"
+          onClick={onCancel}
+          type="button"
+        >
+          取消
+        </button>
+        <button
+          autoFocus
+          className="confirm-delete-confirm-button"
+          onClick={() => onConfirm(deleteBranch)}
+          type="button"
+        >
+          删除 Worktree
+        </button>
+      </div>
+    </dialog>
   );
 }
 

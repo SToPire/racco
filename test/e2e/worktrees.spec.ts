@@ -106,15 +106,85 @@ test("dirty worktree removal requires a second confirmation even when Git hides 
   await row
     .getByRole("button", { name: "删除 Worktree dirty", exact: true })
     .click();
-  await expect.poll(() => dialogs.length).toBe(2);
+  const confirmation = page.getByRole("dialog", {
+    name: "删除 Worktree dirty？",
+  });
+  await expect(
+    confirmation.getByRole("checkbox", {
+      name: "同时删除本地分支 dirty",
+    }),
+  ).not.toBeChecked();
+  await confirmation
+    .getByRole("button", { name: "删除 Worktree", exact: true })
+    .click();
+  await expect.poll(() => dialogs.length).toBe(1);
   expect(await readFile(file, "utf8")).toBe("keep until confirmed\n");
   acceptDirty = true;
+  await row.hover();
   await row
     .getByRole("button", { name: "删除 Worktree dirty", exact: true })
     .click();
+  await confirmation
+    .getByRole("button", { name: "删除 Worktree", exact: true })
+    .click();
   await expect(row).toHaveCount(0);
-  expect(dialogs).toHaveLength(4);
+  expect(dialogs).toHaveLength(2);
   await expect(access(worktree.path)).rejects.toThrow();
+  expect(
+    (await runGit(["branch", "--list", "dirty"], { cwd: project.path })).trim(),
+  ).not.toBe("");
+});
+
+test("worktree deletion can explicitly remove its local branch", async ({
+  page,
+  racco,
+}) => {
+  const project = racco.projects[0];
+  const response = await page.request.post(
+    `/api/projects/${project.projectId}/worktrees`,
+    { data: { name: "remove-with-worktree" } },
+  );
+  expect(response.ok()).toBe(true);
+  const catalog: WorktreeCatalog = await response.json();
+  const worktree = catalog.worktrees.find(
+    (entry) => entry.branch === "remove-with-worktree",
+  )!;
+
+  await page.goto("/");
+  const row = page.locator(".worktree-row-wrap").filter({
+    has: page.getByRole("button", {
+      name: "删除 Worktree remove-with-worktree",
+      exact: true,
+    }),
+  });
+  await row.hover();
+  await row
+    .getByRole("button", {
+      name: "删除 Worktree remove-with-worktree",
+      exact: true,
+    })
+    .click();
+  const confirmation = page.getByRole("dialog", {
+    name: "删除 Worktree remove-with-worktree？",
+  });
+  await confirmation
+    .getByRole("checkbox", {
+      name: "同时删除本地分支 remove-with-worktree",
+    })
+    .check();
+  await confirmation
+    .getByRole("button", { name: "删除 Worktree", exact: true })
+    .click();
+
+  await expect(row).toHaveCount(0);
+  await expect(access(worktree.path)).rejects.toThrow();
+  expect(
+    (
+      await runGit(["branch", "--list", "remove-with-worktree"], {
+        cwd: project.path,
+      })
+    ).trim(),
+  ).toBe("");
 });
 
 test("a degraded refresh keeps worktrees visible and reports the error beside the project", async ({

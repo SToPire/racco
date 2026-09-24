@@ -241,6 +241,29 @@ test("hidden untracked files require force, which removes sessions and keeps the
   );
 });
 
+test("an explicit branch option removes the local branch with the worktree", async (t) => {
+  const f = await fixture(t);
+  const result = await f.hub.deleteWorktree({
+    projectId: f.project.projectId,
+    path: f.worktree.path,
+    deleteBranch: true,
+  });
+
+  assert.deepEqual(result.branchDeletion, {
+    branch: "linked",
+    deleted: true,
+  });
+  assert.deepEqual(result.removedSessionIds, [f.ref.sessionId]);
+  assert.equal(
+    (
+      await runGit(["branch", "--list", "linked"], {
+        cwd: f.project.path,
+      })
+    ).trim(),
+    "",
+  );
+});
+
 test("a prunable worktree can be removed without a dirty check or force", async (t) => {
   const f = await fixture(t);
   await rm(f.worktree.path, { recursive: true });

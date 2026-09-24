@@ -1,4 +1,8 @@
-import type { WorktreeCatalog, WorktreeEntry } from "../../shared/protocol.js";
+import type {
+  DeleteWorktreeResult,
+  WorktreeCatalog,
+  WorktreeEntry,
+} from "../../shared/protocol.js";
 import type {
   ManagedProject,
   ManagedSession,
@@ -85,22 +89,25 @@ export class WorktreeService {
     project: ManagedProject,
     path: string,
     force = false,
-  ): Promise<{ catalog: WorktreeCatalog; removedSessionIds: string[] }> {
+    deleteBranch = false,
+  ): Promise<DeleteWorktreeResult> {
     return this.#serialize(project.path, async () => {
       // Sessions living in the worktree go with it; the caller refuses while any
       // of them has an active turn, so nothing is silently interrupted here.
       const removedSessionIds = this.projectSessions(project.projectId)
         .filter((session) => session.cwd === path)
         .map((session) => session.sessionId);
-      const derived = await removeWorktree({
+      const removed = await removeWorktree({
         projectPath: project.path,
         path,
         force,
+        deleteBranch,
       });
-      this.#cache.set(project.path, derived);
+      this.#cache.set(project.path, removed.catalog);
       return {
-        catalog: await this.#toCatalog(project, derived),
+        catalog: await this.#toCatalog(project, removed.catalog),
         removedSessionIds,
+        branchDeletion: removed.branchDeletion,
       };
     });
   }

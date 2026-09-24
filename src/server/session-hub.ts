@@ -17,6 +17,7 @@ import type {
   ModelSettings,
   ModelCatalog,
   NativeSessionPage,
+  DeleteWorktreeResult,
   WorktreeCatalog,
   WorktreeEntry,
 } from "../shared/protocol.js";
@@ -264,7 +265,8 @@ export class SessionHub {
     projectId: string;
     path: string;
     force?: boolean;
-  }): Promise<{ catalog: WorktreeCatalog; removedSessionIds: string[] }> {
+    deleteBranch?: boolean;
+  }): Promise<DeleteWorktreeResult> {
     return this.#worktreeAccess.remove(
       input.projectId,
       input.path,
@@ -293,6 +295,7 @@ export class SessionHub {
           project,
           input.path,
           input.force,
+          input.deleteBranch,
         );
         for (const sessionId of result.removedSessionIds) {
           this.#removeRuntime(sessionId);
