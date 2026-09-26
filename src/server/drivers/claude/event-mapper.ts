@@ -9,7 +9,10 @@ import type {
 } from "../../../shared/protocol.js";
 import { ClaudeActivityTracker } from "./activity-tracker.js";
 
-export type ClaudeHistoryMessage = SessionMessage & { toolUseResult?: unknown };
+export type ClaudeHistoryMessage = SessionMessage & {
+  toolUseResult?: unknown;
+  origin?: unknown;
+};
 export type ClaudeSubagentHistory = {
   agentId: string;
   messages: ClaudeHistoryMessage[];
@@ -127,7 +130,15 @@ function mapToolResults(
   });
 }
 
-function mapUserText(message: unknown, uuid: string): AgentTimelineEvent[] {
+function mapUserText(
+  message: unknown,
+  uuid: string,
+  origin?: unknown,
+): AgentTimelineEvent[] {
+  const source = asRecord(origin);
+  // Subkinds carry assigned tasks or relayed input, not generic task notices.
+  if (source?.kind === "task-notification" && source.subkind === undefined)
+    return [];
   const text = messageContent(message)
     .map((value) => asRecord(value))
     .filter((block) => block?.type === "text" && typeof block.text === "string")
@@ -146,7 +157,7 @@ export function mapClaudeHistory(
       return mapAssistant(entry.message, entry.uuid);
     if (entry.type === "user") {
       return [
-        ...mapUserText(entry.message, entry.uuid),
+        ...mapUserText(entry.message, entry.uuid, entry.origin),
         ...mapToolResults(entry.message, entry.toolUseResult),
       ];
     }
@@ -297,7 +308,7 @@ export class ClaudeLiveMapper {
       return this.#activities.observe(
         [
           ...(message.parent_tool_use_id !== null && message.uuid !== undefined
-            ? mapUserText(message.message, message.uuid)
+            ? mapUserText(message.message, message.uuid, message.origin)
             : []),
           ...mapToolResults(message.message, message.tool_use_result),
         ],

@@ -91,6 +91,71 @@ test("maps Claude history into the shared materialized timeline", () => {
   ]);
 });
 
+test("live task notifications suppress user text but retain child tool results", () => {
+  const mapper = new ClaudeLiveMapper();
+  const events = mapper.map({
+    type: "system",
+    subtype: "task_started",
+    task_id: "child",
+    tool_use_id: "spawn",
+    task_type: "local_agent",
+    description: "Child task",
+    uuid: randomUUID(),
+    session_id: "session-1",
+  });
+  for (const origin of [
+    undefined,
+    { kind: "human" } as const,
+    { kind: "task-notification" } as const,
+    { kind: "task-notification", subkind: "scheduled-trigger" } as const,
+    { kind: "task-notification", subkind: "peer-send-message" } as const,
+    { kind: "task-notification", subkind: "projects-relay" } as const,
+  ]) {
+    events.push(
+      ...mapper.map({
+        type: "user",
+        uuid: randomUUID(),
+        session_id: "session-1",
+        parent_tool_use_id: "spawn",
+        ...(origin === undefined ? {} : { origin }),
+        message: {
+          role: "user",
+          content: "<task-notification>example</task-notification>",
+        },
+      }),
+    );
+  }
+  events.push(
+    ...mapper.map({
+      type: "user",
+      uuid: randomUUID(),
+      session_id: "session-1",
+      parent_tool_use_id: "spawn",
+      origin: { kind: "task-notification" },
+      tool_use_result: { stdout: "done" },
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "Background task finished" },
+          { type: "tool_result", tool_use_id: "child-tool", content: "done" },
+        ],
+      },
+    }),
+  );
+  const childEvents = events.flatMap((event) =>
+    event.type === "subagent.event" ? [event.event] : [],
+  );
+  assert.equal(
+    childEvents.filter((event) => event.type === "user.message").length,
+    5,
+  );
+  assert(
+    childEvents.some(
+      (event) => event.type === "tool.completed" && event.output === "done",
+    ),
+  );
+});
+
 for (const content of ["Model-facing summary", undefined]) {
   test(`keeps native results separate from ${content === undefined ? "absent" : "present"} model output`, () => {
     const result = {

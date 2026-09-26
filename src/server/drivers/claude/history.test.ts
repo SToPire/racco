@@ -58,6 +58,71 @@ async function history(entries: SessionStoreEntry[]) {
   );
 }
 
+test("restores notification origins after SDK selection without adding user turns", async () => {
+  const entries = [user("request", null, "Run three agents")];
+  let parent = "request";
+  for (let index = 0; index < 3; index++) {
+    const id = `notification-${index}`;
+    entries.push({
+      ...user(id, parent, `<task-notification>${index}</task-notification>`),
+      origin: { kind: "task-notification" },
+    });
+    entries.push(assistant(`answer-${index}`, id, `Result ${index}`));
+    parent = `answer-${index}`;
+  }
+  entries.push(user("followup", parent, "What is the session ID?"));
+  const original = structuredClone(entries);
+  const selected = await selectClaudeHistory(
+    entries,
+    { projectKey: "-history-fixture", sessionId },
+    "/history-fixture",
+  );
+  assert.equal(selected.filter((message) => "origin" in message).length, 3);
+  assert.equal(
+    "origin" in selected.find((message) => message.uuid === "request")!,
+    false,
+  );
+  const rows = buildTimeline(mapClaudeHistory(selected));
+  assert.deepEqual(
+    rows.filter((row) => row.type === "user.message").map((row) => row.id),
+    ["request", "followup"],
+  );
+  assert.deepEqual(
+    rows
+      .filter((row) => row.type === "assistant.message")
+      .map((row) => row.text),
+    ["Result 0", "Result 1", "Result 2"],
+  );
+  assert.deepEqual(entries, original);
+});
+
+test("keeps notification-looking user text with absent or human origin", async () => {
+  const text =
+    "<task-notification><task-id>example</task-id></task-notification>";
+  assert.deepEqual(
+    await history([
+      user("unattributed", null, text),
+      { ...user("human", "unattributed", text), origin: { kind: "human" } },
+    ]),
+    [
+      ["user.message", text],
+      ["user.message", text],
+    ],
+  );
+});
+
+test("retains task-notification subkinds as conversation input in history", async () => {
+  const subkinds = ["scheduled-trigger", "peer-send-message", "projects-relay"];
+  const entries = subkinds.map((subkind, index) => ({
+    ...user(subkind, index === 0 ? null : subkinds[index - 1]!, subkind),
+    origin: { kind: "task-notification", subkind },
+  }));
+  assert.deepEqual(
+    await history(entries),
+    subkinds.map((subkind) => ["user.message", subkind]),
+  );
+});
+
 test("restores command output siblings, a final system-only command, and normal responses", async () => {
   const entries = [
     command("context", null),
@@ -304,7 +369,12 @@ test("reads native child transcripts with SDK identity and keeps their results o
       },
     }),
     {
-      ...assistant("child-answer", "child-result", "Child answer"),
+      ...user("child-notification", "child-result", "Background task finished"),
+      origin: { kind: "task-notification" },
+      isSidechain: true,
+    },
+    {
+      ...assistant("child-answer", "child-notification", "Child answer"),
       isSidechain: true,
     },
   ]);
@@ -325,6 +395,12 @@ test("reads native child transcripts with SDK identity and keeps their results o
   const [child] = rows;
   assert(child?.type === "subagent");
   assert.equal(child.cwd, "/work/child-worktree");
+  assert.deepEqual(
+    child.timeline
+      .filter((row) => row.type === "user.message")
+      .map((row) => row.text),
+    ["Child task"],
+  );
   assert.equal(
     child.state,
     "unknown",

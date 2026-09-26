@@ -83,6 +83,22 @@ export function projectClaudeHistory(
   });
 }
 
+/** Restore display metadata omitted by the SDK only for selected messages. */
+function restoreUserMetadata(
+  message: SessionMessage,
+  recorded: Map<string, SessionStoreEntry>,
+): ClaudeHistoryMessage {
+  if (message.type !== "user") return message;
+  const original = recorded.get(message.uuid);
+  return {
+    ...message,
+    ...(original?.toolUseResult === undefined
+      ? {}
+      : { toolUseResult: original.toolUseResult }),
+    ...(original?.origin === undefined ? {} : { origin: original.origin }),
+  };
+}
+
 /** Keep the SDK's branch/compaction selection, then attach local output siblings
  * only to messages retained in that selection. This also works when compaction
  * rewrites the selected chain's parent links. */
@@ -134,16 +150,7 @@ export async function selectClaudeHistory(
       const next = pending.pop()!;
       if (seen.has(next.uuid)) continue;
       seen.add(next.uuid);
-      // The current native transcript stores toolUseResult, while the SDK's
-      // public SessionMessage projection omits it. Restore only this selected
-      // message's raw field; absent data stays absent after reconnect.
-      const toolUseResult =
-        next.type === "user"
-          ? recorded.get(next.uuid)?.toolUseResult
-          : undefined;
-      result.push(
-        toolUseResult === undefined ? next : { ...next, toolUseResult },
-      );
+      result.push(restoreUserMetadata(next, recorded));
       const children = outputs.get(next.uuid) ?? [];
       for (let index = children.length - 1; index >= 0; index--)
         pending.push(children[index]!);
@@ -181,15 +188,9 @@ export async function selectClaudeSubagentHistory(
         dir: cwd,
         sessionStore: store,
       });
-      const messages: ClaudeHistoryMessage[] = selected.map((message) => {
-        const toolUseResult =
-          message.type === "user"
-            ? native.get(message.uuid)?.toolUseResult
-            : undefined;
-        return toolUseResult === undefined
-          ? message
-          : { ...message, toolUseResult };
-      });
+      const messages = selected.map((message) =>
+        restoreUserMetadata(message, native),
+      );
       const directoryMessage = selected.findLast((message) => {
         const directory = native.get(message.uuid)?.cwd;
         return typeof directory === "string" && directory.length > 0;
