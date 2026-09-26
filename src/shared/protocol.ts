@@ -261,11 +261,25 @@ export const ClientCommandSchema = z.discriminatedUnion("type", [
 ]);
 export type ClientCommand = z.infer<typeof ClientCommandSchema>;
 
+export const HISTORY_PAGE_SIZE = 10;
+
+export const HistoryQuerySchema = z.strictObject({
+  cursor: z.string().min(1).max(8192).optional(),
+  agentId: z.string().min(1).optional(),
+  refresh: z.literal("true").optional(),
+});
+
+export type HistoryPage = {
+  events: TimelineEvent[];
+  nextCursor: string | null;
+};
+
 export type SessionSnapshotMessage = {
   type: "session.snapshot";
   session: SessionSummary;
   events: TimelineEvent[];
   pendingInteractions: InteractionRequest[];
+  nextCursor: string | null;
 };
 
 export type ServerMessage =

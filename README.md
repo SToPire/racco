@@ -33,6 +33,12 @@
 - **统一接入**：前后端分离，通过 Codex App Server 与 Claude Agent SDK 封装统一 Agent 驱动，按项目管理、新建或导入原生会话。
 - **过程可视化**：统一流式消息、工具调用和子 Agent 轨迹的事件表达，在对话与执行轨迹视图中查看任务如何推进。
 
+## 对话历史
+
+打开会话只加载最近 10 轮，向上滚动或点击“加载更早的消息”继续读取；子 Agent 的历史在选中时加载。Codex 使用 App Server 的原生 `thread/turns/list` 分页，需要支持该实验性接口的 Codex；Claude 首次仍读取完整原生历史，后续从 daemon 已有内存中分页，不建立持久化副本或轮次索引，也不改变数据库 schema。
+
+Claude 在原生客户端修改的历史需点击“刷新历史”重新读取；daemon 重启后首次打开也会重新读取。历史分页限制轮数，不截断单轮中的大段工具输出。
+
 ## Worktree
 
 需要 `git`：每个项目下可以并行多个 Worktree，列表实时来自 `git worktree list`，因此终端里手工建的 Worktree 也会出现。Racco 自己创建的 Worktree 放在 `~/.local/share/racco/worktrees/<项目>-<路径摘要>/`，可在 `racco.config.json` 里用 `worktreeRoot` 改到别处（该项只约束创建位置，不影响列表）。

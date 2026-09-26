@@ -1,3 +1,4 @@
+import { memoryHistoryPage } from "../../src/server/history-page.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -70,6 +71,29 @@ export class FixtureDriver implements AgentDriver {
     if (snapshot.cwd !== handle.cwd)
       throw new Error("Session belongs to a different project");
     return snapshot;
+  }
+  async readHistoryPage(
+    handle: ProviderSessionHandle,
+    input: { cursor?: string; agentId?: string },
+  ) {
+    const snapshot = await this.readSession(handle);
+    if (
+      input.agentId !== undefined &&
+      !snapshot.events.some(
+        (event) => "agentId" in event && event.agentId === input.agentId,
+      )
+    )
+      throw new Error("Subagent not found");
+    return {
+      ...memoryHistoryPage(
+        snapshot.events,
+        handle.providerSessionId,
+        "fixture",
+        input.agentId,
+        input.cursor,
+      ),
+      metadata: snapshot.metadata,
+    };
   }
   async deleteSession(handle: ProviderSessionHandle): Promise<void> {
     const snapshot = JSON.parse(

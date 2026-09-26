@@ -50,6 +50,7 @@ export function App() {
     creating,
     rows,
     sessionViews,
+    loadHistory,
     openSession,
     showHistory,
     deleteNativeSession,
@@ -272,6 +273,10 @@ export function App() {
               key={view.session.sessionId}
               active={activeRef?.sessionId === view.session.sessionId}
               loaded={view.loaded}
+              history={view.history}
+              onLoadHistory={(agentId, refresh) =>
+                loadHistory(view.session.sessionId, agentId, refresh)
+              }
               connection={connection}
               error={
                 activeRef?.sessionId === view.session.sessionId

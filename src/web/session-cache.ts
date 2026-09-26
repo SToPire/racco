@@ -1,11 +1,18 @@
 import type { InteractionRequest, SessionSummary } from "../shared/protocol";
 import type { TimelineRow } from "./store";
 
+export type HistoryState = {
+  nextCursor: string | null;
+  loading: boolean;
+  error?: string;
+};
+
 export type SessionContent = {
   session: SessionSummary;
   rows: TimelineRow[];
   interactions: InteractionRequest[];
   loaded: boolean;
+  history: Record<string, HistoryState>;
 };
 export type SessionCache = Map<string, SessionContent>;
 export const SESSION_CACHE_LIMIT = 8;
@@ -26,6 +33,7 @@ export function visitSession(
     rows: [],
     interactions: [],
     loaded: false,
+    history: {},
   };
   next.delete(session.sessionId);
   next.set(session.sessionId, content);

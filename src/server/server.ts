@@ -1,3 +1,5 @@
+import { HistoryQuerySchema } from "../shared/protocol.js";
+import { HistoryCursorError } from "./history-page.js";
 import type { AgentDriver } from "./drivers/driver.js";
 import type { BuildInfo } from "./runtime/build-info.js";
 import { CURRENT_SCHEMA_VERSION } from "./state/schema.js";
@@ -84,7 +86,16 @@ export async function buildServer(
       }
     }
     await hub.initialize();
-    await app.register(fastifyWebsocket);
+    await app.register(fastifyWebsocket, {
+      options: {
+        perMessageDeflate: {
+          // Compress large snapshots without retaining a dictionary per socket.
+          serverNoContextTakeover: true,
+          clientNoContextTakeover: true,
+          threshold: 1024,
+        },
+      },
+    });
   } catch (error) {
     await hub.close();
     throw error;
@@ -338,10 +349,34 @@ export async function buildServer(
   app.get<{ Params: { sessionId: string } }>(
     "/api/sessions/:sessionId",
     async (request, reply) => {
-      const snapshot = await hub.snapshot({
+      const snapshot = await hub.historySnapshot({
         sessionId: request.params.sessionId,
       });
       return snapshot ?? reply.code(404).send({ message: "Session not found" });
+    },
+  );
+
+  app.get<{ Params: { sessionId: string }; Querystring: unknown }>(
+    "/api/sessions/:sessionId/history",
+    async (request, reply) => {
+      const parsed = HistoryQuerySchema.safeParse(request.query);
+      if (!parsed.success)
+        return reply.code(400).send({ message: "Invalid history query" });
+      try {
+        return await hub.historyPage(
+          { sessionId: request.params.sessionId },
+          {
+            ...parsed.data,
+            refresh: parsed.data.refresh === "true",
+          },
+        );
+      } catch (error) {
+        return reply
+          .code(error instanceof HistoryCursorError ? 409 : 400)
+          .send({
+            message: error instanceof Error ? error.message : String(error),
+          });
+      }
     },
   );
 

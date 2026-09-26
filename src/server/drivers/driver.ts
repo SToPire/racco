@@ -1,4 +1,5 @@
 import type {
+  HistoryPage,
   ContextUsage,
   InteractionRequest,
   InteractionResponse,
@@ -82,6 +83,14 @@ export interface AgentDriver {
     signal: AbortSignal;
   }): Promise<ProviderModelCatalog>;
   readSession(handle: ProviderSessionHandle): Promise<SessionSnapshot>;
+  /** Native turn pagination. Claude uses the hub's already-loaded history. */
+  readHistoryPage?(
+    handle: ProviderSessionHandle,
+    input: {
+      cursor?: string;
+      agentId?: string;
+    },
+  ): Promise<HistoryPage & { metadata: ProviderSessionMetadata }>;
   deleteSession(handle: ProviderSessionHandle): Promise<void>;
   createSession(input: {
     raccoSessionId: string;

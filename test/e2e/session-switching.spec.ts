@@ -59,7 +59,7 @@ test("returning to a long conversation reuses its DOM, draft and reading positio
     .fill("keep this draft");
   const position = await conversation.evaluate((element) => {
     element.setAttribute("data-retained", "true");
-    element.scrollTop = 4000;
+    element.scrollTop = 400;
     return element.scrollTop;
   });
   await page.evaluate(

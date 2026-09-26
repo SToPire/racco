@@ -321,3 +321,33 @@ export function groupTimelineRows(rows: AgentTimelineRow[]): TimelineSection[] {
 
   return sections;
 }
+
+/** Older pages must not overwrite live rows or already loaded child history. */
+export function prependHistory(
+  older: TimelineRow[],
+  current: TimelineRow[],
+): TimelineRow[] {
+  const rows = new Map(older.map((row) => [row.id, row]));
+  for (const row of current) {
+    const previous = rows.get(row.id);
+    if (previous?.type === "subagent" && row.type === "subagent") {
+      rows.set(row.id, {
+        ...previous,
+        ...row,
+        timeline: prependHistory(
+          previous.timeline,
+          row.timeline,
+        ) as AgentTimelineRow[],
+        activities: [
+          ...new Map(
+            [...previous.activities, ...row.activities].map((activity) => [
+              activity.id,
+              activity,
+            ]),
+          ).values(),
+        ],
+      });
+    } else rows.set(row.id, row);
+  }
+  return [...rows.values()];
+}

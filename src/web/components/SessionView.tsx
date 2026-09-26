@@ -1,3 +1,4 @@
+import type { HistoryState } from "../session-cache";
 import { UiIcon } from "./UiIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -30,6 +31,8 @@ import { FileReferenceScope } from "../FileNavigationContext";
 type SessionViewProps = {
   active: boolean;
   loaded: boolean;
+  history: Record<string, HistoryState>;
+  onLoadHistory: (agentId?: string, refresh?: boolean) => Promise<void>;
   session: SessionSummary;
   rows: TimelineRow[];
   interactions: InteractionRequest[];
@@ -48,6 +51,8 @@ type SessionViewProps = {
 export function SessionView({
   active,
   loaded,
+  history,
+  onLoadHistory,
   session,
   rows,
   interactions,
@@ -84,6 +89,20 @@ export function SessionView({
     `${session.sessionId}:${selectedAgentId ?? "main"}`,
     active && loaded && viewMode === "chat",
   );
+  const historyState = history[selectedAgentId ?? ""];
+  useEffect(() => {
+    if (
+      active &&
+      loaded &&
+      selectedAgentId !== undefined &&
+      historyState === undefined
+    )
+      void onLoadHistory(selectedAgentId);
+  }, [active, loaded, selectedAgentId, historyState, onLoadHistory]);
+  function loadEarlier() {
+    reading.pauseFollowing();
+    void onLoadHistory(selectedAgentId);
+  }
   const selectedSubagent = subagents.find(
     (row) => row.agentId === selectedAgentId,
   );
@@ -249,8 +268,54 @@ export function SessionView({
         <section
           className="conversation"
           ref={conversationRef}
-          aria-busy={!loaded}
+          aria-busy={!loaded || historyState?.loading}
+          onScroll={(event) => {
+            if (
+              active &&
+              loaded &&
+              event.currentTarget.scrollHeight -
+                event.currentTarget.scrollTop -
+                event.currentTarget.clientHeight >
+                24 &&
+              historyState?.nextCursor &&
+              !historyState.loading &&
+              !historyState.error &&
+              event.currentTarget.scrollTop < 100
+            )
+              loadEarlier();
+          }}
         >
+          {loaded && (
+            <div className="history-pagination">
+              {(historyState?.nextCursor ||
+                historyState?.loading ||
+                historyState?.error) && (
+                <button
+                  type="button"
+                  disabled={historyState?.loading}
+                  onClick={loadEarlier}
+                >
+                  {historyState?.loading
+                    ? "正在加载历史…"
+                    : historyState?.error
+                      ? "重试加载历史"
+                      : "加载更早的消息"}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={
+                  historyState?.loading || session.compacting || turnActive
+                }
+                onClick={() => void onLoadHistory(selectedAgentId, true)}
+              >
+                刷新历史
+              </button>
+              {historyState?.error && (
+                <p className="error-banner">{historyState.error}</p>
+              )}
+            </div>
+          )}
           {error && <p className="error-banner">{error}</p>}
           {selectedRows.length === 0 ? (
             <div className="conversation-empty">
@@ -284,11 +349,22 @@ export function SessionView({
           )}
         </section>
       ) : (
-        <TrajectoryView
-          rows={rows}
-          focusRowId={trajectoryTargetId}
-          onReveal={revealInChat}
-        />
+        <div className="history-trajectory">
+          <div className="history-pagination">
+            <button
+              type="button"
+              disabled={history[""]?.loading || !history[""]?.nextCursor}
+              onClick={() => void onLoadHistory()}
+            >
+              {history[""]?.loading ? "正在加载历史…" : "加载更早的消息"}
+            </button>
+          </div>
+          <TrajectoryView
+            rows={rows}
+            focusRowId={trajectoryTargetId}
+            onReveal={revealInChat}
+          />
+        </div>
       )}
 
       {viewMode === "chat" &&

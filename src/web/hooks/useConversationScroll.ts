@@ -20,12 +20,46 @@ export function useConversationScroll(
   activeRef.current = active;
   const [following, setFollowing] = useState(true);
   const navigationHold = useRef(false);
+  const anchor = useRef<{ element: HTMLElement; offset: number } | undefined>(
+    undefined,
+  );
+  const captureAnchor = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const top = container.getBoundingClientRect().top;
+    const element = [
+      ...container.querySelectorAll<HTMLElement>("[data-timeline-row]"),
+    ].find((row) => row.getBoundingClientRect().bottom > top);
+    anchor.current = element
+      ? { element, offset: element.getBoundingClientRect().top - top }
+      : undefined;
+  }, [containerRef]);
+  const restoreAnchor = useCallback(() => {
+    const container = containerRef.current;
+    const saved = anchor.current;
+    if (
+      !container ||
+      !saved ||
+      current.current.following ||
+      !container.contains(saved.element)
+    )
+      return;
+    container.scrollTop +=
+      saved.element.getBoundingClientRect().top -
+      container.getBoundingClientRect().top -
+      saved.offset;
+    current.current.top = container.scrollTop;
+  }, [containerRef]);
+  useLayoutEffect(() => {
+    if (active) restoreAnchor();
+  });
 
   const pauseFollowing = useCallback(() => {
     navigationHold.current = true;
     current.current.following = false;
     setFollowing(false);
-  }, []);
+    captureAnchor();
+  }, [captureAnchor]);
 
   const followLatest = useCallback(() => {
     navigationHold.current = false;
@@ -40,6 +74,7 @@ export function useConversationScroll(
   useLayoutEffect(() => {
     const element = containerRef.current;
     if (!active || !element) return;
+    anchor.current = undefined;
     current.current = {
       ...(positions.current.get(readingKey) ?? { top: 0, following: true }),
     };
@@ -83,6 +118,7 @@ export function useConversationScroll(
             behavior: "instant",
           });
         if (current.current.following) current.current.top = element!.scrollTop;
+        else restoreAnchor();
         observeChildren();
       });
     }
@@ -93,6 +129,7 @@ export function useConversationScroll(
       const resume = atBottom && !navigationHold.current;
       current.current = { top: element.scrollTop, following: resume };
       setFollowing(resume);
+      if (!resume) captureAnchor();
     };
     const userScroll = () => {
       navigationHold.current = false;
@@ -142,7 +179,7 @@ export function useConversationScroll(
       element.removeEventListener("keydown", scrollKey);
       element.removeEventListener("pointerdown", scrollbarPointer);
     };
-  }, [active, containerRef, readingKey]);
+  }, [active, containerRef, readingKey, captureAnchor, restoreAnchor]);
 
   return { following, followLatest, pauseFollowing };
 }

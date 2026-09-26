@@ -3,6 +3,7 @@ import { realpathSync, statSync } from "node:fs";
 import { basename, parse } from "node:path";
 import { WebSocket } from "ws";
 import type {
+  HistoryPage,
   InteractionRequest,
   InteractionResponse,
   ProjectEntry,
@@ -21,6 +22,12 @@ import type {
   WorktreeCatalog,
   WorktreeEntry,
 } from "../shared/protocol.js";
+import { z } from "zod";
+import {
+  HistoryCursorError,
+  memoryHistoryPage,
+  subagentSummaries,
+} from "./history-page.js";
 import { NativeSessionPageSchema } from "../shared/protocol.js";
 import type {
   AgentDriver,
@@ -47,6 +54,8 @@ import { gitCommonDir } from "./worktrees/git.js";
 type RuntimeSession = {
   summary: SessionSummary;
   events: TimelineEvent[];
+  /** Only Claude has a complete in-memory history for pagination. */
+  historyGeneration?: string | null;
   subscribers: Set<WebSocket>;
   revision: number;
   activeTurn?: {
@@ -509,6 +518,8 @@ export class SessionHub {
       ) {
         this.#refreshRuntime(runtime, managed);
         runtime.events = snapshot.events;
+        if (managed.provider === "claude")
+          runtime.historyGeneration = randomUUID();
         runtime.revision += 1;
       } else {
         this.#refreshRuntime(runtime, managed);
@@ -531,6 +542,175 @@ export class SessionHub {
     return this.#snapshotMessage(ref.sessionId, runtime);
   }
 
+  async historySnapshot(
+    ref: SessionRef,
+  ): Promise<SessionSnapshotMessage | undefined> {
+    const managed = this.repository.get(ref.sessionId);
+    if (!managed) return undefined;
+    const page = await this.historyPage(ref, {});
+    const runtime = this.#runtimeFor(this.#requireManaged(ref.sessionId));
+    return {
+      type: "session.snapshot",
+      session: { ...runtime.summary },
+      pendingInteractions: this.#pendingForSession(ref.sessionId),
+      ...page,
+    };
+  }
+
+  async historyPage(
+    ref: SessionRef,
+    input: { cursor?: string; agentId?: string; refresh?: boolean },
+  ): Promise<HistoryPage> {
+    const managed = this.#requireManaged(ref.sessionId);
+    const runtime = this.#runtimeFor(managed);
+    if (input.refresh && input.cursor !== undefined)
+      throw new Error("Cannot refresh an older history page");
+    if (managed.provider === "claude") {
+      if (input.cursor !== undefined && runtime.historyGeneration == null)
+        throw new HistoryCursorError("历史已更新，请重新加载对话");
+      if (input.refresh && (runtime.activeTurn || runtime.summary.compacting))
+        throw new Error("会话运行中，请稍后刷新历史");
+      if (runtime.historyGeneration == null || input.refresh) {
+        const previousGeneration = runtime.historyGeneration;
+        const snapshot = await this.snapshot(ref);
+        if (
+          this.#sessions.get(ref.sessionId) !== runtime ||
+          !this.repository.get(ref.sessionId)
+        )
+          throw new Error("Session not found");
+        if (
+          runtime.historyGeneration == null ||
+          (input.refresh && runtime.historyGeneration === previousGeneration)
+        ) {
+          if (
+            managed.providerState === "allocated" &&
+            runtime.events.length === 0
+          )
+            runtime.historyGeneration = randomUUID();
+          else {
+            const notice = snapshot?.events.at(-1);
+            throw new Error(
+              notice?.type === "system.notice"
+                ? notice.text
+                : "历史读取未完成，请重试",
+            );
+          }
+        }
+      }
+      if (
+        input.agentId !== undefined &&
+        !runtime.events.some(
+          (event) => "agentId" in event && event.agentId === input.agentId,
+        )
+      )
+        throw new Error("Subagent not found");
+      return memoryHistoryPage(
+        runtime.events,
+        ref.sessionId,
+        runtime.historyGeneration!,
+        input.agentId,
+        input.cursor,
+      );
+    }
+    if (managed.lifecycle !== "active" || managed.providerState === "allocated")
+      return { events: [], nextCursor: null };
+    const driver = this.#requireDriver(managed.provider);
+    if (!driver.readHistoryPage)
+      throw new Error("Codex native history pagination is required");
+    let cursor: string | undefined;
+    if (input.cursor !== undefined) {
+      try {
+        const parsed = z
+          .strictObject({
+            sessionId: z.string(),
+            agentId: z.string().nullable(),
+            cursor: z.string(),
+          })
+          .parse(JSON.parse(Buffer.from(input.cursor, "base64url").toString()));
+        if (
+          parsed.sessionId !== ref.sessionId ||
+          parsed.agentId !== (input.agentId ?? null)
+        )
+          throw new Error("Wrong history");
+        cursor = parsed.cursor;
+      } catch {
+        throw new HistoryCursorError("历史游标无效，请重新加载对话");
+      }
+    }
+    const beforeRead = runtime.events.length;
+    const activeAtRead = runtime.activeTurn;
+    const page = await driver
+      .readHistoryPage(providerHandle(managed), {
+        cursor,
+        agentId: input.agentId,
+      })
+      .catch((error: unknown) => {
+        if (
+          cursor !== undefined &&
+          error instanceof Error &&
+          /cursor/i.test(error.message)
+        )
+          throw new HistoryCursorError("历史游标已失效，请重新加载对话");
+        throw error;
+      });
+    if (
+      this.#sessions.get(ref.sessionId) !== runtime ||
+      !this.repository.get(ref.sessionId)
+    )
+      throw new Error("Session not found");
+    const updated =
+      runtime.activeTurn || runtime.summary.compacting
+        ? this.#requireManaged(ref.sessionId)
+        : this.repository.updateMetadata(ref.sessionId, {
+            title: page.metadata.title,
+            providerUpdatedAt: page.metadata.updatedAt,
+          });
+    this.#refreshRuntime(runtime, updated);
+    let events = page.events;
+    if (input.cursor === undefined) {
+      // The active root turn uses Racco's user-message ID; never display both
+      // that optimistic row and the native user item for the same turn.
+      const localStart = runtime.events.findLastIndex(
+        (event) => event.type === "user.message",
+      );
+      if (
+        input.agentId === undefined &&
+        (runtime.activeTurn || activeAtRead) &&
+        localStart !== -1
+      ) {
+        const local = runtime.events.slice(localStart);
+        events = [
+          ...events,
+          ...memoryHistoryPage(local, ref.sessionId, "live").events,
+          ...subagentSummaries(runtime.events),
+        ];
+      } else {
+        const updates = runtime.events
+          .slice(beforeRead)
+          .filter((event) =>
+            input.agentId === undefined
+              ? event.type !== "subagent.event"
+              : event.type === "subagent.event" &&
+                event.agentId === input.agentId,
+          );
+        events = [...events, ...updates];
+      }
+    }
+    return {
+      events,
+      nextCursor:
+        page.nextCursor === null
+          ? null
+          : Buffer.from(
+              JSON.stringify({
+                sessionId: ref.sessionId,
+                agentId: input.agentId ?? null,
+                cursor: page.nextCursor,
+              }),
+            ).toString("base64url"),
+    };
+  }
+
   async subscribe(
     socket: WebSocket,
     ref: SessionRef,
@@ -539,7 +719,7 @@ export class SessionHub {
     const request = Symbol();
     this.#pendingSubscriptions.set(socket, request);
     try {
-      const snapshot = await this.snapshot(ref);
+      const snapshot = await this.historySnapshot(ref);
       // Provider reads can finish out of order. Only the last navigation may
       // own the socket; older snapshots can still refresh the client's cache.
       if (
@@ -597,6 +777,8 @@ export class SessionHub {
     }
     if (this.#closed) throw new Error("Racco closed");
     const runtime = this.#runtimeFor(managed);
+    if (managed.provider === "claude" && managed.lifecycle === "provisioning")
+      runtime.historyGeneration ??= randomUUID();
     if (socket.readyState === WebSocket.OPEN) {
       this.#unsubscribe(socket);
       runtime.subscribers.add(socket);
@@ -738,6 +920,8 @@ export class SessionHub {
           });
           const runtime = this.#runtimeFor(managed);
           runtime.events = snapshot.events;
+          if (managed.provider === "claude")
+            runtime.historyGeneration = randomUUID();
           runtime.revision += 1;
           this.#broadcastSessionSummary(runtime);
           return { ...runtime.summary };
@@ -915,6 +1099,11 @@ export class SessionHub {
       const driver = this.#requireDriver(managed.provider);
       const runtime = this.#runtimeFor(managed);
       if (runtime.activeTurn !== undefined || runtime.summary.compacting)
+        throw new Error("Session already has an active turn");
+
+      if (managed.provider === "claude" && runtime.historyGeneration == null)
+        await this.historyPage(ref, {});
+      if (runtime.activeTurn !== undefined)
         throw new Error("Session already has an active turn");
 
       managed = this.repository.acceptTurn(
@@ -1134,6 +1323,7 @@ export class SessionHub {
       runtime = {
         summary: toSessionSummary(managed),
         events: [],
+        ...(managed.provider === "claude" ? { historyGeneration: null } : {}),
         subscribers: new Set(),
         revision: 0,
       };
@@ -1240,6 +1430,7 @@ export class SessionHub {
       session: { ...runtime.summary },
       events: [...runtime.events],
       pendingInteractions: this.#pendingForSession(sessionId),
+      nextCursor: null,
     };
   }
 

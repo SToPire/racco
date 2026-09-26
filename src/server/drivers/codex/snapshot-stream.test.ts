@@ -88,6 +88,15 @@ function fixture(t: TestContext) {
     ],
   };
   const children = [child];
+  const requests: Array<{
+    method: string;
+    params: {
+      threadId?: string;
+      includeTurns?: boolean;
+      cursor?: string;
+      limit?: number;
+    };
+  }> = [];
   t.mock.method(CodexAppServerClient.prototype, "start", async () => {});
   t.mock.method(CodexAppServerClient.prototype, "close", async () => {});
   t.mock.method(
@@ -100,7 +109,34 @@ function fixture(t: TestContext) {
   t.mock.method(
     CodexAppServerClient.prototype,
     "request",
-    async (method: string, params: { threadId?: string }) => {
+    async (
+      method: string,
+      params: {
+        threadId?: string;
+        includeTurns?: boolean;
+        cursor?: string;
+        limit?: number;
+      },
+    ) => {
+      requests.push({ method, params });
+      if (method === "thread/turns/list") {
+        let thread =
+          params.threadId === "root"
+            ? root
+            : children.find((entry) => entry.id === params.threadId);
+        assert(thread);
+        if (thread !== root) {
+          childReads++;
+          thread = onRead ? await onRead(childReads, thread.id) : thread;
+        }
+        const turns = structuredClone(thread.turns).reverse();
+        const offset = Number(params.cursor ?? 0);
+        const end = offset + (params.limit ?? 10);
+        return {
+          data: turns.slice(offset, end),
+          nextCursor: end < turns.length ? String(end) : null,
+        };
+      }
       if (method === "thread/list") {
         onList?.();
         return {
@@ -149,6 +185,7 @@ function fixture(t: TestContext) {
   };
   return {
     driver,
+    requests,
     root,
     child,
     children,
@@ -731,9 +768,10 @@ for (const warmRoot of [false, true]) {
         sent.push(JSON.parse(value));
       },
     } as WebSocket;
+    hub.registerClient(socket);
     if (warmRoot) {
       f.setListChild(false);
-      const initial = await hub.subscribe(socket, ref);
+      const initial = await hub.snapshot(ref);
       assert(
         initial?.events.some(
           (event) =>
@@ -761,7 +799,7 @@ for (const warmRoot of [false, true]) {
       }
       return count === 1 ? old : f.child;
     });
-    const conflicted = await hub.subscribe(socket, ref);
+    const conflicted = await hub.snapshot(ref);
     assert(conflicted);
     assert.equal(f.count(), 2);
     assert(
@@ -872,4 +910,53 @@ test("continuous initial races fail after two reads and recover only from a full
   assert(command?.type === "tool");
   assert.equal(command.output, "log prefix recovered");
   assert.equal(f.count(), 3);
+});
+
+test("native history pages start at the tail and defer child content until requested", async (t) => {
+  const f = fixture(t);
+  await f.driver.start();
+  f.root.turns = Array.from({ length: 25 }, (_, index) => ({
+    id: `turn-${index}`,
+    status: "completed" as const,
+    error: null,
+    items: [
+      {
+        type: "userMessage" as const,
+        id: `user-${index}`,
+        content: [{ type: "text", text: `request ${index}` }],
+      },
+    ],
+  }));
+  const handle = { providerSessionId: "root", cwd: process.cwd() };
+  const first = await f.driver.readHistoryPage(handle, {});
+  assert.equal(
+    first.events.filter((event) => event.type === "user.message").length,
+    10,
+  );
+  assert.equal(first.events[0].id, "user-15");
+  assert(first.nextCursor);
+  assert.equal(f.count(), 0, "root opening must not read child content");
+  assert(!first.events.some((event) => event.type === "subagent.event"));
+  const second = await f.driver.readHistoryPage(handle, {
+    cursor: first.nextCursor,
+  });
+  assert.equal(second.events[0].id, "user-5");
+  const child = first.events.find((event) => event.type === "subagent.started");
+  assert(child?.type === "subagent.started");
+  const childPage = await f.driver.readHistoryPage(handle, {
+    agentId: child.agentId,
+  });
+  assert(childPage.events.some((event) => event.type === "subagent.event"));
+  assert.equal(f.count(), 1);
+  assert(
+    f.requests
+      .filter((call) => call.method === "thread/read")
+      .every((call) => call.params.includeTurns === false),
+  );
+  f.emit("item/agentMessage/delta", { itemId: "message", delta: " continued" });
+  const row = f
+    .rows(childPage.events)
+    .timeline.find((row) => row.id.endsWith(":message"));
+  assert(row?.type === "assistant.message");
+  assert.equal(row.text, "text prefix continued");
 });

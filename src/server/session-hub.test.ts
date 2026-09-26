@@ -32,7 +32,7 @@ function fixtureProjectId(repository: SessionRepository, cwd: string): string {
   return repository.importProject({ name: "fixture", path: cwd }).projectId;
 }
 
-async function modelTestHub() {
+async function modelTestHub(provider: "codex" | "claude" = "codex") {
   const cwd = await fixtureCwd();
   const repository = memoryRepository();
   const projectId = fixtureProjectId(repository, cwd);
@@ -42,7 +42,7 @@ async function modelTestHub() {
   let allocations = 0;
   let ready = true;
   const driver: AgentDriver = {
-    provider: "codex",
+    provider,
     get ready() {
       return ready;
     },
@@ -54,6 +54,9 @@ async function modelTestHub() {
     },
     async listModels() {
       return fixtureModelCatalog();
+    },
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
     },
     async readSession() {
       return { metadata: { updatedAt: new Date().toISOString() }, events: [] };
@@ -361,6 +364,9 @@ test("publishes idle only after the active turn is cleared", async () => {
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z", title: "Session" },
@@ -444,6 +450,9 @@ test("publishes the accepted user message before the provider responds", async (
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -541,6 +550,9 @@ test("does not overwrite live events when a targeted provider read races with a 
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return readResult;
     },
@@ -569,6 +581,14 @@ test("does not overwrite live events when a targeted provider read races with a 
     updatedAt: "2026-09-03T00:00:00.000Z",
   });
   const created = { ref: { sessionId: imported.sessionId } };
+  // A current complete base exists before starting another turn. A refresh
+  // racing that turn must still never overwrite the live events.
+  driver.readSession = async () => ({
+    metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
+    events: [],
+  });
+  await hub.historyPage(created.ref, {});
+  driver.readSession = async () => readResult;
   const pendingSnapshot = hub.snapshot(created.ref);
 
   await hub.startTurn(
@@ -630,6 +650,9 @@ test("keeps an allocated session readable without scanning provider history", as
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       reads += 1;
       throw new Error("unmaterialized session must not be read");
@@ -680,6 +703,9 @@ test("rejects unregistered Racco IDs before calling a provider", async () => {
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       reads += 1;
       return {
@@ -722,6 +748,9 @@ test("repairs an allocated session with a targeted startup lookup", async () => 
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession(handle) {
       reads += 1;
       assert.equal(handle.cwd, cwd);
@@ -791,6 +820,9 @@ test("does not resubmit an initial message for an already activated session", as
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -873,6 +905,9 @@ test("imports only the explicitly requested native session and deduplicates it",
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession(handle) {
       handles.push(handle);
       return {
@@ -929,6 +964,9 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -1006,6 +1044,9 @@ test("rejects session creation unless the project is already imported", async ()
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -1058,6 +1099,9 @@ test("broadcasts a real session turn to every subscribed client", async () => {
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -1128,6 +1172,9 @@ test("broadcasts project and session catalog updates to every connected client",
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -1362,6 +1409,9 @@ test("deleteNativeSession removes the provider file and the managed record atomi
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -1440,6 +1490,9 @@ test("deleteNativeSession rejects foreign management, busy sessions and stale pr
     onSessionUpdate() {},
     async start() {},
     async close() {},
+    async readHistoryPage(handle) {
+      return { ...(await this.readSession(handle)), nextCursor: null };
+    },
     async readSession() {
       return {
         metadata: { updatedAt: "2026-09-03T00:00:00.000Z" },
@@ -1880,4 +1933,76 @@ test("deleteProject leaves linked worktrees on disk unless asked to remove them"
     true,
     "project directory itself is never removed",
   );
+});
+
+test("Claude reuses one in-memory history, invalidates old cursors on explicit refresh, and scopes child pages", async () => {
+  const f = await modelTestHub("claude");
+  let reads = 0;
+  f.driver.readSession = async () => {
+    reads++;
+    return {
+      metadata: { updatedAt: new Date().toISOString() },
+      events: Array.from({ length: 25 }, (_, index): TimelineEvent => ({
+        type: "user.message",
+        id: `u${index}`,
+        text: `${index}`,
+      })),
+    };
+  };
+  try {
+    const ref = f.repository.importSession({
+      provider: "claude",
+      providerSessionId: "paged",
+      projectId: f.projectId,
+      cwd: f.cwd,
+      updatedAt: new Date().toISOString(),
+    });
+    const first = await f.hub.subscribe(recordingSocket(), ref);
+    assert(first?.nextCursor);
+    assert.equal(first.events.length, 10);
+    assert.equal(reads, 1);
+    const older = await f.hub.historyPage(ref, { cursor: first.nextCursor });
+    assert.equal(older.events.length, 10);
+    await f.hub.subscribe(recordingSocket(), ref);
+    assert.equal(reads, 1, "reopening does not reread the provider");
+    await f.hub.historyPage(ref, { refresh: true });
+    assert.equal(reads, 2);
+    await assert.rejects(
+      f.hub.historyPage(ref, { cursor: first.nextCursor }),
+      /历史已更新/,
+    );
+    await assert.rejects(
+      f.hub.historyPage(ref, { agentId: "absent" }),
+      /Subagent not found/,
+    );
+  } finally {
+    await f.hub.close();
+  }
+});
+
+test("a failed Claude read is retryable and an empty successful history is cached", async () => {
+  const f = await modelTestHub("claude");
+  let reads = 0;
+  f.driver.readSession = async () => {
+    if (++reads === 1) throw new Error("temporary read failure");
+    return { metadata: { updatedAt: new Date().toISOString() }, events: [] };
+  };
+  try {
+    const ref = f.repository.importSession({
+      provider: "claude",
+      providerSessionId: "empty",
+      projectId: f.projectId,
+      cwd: f.cwd,
+      updatedAt: new Date().toISOString(),
+    });
+    await assert.rejects(f.hub.historyPage(ref, {}), /temporary read failure/);
+    assert.deepEqual(await f.hub.historyPage(ref, {}), {
+      events: [],
+      nextCursor: null,
+    });
+    await f.hub.historyPage(ref, {});
+    assert.equal(reads, 2);
+  } finally {
+    await f.hub.close();
+  }
 });

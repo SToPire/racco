@@ -39,6 +39,8 @@ for (const provider of ["codex", "claude"] as const) {
       <SessionView
         active={true}
         loaded={true}
+        history={{ "": { nextCursor: null, loading: false } }}
+        onLoadHistory={async () => {}}
         connection="open"
         interactions={[]}
         onBack={() => undefined}

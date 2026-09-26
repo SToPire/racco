@@ -1,4 +1,5 @@
 import type {
+  HistoryPage,
   HealthResponse,
   DirectoryListing,
   ProjectEntry,
@@ -251,4 +252,28 @@ export function readWorktreeFile(
   signal?: AbortSignal,
 ): Promise<ProjectFilePreview> {
   return readWorktreeResource("file", path, file, signal);
+}
+
+export async function loadHistoryPage(
+  sessionId: string,
+  input: { cursor?: string; agentId?: string; refresh?: boolean },
+  signal: AbortSignal,
+): Promise<HistoryPage> {
+  const query = new URLSearchParams();
+  if (input.cursor !== undefined) query.set("cursor", input.cursor);
+  if (input.agentId !== undefined) query.set("agentId", input.agentId);
+  if (input.refresh) query.set("refresh", "true");
+  const response = await fetch(
+    `/api/sessions/${encodeURIComponent(sessionId)}/history?${query}`,
+    { signal },
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      message?: string;
+    };
+    throw Object.assign(new Error(payload.message ?? "无法加载历史"), {
+      status: response.status,
+    });
+  }
+  return (await response.json()) as HistoryPage;
 }

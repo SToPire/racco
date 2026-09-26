@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SessionRefSchema } from "../../shared/protocol";
 import type {
+  TimelineEvent,
   HealthResponse,
   ModelSettings,
   InteractionRequest,
@@ -22,6 +23,7 @@ import {
   getHealth,
   importProject,
   importSession as requestImportSession,
+  loadHistoryPage,
   listProjects,
   listSessions,
   listWorktrees,
@@ -38,7 +40,12 @@ import {
   upsertWorktree,
 } from "../catalog";
 import { RaccoSocket, type SocketStatus } from "../socket";
-import { applyTimelineEvent, buildTimeline, type TimelineRow } from "../store";
+import {
+  applyTimelineEvent,
+  buildTimeline,
+  prependHistory,
+  type TimelineRow,
+} from "../store";
 import {
   visitSession,
   updateSessionContent,
@@ -99,6 +106,26 @@ export function useRacco({
   const [socket] = useState(() => new RaccoSocket());
   const [sessionCache, setSessionCache] = useState<SessionCache>(
     () => new Map(),
+  );
+  const cacheRef = useRef(sessionCache);
+  cacheRef.current = sessionCache;
+  const historyRequests = useRef(
+    new Map<
+      string,
+      {
+        controller: AbortController;
+        events: TimelineEvent[];
+        sessionId: string;
+      }
+    >(),
+  );
+  useEffect(
+    () => () => {
+      for (const request of historyRequests.current.values())
+        request.controller.abort();
+      historyRequests.current.clear();
+    },
+    [],
   );
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [health, setHealth] = useState<HealthResponse>();
@@ -316,6 +343,11 @@ export function useRacco({
         }
 
         if (message.type === "session.snapshot") {
+          for (const [key, request] of historyRequests.current) {
+            if (request.sessionId !== message.session.sessionId) continue;
+            request.controller.abort();
+            historyRequests.current.delete(key);
+          }
           setSessions((current) => upsertSession(current, message.session));
           setSessionCache((current) =>
             updateSessionContent(
@@ -323,13 +355,44 @@ export function useRacco({
                 ? visitSession(current, message.session)
                 : current,
               message.session.sessionId,
-              (content) => ({
-                ...content,
-                session: message.session,
-                rows: buildTimeline(message.events),
-                interactions: message.pendingInteractions,
-                loaded: true,
-              }),
+              (content) => {
+                const incoming = buildTimeline(message.events);
+                const first = incoming.find((row) => row.type !== "subagent");
+                const boundary =
+                  first === undefined
+                    ? -1
+                    : content.rows.findIndex((row) => row.id === first.id);
+                const prefix =
+                  boundary > 0
+                    ? content.rows
+                        .slice(0, boundary)
+                        .filter((row) => row.type !== "subagent")
+                    : [];
+                const children = prependHistory(
+                  content.rows.filter((row) => row.type === "subagent"),
+                  incoming.filter((row) => row.type === "subagent"),
+                );
+                return {
+                  ...content,
+                  session: message.session,
+                  rows: [
+                    ...prefix,
+                    ...incoming.filter((row) => row.type !== "subagent"),
+                    ...children,
+                  ],
+                  interactions: message.pendingInteractions,
+                  loaded: true,
+                  history: {
+                    "": {
+                      nextCursor:
+                        prefix.length > 0
+                          ? (content.history[""]?.nextCursor ?? null)
+                          : message.nextCursor,
+                      loading: false,
+                    },
+                  },
+                };
+              },
             ),
           );
           if (matchesRef(activeRef, message.session))
@@ -338,6 +401,9 @@ export function useRacco({
         }
 
         if (message.type === "timeline.event") {
+          for (const request of historyRequests.current.values())
+            if (request.sessionId === message.session.sessionId)
+              request.events.push(message.event);
           setSessionCache((current) =>
             updateSessionContent(
               current,
@@ -385,6 +451,125 @@ export function useRacco({
   useEffect(() => {
     setSessionError(undefined);
   }, [activeRef?.sessionId]);
+
+  async function loadHistory(
+    sessionId: string,
+    agentId?: string,
+    refresh = false,
+  ): Promise<void> {
+    const key = JSON.stringify([sessionId, agentId ?? null]);
+    if (historyRequests.current.has(key)) return;
+    const content = cacheRef.current.get(sessionId);
+    if (!content?.loaded) return;
+    const state = content.history[agentId ?? ""];
+    const initialPage =
+      state === undefined ||
+      (state.error !== undefined && state.nextCursor === null);
+    if (!refresh && state && state.nextCursor === null && !state.error) return;
+    const request = {
+      controller: new AbortController(),
+      events: [] as TimelineEvent[],
+      sessionId,
+    };
+    historyRequests.current.set(key, request);
+    setSessionCache((current) =>
+      updateSessionContent(current, sessionId, (entry) => ({
+        ...entry,
+        history: {
+          ...entry.history,
+          [agentId ?? ""]: {
+            nextCursor: state?.nextCursor ?? null,
+            loading: true,
+          },
+        },
+      })),
+    );
+    try {
+      let reset = refresh;
+      let page;
+      try {
+        page = await loadHistoryPage(
+          sessionId,
+          {
+            agentId,
+            cursor: refresh ? undefined : (state?.nextCursor ?? undefined),
+            refresh,
+          },
+          request.controller.signal,
+        );
+      } catch (error) {
+        if ((error as { status?: number }).status !== 409) throw error;
+        reset = true;
+        page = await loadHistoryPage(
+          sessionId,
+          { agentId },
+          request.controller.signal,
+        );
+      }
+      if (historyRequests.current.get(key) !== request) return;
+      if (reset && agentId === undefined) {
+        for (const [otherKey, other] of historyRequests.current) {
+          if (other === request || other.sessionId !== sessionId) continue;
+          other.controller.abort();
+          historyRequests.current.delete(otherKey);
+        }
+      }
+      setSessionCache((current) =>
+        updateSessionContent(current, sessionId, (entry) => {
+          const incoming = buildTimeline(page.events);
+          let rows = entry.rows;
+          if (reset && agentId === undefined) rows = incoming;
+          else if ((reset || initialPage) && agentId !== undefined) {
+            rows = rows.map((row) =>
+              row.type === "subagent" && row.agentId === agentId
+                ? { ...row, timeline: [] }
+                : row,
+            );
+            rows = prependHistory(incoming, rows);
+          } else rows = prependHistory(incoming, rows);
+          if (agentId !== undefined && (initialPage || reset)) {
+            const child = incoming.find(
+              (row) => row.type === "subagent" && row.agentId === agentId,
+            );
+            if (child?.type === "subagent")
+              rows = rows.map((row) =>
+                row.type === "subagent" && row.agentId === agentId
+                  ? { ...row, ...child, timeline: row.timeline }
+                  : row,
+              );
+          }
+          for (const event of request.events)
+            rows = applyTimelineEvent(rows, event);
+          return {
+            ...entry,
+            rows,
+            history: {
+              ...(reset && agentId === undefined ? {} : entry.history),
+              [agentId ?? ""]: { nextCursor: page.nextCursor, loading: false },
+            },
+          };
+        }),
+      );
+    } catch (error) {
+      if (request.controller.signal.aborted) return;
+      setSessionCache((current) =>
+        updateSessionContent(current, sessionId, (entry) => ({
+          ...entry,
+          history: {
+            ...entry.history,
+            [agentId ?? ""]: {
+              nextCursor: state?.nextCursor ?? null,
+              loading: false,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          },
+        })),
+      );
+    } finally {
+      if (historyRequests.current.get(key) === request)
+        historyRequests.current.delete(key);
+    }
+  }
 
   function openSession(session: SessionSummary) {
     const next: SessionRef = {
@@ -806,6 +991,7 @@ export function useRacco({
     rows,
     interactions,
     sessionViews: [...sessionCache.values()],
+    loadHistory,
     openSession,
     showHistory,
     addProject,

@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { ContextUsageSchema } from "../../../shared/protocol.js";
+import {
+  ContextUsageSchema,
+  HISTORY_PAGE_SIZE,
+} from "../../../shared/protocol.js";
 import type {
   AgentTimelineEvent,
   ToolCompletionStatus,
@@ -325,6 +328,129 @@ export class CodexDriver implements AgentDriver {
     };
   }
 
+  async readHistoryPage(
+    handle: ProviderSessionHandle,
+    input: { cursor?: string; agentId?: string },
+  ) {
+    this.#assertReady();
+    const activeWaiter = this.#turnWaiters.get(handle.providerSessionId);
+    const root = await this.#client.request<ThreadReadResponse>("thread/read", {
+      threadId: handle.providerSessionId,
+      includeTurns: false,
+    });
+    if ((await resolveProjectDirectory(root.thread.cwd)) !== handle.cwd)
+      throw new Error(
+        "Codex thread working directory does not match the managed session",
+      );
+    this.#observedRoots.add(root.thread.id);
+    const summaries =
+      input.cursor === undefined || input.agentId !== undefined
+        ? await this.#listSubagentThreads(root.thread.id)
+        : [];
+    const child =
+      input.agentId === undefined
+        ? undefined
+        : summaries.find(
+            (thread) =>
+              this.#subagents.get(thread.id)?.agentId === input.agentId,
+          );
+    if (input.agentId !== undefined && child === undefined)
+      throw new Error("Subagent not found");
+    const thread = child ?? root.thread;
+    const link =
+      child === undefined ? undefined : this.#subagents.get(child.id)!;
+    const read: SnapshotRead | undefined =
+      link === undefined || input.cursor !== undefined
+        ? undefined
+        : {
+            generation: ++link.snapshotGeneration,
+            changedItems: new Set(),
+            endedTurns: new Set(),
+            unalignedItems: new Set(),
+            endedThread: false,
+            stateChanged: false,
+            invalid: false,
+          };
+    if (read) {
+      const reads =
+        this.#snapshotReads.get(thread.id) ?? new Set<SnapshotRead>();
+      reads.add(read);
+      this.#snapshotReads.set(thread.id, reads);
+    }
+    try {
+      const waiterBeforePage = this.#turnWaiters.get(handle.providerSessionId);
+      const page = await this.#client.request<{
+        data: CodexTurn[];
+        nextCursor: string | null;
+      }>("thread/turns/list", {
+        threadId: thread.id,
+        cursor: input.cursor,
+        limit: HISTORY_PAGE_SIZE,
+        sortDirection: "desc",
+        itemsView: "full",
+      });
+      // The hub owns the live root turn, including its optimistic user ID.
+      // Use native turn identity, never prompt text, to exclude that duplicate.
+      const liveTurns = new Set([
+        activeWaiter?.turnId,
+        waiterBeforePage?.turnId,
+        this.#turnWaiters.get(handle.providerSessionId)?.turnId,
+      ]);
+      const paged = {
+        ...thread,
+        turns: [...page.data]
+          .reverse()
+          .filter((turn) => child !== undefined || !liveTurns.has(turn.id)),
+      };
+      if (read) {
+        if (read.invalid || read.unalignedItems.size > 0)
+          throw new Error("Codex 子代理在读取期间发生变化，请重试");
+        this.#seedThreadContent(paged, root.thread.id, read.generation, read);
+      }
+      const resolve = (id: string) =>
+        this.#rememberSubagent(id, root.thread.id).agentId;
+      const events =
+        child === undefined
+          ? mapThreadEvents(paged, resolve)
+          : mapSubagentThread(
+              paged,
+              input.agentId!,
+              resolve,
+              child.parentThreadId === root.thread.id
+                ? undefined
+                : resolve(child.parentThreadId!),
+            );
+      if (child === undefined && input.cursor === undefined) {
+        for (const summary of summaries) {
+          const agentId = resolve(summary.id);
+          const parent =
+            summary.parentThreadId === root.thread.id
+              ? undefined
+              : resolve(summary.parentThreadId!);
+          events.push(
+            ...mapSubagentThread(
+              { ...summary, turns: [] },
+              agentId,
+              resolve,
+              parent,
+            ),
+          );
+        }
+      }
+      return {
+        metadata: mapThreadSummary(root.thread),
+        events,
+        nextCursor: page.nextCursor,
+      };
+    } finally {
+      if (read) {
+        const reads = this.#snapshotReads.get(thread.id);
+        reads?.delete(read);
+        if (reads?.size === 0) this.#snapshotReads.delete(thread.id);
+      }
+    }
+  }
+
   async deleteSession(handle: ProviderSessionHandle): Promise<void> {
     this.#assertReady();
     // Validate ownership through the thread's own cwd before destroying the
@@ -533,7 +659,7 @@ export class CodexDriver implements AgentDriver {
     this.#sessionUpdate?.(threadId, { type: "compaction.finished" });
   }
 
-  async #readSubagentThreads(rootThreadId: string): Promise<CodexThread[]> {
+  async #listSubagentThreads(rootThreadId: string): Promise<CodexThread[]> {
     const summaries: CodexThread[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | undefined;
@@ -566,6 +692,11 @@ export class CodexDriver implements AgentDriver {
       cursor = response.nextCursor;
     } while (cursor !== undefined);
 
+    return summaries;
+  }
+
+  async #readSubagentThreads(rootThreadId: string): Promise<CodexThread[]> {
+    const summaries = await this.#listSubagentThreads(rootThreadId);
     const threads: CodexThread[] = [];
     for (const summary of summaries) {
       const link = this.#rememberSubagent(summary.id, rootThreadId);
