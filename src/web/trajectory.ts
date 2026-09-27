@@ -1,9 +1,10 @@
 import { describeTool } from "./tool-presentation";
 import type { SubagentState } from "../shared/protocol";
-import type {
-  AgentTimelineRow,
-  SubagentTimelineRow,
-  TimelineRow,
+import {
+  isChatTimelineRowVisible,
+  type AgentTimelineRow,
+  type SubagentTimelineRow,
+  type TimelineRow,
 } from "./store";
 import {
   formatAgentPath,
@@ -168,7 +169,7 @@ function agentEntry(
 ): Omit<TrajectoryEntry, "turn" | "step"> {
   return {
     ...agentEntryContent(row, actor, prefix, agentPath, cwd),
-    rowId: row.id,
+    rowId: isChatTimelineRowVisible(row) ? row.id : undefined,
     agentId,
   };
 }

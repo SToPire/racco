@@ -2,12 +2,12 @@ import type {
   AssistantPhase,
   AssistantPlanEvent,
   AssistantReasoningEvent,
-  PlanUpdatedEvent,
 } from "../../shared/protocol";
+import {
+  isAssistantActivityVisible,
+  type AssistantActivityRow,
+} from "../assistant-activity";
 import { MarkdownContent } from "./MarkdownContent";
-
-export type AssistantActivityRow =
-  AssistantReasoningEvent | AssistantPlanEvent | PlanUpdatedEvent;
 
 export function assistantPhaseLabel(
   phase: AssistantPhase | null | undefined,
@@ -24,6 +24,7 @@ function contentStatus(row: AssistantReasoningEvent | AssistantPlanEvent) {
 }
 
 export function AssistantActivity({ row }: { row: AssistantActivityRow }) {
+  if (!isAssistantActivityVisible(row)) return null;
   if (row.type === "plan.updated") {
     const completed = row.steps.filter(
       (step) => step.status === "completed",
@@ -78,7 +79,6 @@ export function AssistantActivity({ row }: { row: AssistantActivityRow }) {
     );
   }
   if (row.type === "assistant.plan") {
-    if (row.text.length === 0 && !row.partial) return null;
     return (
       <section className="assistant-activity proposed-plan" aria-label="方案">
         <header>
@@ -86,13 +86,14 @@ export function AssistantActivity({ row }: { row: AssistantActivityRow }) {
           <span>{contentStatus(row)}</span>
         </header>
         <div className="assistant-activity-content message-content">
-          <MarkdownContent text={row.text || "正在整理方案…"} />
+          <MarkdownContent
+            text={row.text.trim() ? row.text : "正在整理方案…"}
+          />
         </div>
       </section>
     );
   }
   const summary = row.summary.filter((part) => part.trim().length > 0);
-  if (summary.length === 0 && !row.partial) return null;
   return (
     <details className="assistant-activity reasoning-summary">
       <summary>

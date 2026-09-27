@@ -5,6 +5,7 @@ import type {
   ToolCompletionStatus,
   ToolProgress,
 } from "../shared/protocol";
+import { isAssistantActivityVisible } from "./assistant-activity";
 
 export type ToolTimelineRow = {
   type: "tool";
@@ -296,12 +297,20 @@ export function buildTimeline(events: TimelineEvent[]): TimelineRow[] {
   );
 }
 
+export function isChatTimelineRowVisible(row: AgentTimelineRow): boolean {
+  return row.type === "assistant.reasoning" || row.type === "assistant.plan"
+    ? isAssistantActivityVisible(row)
+    : true;
+}
+
 export function groupTimelineRows(rows: AgentTimelineRow[]): TimelineSection[] {
   const sections: TimelineSection[] = [];
   let activeToolGroup:
     Extract<TimelineSection, { type: "tool-group" }> | undefined;
 
   for (const row of rows) {
+    // Invisible activity must neither occupy a grid row nor split tool groups.
+    if (!isChatTimelineRowVisible(row)) continue;
     if (row.type === "tool") {
       if (activeToolGroup === undefined) {
         activeToolGroup = {

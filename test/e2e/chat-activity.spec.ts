@@ -1,11 +1,135 @@
 import type { WebSocketRoute } from "@playwright/test";
-import type { ServerMessage, TimelineEvent } from "../../src/shared/protocol";
+import type {
+  AgentTimelineEvent,
+  ServerMessage,
+  TimelineEvent,
+} from "../../src/shared/protocol";
 import { test, expect } from "./fixtures";
 
 for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
+  test(`empty activity does not add tool spacing at ${viewport.width}px`, async ({
+    page,
+    racco,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const session = racco.sessions[0]!;
+    let socket: WebSocketRoute | undefined;
+    await page.routeWebSocket("**/api/ws", (route) => {
+      socket = route;
+      route.connectToServer();
+    });
+    const emit = (event: TimelineEvent) =>
+      socket!.send(
+        JSON.stringify({
+          type: "timeline.event",
+          session: { sessionId: session.sessionId },
+          event,
+        } satisfies ServerMessage),
+      );
+    await page.goto(`/session/${session.sessionId}`);
+    await expect(page.locator(".tool-card")).toBeVisible();
+    emit({
+      type: "assistant.message",
+      id: "spacing-intro",
+      text: "检查工具行间距。",
+    });
+    emit({
+      type: "subagent.started",
+      id: "spacing-child",
+      agentId: "spacing-child",
+      name: "Spacing worker",
+    });
+    for (const agentId of [undefined, "spacing-child"]) {
+      const prefix = agentId ?? "main";
+      const events: AgentTimelineEvent[] = [
+        {
+          type: "tool.started",
+          id: `${prefix}-1`,
+          tool: "command",
+          input: { command: "pwd" },
+        },
+        { type: "tool.completed", id: `${prefix}-1`, status: "completed" },
+        { type: "assistant.reasoning", id: `${prefix}-empty`, summary: [] },
+        {
+          type: "tool.started",
+          id: `${prefix}-2`,
+          tool: "command",
+          input: { command: "npm rebuild node-pty" },
+        },
+        {
+          type: "tool.completed",
+          id: `${prefix}-2`,
+          status: "failed",
+          output: "npm error code EUNKNOWNCONFIG\nnpm error Unknown cli flag",
+        },
+        { type: "assistant.plan", id: `${prefix}-plan`, text: " \n " },
+        {
+          type: "tool.started",
+          id: `${prefix}-3`,
+          tool: "command",
+          input: { command: "npm test" },
+        },
+        { type: "tool.completed", id: `${prefix}-3`, status: "completed" },
+      ];
+      for (const event of events) {
+        emit(
+          agentId === undefined
+            ? event
+            : { type: "subagent.event", id: event.id, agentId, event },
+        );
+      }
+      if (agentId !== undefined) {
+        await page
+          .getByRole("button", { name: "查看 Spacing worker 的对话" })
+          .click();
+      }
+      const row = (index: number) =>
+        page.locator(`[data-timeline-row="${prefix}-${index}"]`);
+      await expect(row(3)).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(`spacing-${prefix}-${viewport.width}.png`),
+      });
+      for (const index of [1, 2]) {
+        const previous = await row(index).boundingBox();
+        const next = await row(index + 1).boundingBox();
+        expect(next!.y - (previous!.y + previous!.height)).toBeCloseTo(2, 0);
+      }
+      await expect(
+        page.locator(`[data-timeline-row="${prefix}-empty"]`),
+      ).toHaveCount(0);
+      await expect(
+        page.locator(`[data-timeline-row="${prefix}-plan"]`),
+      ).toHaveCount(0);
+      await expect(row(2)).toContainText("失败");
+      await page
+        .getByRole("button", { name: "Trajectory", exact: true })
+        .click();
+      const details = page.getByRole("complementary", { name: "交互详情" });
+      for (const [label, id] of [
+        ["思考摘要", `${prefix}-empty`],
+        ["方案", `${prefix}-plan`],
+      ]) {
+        await page
+          .getByRole("listitem")
+          .filter({ hasText: label })
+          .filter({
+            hasText: agentId === undefined ? "Main Agent" : "Spacing worker",
+          })
+          .click();
+        await expect(
+          details.getByRole("button", { name: "在 Chat 中查看" }),
+        ).toHaveCount(0);
+        await details.getByRole("button", { name: "Raw", exact: true }).click();
+        await expect(details).toContainText(id);
+        await details.getByRole("button", { name: "关闭交互详情" }).click();
+      }
+      await page.getByRole("button", { name: "Chat", exact: true }).click();
+    }
+  });
+
   test(`tool actions and failures are readable at ${viewport.width}px`, async ({
     page,
     racco,

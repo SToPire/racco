@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { TrajectoryEntry } from "../trajectory.js";
+import { buildTrajectory, type TrajectoryEntry } from "../trajectory.js";
+import type { AgentTimelineRow, TimelineRow } from "../store.js";
 import {
   TrajectoryInspector,
   TrajectoryResult,
@@ -60,6 +61,70 @@ test("renders clickable interaction details with actor and working directory", (
   assert.match(html, /root › reviewer/);
   assert.match(html, /\/work\/project/);
   assert.match(html, /git status/);
+});
+
+test("hidden main and child activity stays inspectable without a Chat reveal action", () => {
+  const cases: [AgentTimelineRow, boolean][] = [
+    [{ type: "assistant.reasoning", id: "activity", summary: [] }, false],
+    [{ type: "assistant.reasoning", id: "activity", summary: [" \n "] }, false],
+    [{ type: "assistant.plan", id: "activity", text: "" }, false],
+    [{ type: "assistant.plan", id: "activity", text: " \n " }, false],
+    [
+      {
+        type: "assistant.reasoning",
+        id: "activity",
+        summary: [],
+        partial: true,
+      },
+      true,
+    ],
+    [
+      { type: "assistant.plan", id: "activity", text: " ", partial: true },
+      true,
+    ],
+    [
+      { type: "assistant.reasoning", id: "activity", summary: ["Checking"] },
+      true,
+    ],
+    [{ type: "assistant.plan", id: "activity", text: "Run checks" }, true],
+  ];
+  for (const [activity, visible] of cases) {
+    for (const agentId of [undefined, "child"]) {
+      const rows: TimelineRow[] =
+        agentId === undefined
+          ? [activity]
+          : [
+              {
+                type: "subagent",
+                id: "subagent:child",
+                agentId,
+                state: "running",
+                prompt: "Check layout",
+                activities: [{ id: "start", state: "running" }],
+                timeline: [activity],
+              },
+            ];
+      const entries = buildTrajectory(rows);
+      const projected = entries.find((entry) => entry.kind === "assistant")!;
+      assert.deepEqual(projected.raw, activity);
+      assert.equal(projected.agentId, agentId);
+      assert.equal(projected.rowId, visible ? activity.id : undefined);
+      for (const entry of entries) {
+        const html = renderToStaticMarkup(
+          <TrajectoryInspector
+            entry={entry}
+            onClose={() => undefined}
+            onReveal={() => undefined}
+          />,
+        );
+        // Synthetic child task/state entries still navigate to the child Chat.
+        assert.equal(
+          html.includes("在 Chat 中查看"),
+          entry.kind === "assistant" ? visible : true,
+        );
+      }
+    }
+  }
 });
 
 test("renders tool results as literal preformatted output", () => {

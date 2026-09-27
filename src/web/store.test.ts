@@ -217,6 +217,54 @@ test("groups consecutive tool rows and preserves surrounding messages", () => {
   ]);
 });
 
+test("empty finished activity does not split tools, while streaming placeholders remain visible", () => {
+  const activities = [
+    { type: "assistant.reasoning", id: "activity", summary: [] },
+    { type: "assistant.reasoning", id: "activity", summary: [" ", "\n"] },
+    { type: "assistant.plan", id: "activity", text: "" },
+    { type: "assistant.plan", id: "activity", text: " \n " },
+  ] satisfies AgentTimelineRow[];
+  const sections = (rows: TimelineRow[]) =>
+    groupTimelineRows(
+      rows.filter((row): row is AgentTimelineRow => row.type !== "subagent"),
+    );
+  for (const activity of activities) {
+    const events: TimelineEvent[] = [
+      { type: "tool.started", id: "before", tool: "command", input: {} },
+      { ...activity, partial: true },
+      { type: "tool.started", id: "after", tool: "command", input: {} },
+    ];
+    const streaming = buildTimeline(events);
+    assert.deepEqual(
+      sections(streaming).map((section) => section.type),
+      ["tool-group", "row", "tool-group"],
+    );
+    for (const stopReason of [undefined, "interrupted", "error"] as const) {
+      const finished = { ...activity, stopReason };
+      const completed = applyTimelineEvent(streaming, finished);
+      assert.deepEqual(completed, buildTimeline([...events, finished]));
+      assert.equal(completed.length, 3);
+      assert.deepEqual(sections(completed), [
+        {
+          type: "tool-group",
+          id: "tool-group:before",
+          rows: [completed[0], completed[2]],
+        },
+      ]);
+    }
+    const withText =
+      activity.type === "assistant.reasoning"
+        ? { ...activity, summary: ["Checking layout"] }
+        : { ...activity, text: "Check layout" };
+    assert.deepEqual(
+      sections(applyTimelineEvent(streaming, withText)).map(
+        (section) => section.type,
+      ),
+      ["tool-group", "row", "tool-group"],
+    );
+  }
+});
+
 test("withdraws only the addressed assistant row, including nested rows and replayed removals", () => {
   const events: TimelineEvent[] = [
     { type: "user.message", id: "user", text: "hello" },

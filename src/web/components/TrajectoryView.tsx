@@ -68,9 +68,12 @@ export function TrajectoryInspector({
   onReveal?: (entry: TrajectoryEntry) => void;
 }) {
   const [tab, setTab] = useState<InspectorTab>("summary");
+  const canReveal =
+    entry.rowId !== undefined ||
+    (entry.agentId !== undefined && entry.kind !== "assistant");
   const content = (
     <aside
-      className={`trajectory-inspector${onReveal && (entry.rowId !== undefined || entry.agentId !== undefined) ? " with-reveal" : ""}`}
+      className={`trajectory-inspector${onReveal && canReveal ? " with-reveal" : ""}`}
       aria-label="交互详情"
     >
       <header>
@@ -92,16 +95,15 @@ export function TrajectoryInspector({
           <UiIcon name="close" />
         </button>
       </header>
-      {onReveal &&
-        (entry.rowId !== undefined || entry.agentId !== undefined) && (
-          <button
-            className="trajectory-reveal"
-            type="button"
-            onClick={() => onReveal(entry)}
-          >
-            在 Chat 中查看
-          </button>
-        )}
+      {onReveal && canReveal && (
+        <button
+          className="trajectory-reveal"
+          type="button"
+          onClick={() => onReveal(entry)}
+        >
+          在 Chat 中查看
+        </button>
+      )}
       <nav
         className="trajectory-inspector-tabs view-tabs"
         aria-label="交互详情选项卡"

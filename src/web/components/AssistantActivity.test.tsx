@@ -2,6 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AssistantActivity, assistantPhaseLabel } from "./AssistantActivity.js";
+import type { AssistantActivityRow } from "../assistant-activity.js";
+
+test("blank activity renders only its streaming placeholder", () => {
+  const rows = [
+    { type: "assistant.reasoning", id: "reason", summary: [" ", "\n"] },
+    { type: "assistant.plan", id: "plan", text: " \n " },
+  ] satisfies AssistantActivityRow[];
+  for (const row of rows) {
+    assert.equal(renderToStaticMarkup(<AssistantActivity row={row} />), "");
+    const pending = renderToStaticMarkup(
+      <AssistantActivity row={{ ...row, partial: true }} />,
+    );
+    assert.match(pending, /正在整理/);
+    assert.match(pending, /生成中/);
+  }
+});
 
 test("reasoning exposes a readable summary before expanding and omits empty completed summaries", () => {
   const html = renderToStaticMarkup(
