@@ -12,6 +12,8 @@ Status: implemented
 
 完整快照按事件标识构建显示行，避免逐条复制和扫描已增长的历史；未变化的 Markdown 与时间线复用渲染结果。快速导航以最后一次订阅为准，迟到的历史读取不能抢走新会话的流式订阅。返回项目列表复用已有目录数据，重连时重新核对目录与当前历史。
 
+完整历史的传输压缩与暂不采用分页的取舍由[WebSocket 压缩决策](../simplification/2026-09-27-full-history-with-websocket-compression.md)持有。
+
 本记录补充[Worktree 管理](../architecture/2026-09-20-git-worktree-management.md)的导航行为，以及[首页输入页](../simplification/2026-09-18-home-composer.md)的页面内草稿保留；两者继续持有工作目录归属和浏览器历史语义。[无逐轮记录](../simplification/2026-09-17-session-state-without-turn-ledger.md)继续有效：显示缓存不是执行账本，Provider 仍是历史的事实来源，不新增自动命令重放。同范围没有需要完整替代或归档的记录。
 
 ## Alternatives considered

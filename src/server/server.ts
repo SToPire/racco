@@ -84,7 +84,16 @@ export async function buildServer(
       }
     }
     await hub.initialize();
-    await app.register(fastifyWebsocket);
+    await app.register(fastifyWebsocket, {
+      options: {
+        perMessageDeflate: {
+          // Compress large snapshots without retaining a dictionary per socket.
+          serverNoContextTakeover: true,
+          clientNoContextTakeover: true,
+          threshold: 1024,
+        },
+      },
+    });
   } catch (error) {
     await hub.close();
     throw error;
