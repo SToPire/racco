@@ -1,5 +1,9 @@
 # Racco Engineering Rules
 
+## AI-assisted commits
+
+Every AI-assisted commit must include an `Assisted-by: <harness>:<model>` trailer in its commit message, using the actual harness and model names.
+
 ## No backward compatibility — non-negotiable
 
 Racco is pre-release and has no backward-compatibility obligations. Never preserve an old behavior solely to keep existing callers, state, configuration, tests, or deployments working.
