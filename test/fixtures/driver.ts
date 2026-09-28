@@ -1,3 +1,4 @@
+import { inputText, inputImageCount } from "../../src/shared/user-input.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -85,6 +86,7 @@ export class FixtureDriver implements AgentDriver {
       metadata: { title, updatedAt: new Date().toISOString() },
       events: [
         {
+          imageCount: 0,
           type: "user.message",
           id: "fixture-user",
           text: "检查项目文件与会话视图。",
@@ -128,21 +130,23 @@ export class FixtureDriver implements AgentDriver {
   async runTurn(input: Parameters<AgentDriver["runTurn"]>[0]) {
     const snapshot = await this.readSession(input.handle);
     snapshot.events.push({
+      imageCount: inputImageCount(input.content),
       type: "user.message",
       id: randomUUID(),
-      text: input.prompt,
+      text: inputText(input.content),
     });
     const emit = (event: TimelineEvent) => {
       snapshot.events.push(event);
       input.context.emit(event);
     };
     try {
-      if (input.prompt === "wait")
+      if (inputText(input.content) === "wait")
         await delay(60_000, undefined, { signal: input.signal });
       else await delay(40, undefined, { signal: input.signal });
-      if (input.prompt === "error") throw new Error("Fixture provider failure");
+      if (inputText(input.content) === "error")
+        throw new Error("Fixture provider failure");
       let suffix = "";
-      if (input.prompt === "question") {
+      if (inputText(input.content) === "question") {
         const answer = await input.context.requestInteraction({
           title: "Fixture question",
           questions: [
@@ -159,7 +163,7 @@ export class FixtureDriver implements AgentDriver {
       emit({
         type: "assistant.message",
         id: randomUUID(),
-        text: `Fixture: ${input.prompt}${suffix}`,
+        text: `Fixture: ${inputText(input.content)}${suffix}`,
       });
       if (this.provider === "codex")
         this.#sessionUpdate?.(input.handle.providerSessionId, {

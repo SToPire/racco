@@ -52,11 +52,13 @@ function agentEntryContent(
       id: `${prefix}:user:${row.id}`,
       kind: "user",
       label: "User",
-      summary: compact(row.text),
+      summary: compact(
+        row.text || (row.imageCount > 0 ? `图片 × ${row.imageCount}` : ""),
+      ),
       actor,
       agentPath,
       cwd,
-      payload: { text: row.text },
+      payload: { text: row.text, imageCount: row.imageCount },
       raw: row,
     };
   }

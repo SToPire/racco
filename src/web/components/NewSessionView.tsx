@@ -1,3 +1,12 @@
+import { useImageDraft } from "../hooks/useImageDraft";
+import {
+  AttachImageButton,
+  ImageAttachments,
+  imagePaste,
+  imageDrop,
+  imageDragOver,
+} from "./ImageAttachments";
+import type { UserInput } from "../../shared/user-input";
 import { UiIcon } from "./UiIcon";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import type {
@@ -37,7 +46,7 @@ type NewSessionViewProps = {
     provider: Provider,
     projectId: string,
     path: string,
-    prompt: string,
+    content: UserInput,
     modelSettings: ModelSettings,
   ) => Promise<boolean>;
   onImportProject: () => void;
@@ -101,6 +110,11 @@ export function NewSessionView({
     true,
     connected,
   );
+  const images = useImageDraft(`${projectId}:${targetPath}`);
+  const unsupported =
+    selection.catalog?.models.find(
+      (model) => model.id === selection.draft?.modelId,
+    )?.imageInput === "unsupported";
   useEffect(() => {
     if (projectId !== "") return;
     const availableProject = projects.find((project) => project.available);
@@ -127,20 +141,33 @@ export function NewSessionView({
     onWorktreeChange(created.path);
   }
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
     const text = prompt.trim();
     if (
       !targetAvailable ||
       !providerAvailable ||
-      text.length === 0 ||
+      (text.length === 0 && images.images.length === 0) ||
+      images.preparing ||
+      (unsupported && images.images.length > 0) ||
       creating ||
       !connected ||
       !selection.valid ||
       !selection.draft
     )
       return;
-    void onCreate(provider, projectId, targetPath, text, selection.draft);
+    if (
+      await onCreate(
+        provider,
+        projectId,
+        targetPath,
+        images.content(text),
+        selection.draft,
+      )
+    ) {
+      setPrompt("");
+      images.clear();
+    }
   }
 
   const providerAvailable = health?.providers[provider] === "ready";
@@ -272,8 +299,21 @@ export function NewSessionView({
             </small>
           )}
         </div>
-        <form className="new-session-composer" onSubmit={submit}>
+        <form
+          className="new-session-composer"
+          onSubmit={submit}
+          onPaste={(event) =>
+            imagePaste(event, images, creating || unsupported)
+          }
+          onDragOver={imageDragOver}
+          onDrop={(event) => imageDrop(event, images, creating || unsupported)}
+        >
           {error && <p className="error-banner">{error}</p>}
+          <ImageAttachments
+            draft={images}
+            disabled={creating}
+            unsupported={unsupported}
+          />
           <textarea
             ref={input}
             aria-label="首条任务"
@@ -302,6 +342,10 @@ export function NewSessionView({
             </div>
 
             <div className="new-session-actions">
+              <AttachImageButton
+                draft={images}
+                disabled={creating || unsupported}
+              />
               <ModelSettingsControls
                 selection={selection}
                 disabled={creating || !connected}
@@ -313,7 +357,9 @@ export function NewSessionView({
                 disabled={
                   !providerAvailable ||
                   !targetAvailable ||
-                  prompt.trim().length === 0 ||
+                  (prompt.trim().length === 0 && images.images.length === 0) ||
+                  images.preparing ||
+                  (unsupported && images.images.length > 0) ||
                   creating ||
                   !connected ||
                   !selection.valid

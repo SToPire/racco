@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deleteSession, query, startup } from "@anthropic-ai/claude-agent-sdk";
@@ -84,7 +85,7 @@ test("Claude discovers without a prompt and passes each model/effort pair into f
     await driver.runTurn({
       handle,
       mode: "first",
-      prompt: "first",
+      content: [{ type: "text", text: "first" }],
       context,
       signal: new AbortController().signal,
       modelSettings: { modelId: "sonnet", reasoningEffort: "xhigh" },
@@ -92,7 +93,7 @@ test("Claude discovers without a prompt and passes each model/effort pair into f
     await driver.runTurn({
       handle,
       mode: "resume",
-      prompt: "next",
+      content: [{ type: "text", text: "next" }],
       context,
       signal: new AbortController().signal,
       modelSettings: { modelId: "opus", reasoningEffort: "high" },
@@ -190,9 +191,9 @@ test("Claude emits partial text before completion and isolates interrupted and r
       throw new Error("deleteSession not expected");
     },
     startup: (async () => ({ close() {} })) as unknown as typeof startup,
-    query: (({ prompt, options }: Parameters<typeof query>[0]) => {
+    query: (({ prompt: promptInput, options }: Parameters<typeof query>[0]) => {
       assert.equal(options?.includePartialMessages, true);
-      const messageId = `api-${prompt}`;
+      let messageId = "";
       const sessionId = options?.sessionId ?? options?.resume;
       let sequence = 0;
       const stream = (event: unknown) => ({
@@ -205,6 +206,8 @@ test("Claude emits partial text before completion and isolates interrupted and r
       return {
         close() {},
         async *[Symbol.asyncIterator]() {
+          const prompt = await queryInputText(promptInput);
+          messageId = `api-${prompt}`;
           yield { type: "system", subtype: "init", session_id: sessionId };
           yield stream({
             type: "message_start",
@@ -288,7 +291,7 @@ test("Claude emits partial text before completion and isolates interrupted and r
       const task = driver.runTurn({
         handle: { cwd: process.cwd(), providerSessionId: "session-1" },
         mode: prompt === "first" ? "first" : "resume",
-        prompt,
+        content: [{ type: "text", text: prompt }],
         context,
         signal: turnAbort.signal,
         modelSettings: { modelId: "sonnet", reasoningEffort: null },
@@ -383,9 +386,10 @@ test("Claude settles unanswered tools using the actual query end reason", async 
     },
     async deleteSession() {},
     startup: (async () => ({ close() {} })) as unknown as typeof startup,
-    query: (({ prompt }: Parameters<typeof query>[0]) => ({
+    query: (({ prompt: promptInput }: Parameters<typeof query>[0]) => ({
       close() {},
       async *[Symbol.asyncIterator]() {
+        const prompt = await queryInputText(promptInput);
         yield {
           type: "assistant",
           uuid: `assistant-${prompt}`,
@@ -454,7 +458,7 @@ test("Claude settles unanswered tools using the actual query end reason", async 
       const turn = driver.runTurn({
         handle: { cwd: process.cwd(), providerSessionId: "session-1" },
         mode: "resume",
-        prompt,
+        content: [{ type: "text", text: prompt }],
         modelSettings: { modelId: "sonnet", reasoningEffort: null },
         context,
         signal: abort.signal,
@@ -479,6 +483,165 @@ test("Claude settles unanswered tools using the actual query end reason", async 
             row.output === "source",
         ),
     );
+  } finally {
+    await driver.close();
+  }
+});
+
+async function queryInputText(
+  input: Parameters<typeof query>[0]["prompt"],
+): Promise<string> {
+  assert.notEqual(typeof input, "string");
+  if (typeof input === "string") throw new Error("Expected structured input");
+  const messages = [];
+  for await (const message of input) messages.push(message);
+  assert.equal(messages.length, 1);
+  const content = messages[0].message.content;
+  assert(Array.isArray(content));
+  return content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+test("Claude submits ordered image blocks in one structured message for first and resumed turns", async () => {
+  const sent: unknown[] = [];
+  let closes = 0;
+  const sdk = {
+    async listSessions() {
+      return [];
+    },
+    async deleteSession() {},
+    startup: (async () => ({ close() {} })) as unknown as typeof startup,
+    query: (({ prompt, options }: Parameters<typeof query>[0]) => ({
+      close() {
+        closes++;
+      },
+      async *[Symbol.asyncIterator]() {
+        assert.notEqual(typeof prompt, "string");
+        if (typeof prompt === "string")
+          throw new Error("Expected structured input");
+        const inputs = [];
+        for await (const input of prompt) inputs.push(input);
+        assert.equal(inputs.length, 1);
+        sent.push(inputs[0].message.content);
+        yield {
+          type: "system",
+          subtype: "init",
+          session_id: options?.sessionId ?? options?.resume,
+        };
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "done",
+        };
+      },
+    })) as unknown as typeof query,
+  };
+  const driver = new ClaudeDriver({ warn() {} }, sdk);
+  await driver.start();
+  const image = {
+    type: "image" as const,
+    mediaType: "image/png" as const,
+    data: "aW1hZ2U=",
+  };
+  try {
+    for (const mode of ["first", "resume"] as const)
+      await driver.runTurn({
+        handle: { providerSessionId: "images", cwd: process.cwd() },
+        mode,
+        content:
+          mode === "first"
+            ? [image, { type: "text", text: "inspect" }, image]
+            : [image],
+        modelSettings: { modelId: "sonnet", reasoningEffort: null },
+        signal: new AbortController().signal,
+        context: {
+          emit() {},
+          setState() {},
+          markProviderMaterialized() {},
+          async requestInteraction() {
+            throw new Error("unexpected");
+          },
+        },
+      });
+    const native = {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: image.data },
+    };
+    assert.deepEqual(sent, [
+      [native, { type: "text", text: "inspect" }, native],
+      [native],
+    ]);
+    assert.equal(closes, 2);
+  } finally {
+    await driver.close();
+  }
+});
+
+test("Claude strips submitted image data from SDK diagnostics and execution errors", async () => {
+  const data = (
+    await sharp({
+      create: { width: 8, height: 8, channels: 3, background: "red" },
+    })
+      .png()
+      .toBuffer()
+  ).toString("base64");
+  const logs: unknown[] = [];
+  const sdk = {
+    async listSessions() {
+      return [];
+    },
+    async deleteSession() {},
+    startup: (async () => ({ close() {} })) as unknown as typeof startup,
+    query: ((input: Parameters<typeof query>[0]) => ({
+      close() {},
+      async *[Symbol.asyncIterator]() {
+        input.options?.stderr?.(data.slice(0, 14));
+        input.options?.stderr?.(data.slice(14));
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: true,
+          result: `invalid ${data}`,
+        };
+      },
+    })) as unknown as typeof query,
+  };
+  const driver = new ClaudeDriver(
+    {
+      warn(value) {
+        logs.push(value);
+      },
+    },
+    sdk,
+  );
+  await driver.start();
+  try {
+    await assert.rejects(
+      driver.runTurn({
+        handle: { providerSessionId: "redaction", cwd: process.cwd() },
+        mode: "first",
+        content: [{ type: "image", mediaType: "image/png", data }],
+        modelSettings: { modelId: "sonnet", reasoningEffort: null },
+        signal: new AbortController().signal,
+        context: {
+          emit() {},
+          setState() {},
+          markProviderMaterialized() {},
+          async requestInteraction() {
+            throw new Error("unexpected");
+          },
+        },
+      }),
+      (error: Error) =>
+        !error.message.includes(data) &&
+        error.message.includes("图片内容已省略"),
+    );
+    assert.equal(logs.length, 1);
+    assert(!JSON.stringify(logs).includes(data.slice(0, 14)));
+    assert(!JSON.stringify(logs).includes(data.slice(14)));
   } finally {
     await driver.close();
   }

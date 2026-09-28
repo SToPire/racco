@@ -1,3 +1,4 @@
+import type { UserInput } from "../../shared/user-input";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SessionRefSchema } from "../../shared/protocol";
 import type {
@@ -668,7 +669,7 @@ export function useRacco({
     provider: Provider,
     projectId: string,
     path: string,
-    prompt: string,
+    content: UserInput,
     modelSettings: ModelSettings,
   ): Promise<boolean> {
     if (pendingCreate.current !== undefined) return false;
@@ -691,7 +692,7 @@ export function useRacco({
         provider,
         projectId,
         path,
-        prompt,
+        content,
         modelSettings,
       });
       if (!createdRef) throw new Error("Racco 返回了无效的 session ref");
@@ -708,7 +709,7 @@ export function useRacco({
   }
 
   async function sendTurn(
-    prompt: string,
+    content: UserInput,
     modelSettings: ModelSettings,
   ): Promise<boolean> {
     if (activeRef === undefined || pendingSend.current !== undefined)
@@ -722,7 +723,7 @@ export function useRacco({
         type: "turn.start",
         requestId,
         ...activeRef,
-        prompt,
+        content,
         modelSettings,
       });
       return true;

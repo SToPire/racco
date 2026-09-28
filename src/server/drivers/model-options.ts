@@ -46,6 +46,9 @@ export function codexModelCatalog(
         id: row.model,
         displayName: row.displayName,
         description: row.description,
+        imageInput: row.inputModalities.includes("image")
+          ? "supported"
+          : "unsupported",
         reasoningEffort:
           options.length > 0 &&
           new Set(options.map((o) => o.value)).size === options.length &&
@@ -105,6 +108,7 @@ export function claudeModelCatalog(input: unknown): ProviderModelCatalog {
         id: row.value,
         displayName: row.displayName,
         description: row.description,
+        imageInput: "unknown",
         reasoningEffort,
       };
     }),

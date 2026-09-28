@@ -130,7 +130,14 @@ export function TurnNavigator({
               type="button"
             >
               <span>{index + 1}</span>
-              <strong>{userRequestPreview(request.text)}</strong>
+              <strong>
+                {userRequestPreview(
+                  request.text ||
+                    (request.imageCount > 0
+                      ? `图片 × ${request.imageCount}`
+                      : ""),
+                )}
+              </strong>
             </button>
           ))}
         </div>

@@ -7,6 +7,7 @@ import type {
   ProviderModelCatalog,
   SessionState,
   TimelineEvent,
+  UserInput,
 } from "../../shared/protocol.js";
 
 export type ProviderSessionHandle = {
@@ -91,7 +92,7 @@ export interface AgentDriver {
   runTurn(input: {
     handle: ProviderSessionHandle;
     mode: "first" | "resume";
-    prompt: string;
+    content: UserInput;
     modelSettings: ModelSettings;
     context: DriverContext;
     signal: AbortSignal;

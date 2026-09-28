@@ -1,3 +1,4 @@
+import { temporaryImages } from "../../../../test/images.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -78,7 +79,10 @@ lines.on('line', line => {
 `,
         { mode: 0o700 },
       );
-      const driver = new CodexDriver({ info() {}, warn() {} });
+      const driver = new CodexDriver(
+        { info() {}, warn() {} },
+        await temporaryImages(),
+      );
       let displayed: TimelineEvent[] = [];
       const updates: TimelineEvent[] = [];
       const mainStates: SessionState[] = [];
@@ -121,7 +125,7 @@ lines.on('line', line => {
           driver.runTurn({
             handle,
             mode: "resume",
-            prompt: "work",
+            content: [{ type: "text", text: "work" }],
             modelSettings,
             context,
             signal: new AbortController().signal,

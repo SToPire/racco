@@ -145,7 +145,12 @@ function mapUserText(
     .filter((block) => block?.type === "text" && typeof block.text === "string")
     .map((block) => block?.text)
     .join("\n");
-  return text.length === 0 ? [] : [{ type: "user.message", id: uuid, text }];
+  const imageCount = messageContent(message).filter(
+    (value) => asRecord(value)?.type === "image",
+  ).length;
+  return text.length === 0 && imageCount === 0
+    ? []
+    : [{ type: "user.message", id: uuid, text, imageCount }];
 }
 
 export function mapClaudeHistory(

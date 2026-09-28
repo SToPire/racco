@@ -172,12 +172,17 @@ try {
       provider,
       projectId: project.projectId,
       path: project.path,
-      prompt:
-        interactionKind === "question"
-          ? `Call AskUserQuestion with one single-select question and two short options. After receiving the answer, reply with exactly ${expected}.`
-          : "Run exactly `curl --max-time 30 -fsSI https://example.com >/dev/null` using the shell, then reply with exactly " +
-            expected +
-            ".",
+      content: [
+        {
+          type: "text",
+          text:
+            interactionKind === "question"
+              ? `Call AskUserQuestion with one single-select question and two short options. After receiving the answer, reply with exactly ${expected}.`
+              : "Run exactly `curl --max-time 30 -fsSI https://example.com >/dev/null` using the shell, then reply with exactly " +
+                expected +
+                ".",
+        },
+      ],
     }),
   );
 

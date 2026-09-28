@@ -29,7 +29,7 @@ test("renders a searchable trajectory containing every normalized row", () => {
   const html = renderToStaticMarkup(
     <TrajectoryView
       rows={[
-        { type: "user.message", id: "user", text: "inspect" },
+        { imageCount: 0, type: "user.message", id: "user", text: "inspect" },
         {
           type: "tool",
           id: "command",

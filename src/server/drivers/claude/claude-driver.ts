@@ -1,3 +1,4 @@
+import type { UserInput } from "../../../shared/user-input.js";
 import { randomUUID } from "node:crypto";
 import {
   deleteSession,
@@ -7,6 +8,7 @@ import {
   startup,
   type CanUseTool,
   type SDKSessionInfo,
+  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type {
@@ -247,7 +249,7 @@ export class ClaudeDriver implements AgentDriver {
   async runTurn(input: {
     handle: ProviderSessionHandle;
     mode: "first" | "resume";
-    prompt: string;
+    content: UserInput;
     modelSettings: ModelSettings;
     context: DriverContext;
     signal: AbortSignal;
@@ -271,12 +273,34 @@ export class ClaudeDriver implements AgentDriver {
     const mapper = new ClaudeLiveMapper();
     let sawResult = false;
     let turnSucceeded = false;
+    const hasImages = input.content.some((part) => part.type === "image");
+    let imageDiagnosticReported = false;
     try {
       const canUseTool: CanUseTool = async (toolName, toolInput, options) =>
         this.#handleToolRequest(input.context, toolName, toolInput, options);
 
+      const content = input.content.map((part) =>
+        part.type === "text"
+          ? { type: "text" as const, text: part.text }
+          : {
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: part.mediaType,
+                data: part.data,
+              },
+            },
+      );
+      async function* messageInput(): AsyncGenerator<SDKUserMessage> {
+        yield {
+          type: "user",
+          session_id: sessionId,
+          parent_tool_use_id: null,
+          message: { role: "user", content },
+        };
+      }
       activeQuery = this.sdk.query({
-        prompt: input.prompt,
+        prompt: messageInput(),
         options: {
           abortController,
           canUseTool,
@@ -302,7 +326,18 @@ export class ClaudeDriver implements AgentDriver {
           systemPrompt: { type: "preset", preset: "claude_code" },
           ...(input.mode === "first" ? { sessionId } : { resume: sessionId }),
           stderr: (data) => {
-            const message = data.trim();
+            // stderr is chunked; substring replacement cannot safely redact a split payload.
+            if (hasImages) {
+              if (data.length > 0 && !imageDiagnosticReported) {
+                this.log.warn(
+                  {},
+                  "Claude image turn produced stderr; content omitted",
+                );
+                imageDiagnosticReported = true;
+              }
+              return;
+            }
+            const message = redactImageData(data.trim(), input.content);
             if (message.length > 0) {
               this.log.warn({ message }, "Claude Agent SDK stderr");
             }
@@ -351,7 +386,12 @@ export class ClaudeDriver implements AgentDriver {
         input.context.setState("interrupted");
         return;
       }
-      throw error;
+      throw new Error(
+        redactImageData(
+          error instanceof Error ? error.message : String(error),
+          input.content,
+        ),
+      );
     } finally {
       for (const event of mapper.finish(
         input.signal.aborted || abortController.signal.aborted
@@ -448,4 +488,12 @@ export class ClaudeDriver implements AgentDriver {
   #assertReady(): void {
     if (!this.#ready) throw new Error("Claude provider is unavailable");
   }
+}
+
+function redactImageData(message: string, content: UserInput): string {
+  for (const part of content) {
+    if (part.type === "image")
+      message = message.replaceAll(part.data, "[图片内容已省略]");
+  }
+  return message;
 }

@@ -1,3 +1,10 @@
+import {
+  inputImageCount,
+  UserInputSchema,
+  inputText,
+  type UserInput,
+} from "../shared/user-input.js";
+import { ImageInputs, inputFingerprint } from "./images/input.js";
 import { createHash, randomUUID } from "node:crypto";
 import { realpathSync, statSync } from "node:fs";
 import { basename, parse } from "node:path";
@@ -96,7 +103,7 @@ function creationHash(
   provider: Provider,
   projectId: string,
   path: string,
-  prompt: string,
+  content: UserInput,
   settings: ModelSettings,
 ): string {
   return requestHash([
@@ -104,7 +111,7 @@ function creationHash(
     provider,
     projectId,
     path,
-    prompt,
+    inputFingerprint(content),
     settings.modelId,
     settings.reasoningEffort,
   ]);
@@ -118,6 +125,7 @@ export class SessionHub {
   readonly #pendingSubscriptions = new Map<WebSocket, symbol>();
   readonly #interactions = new Map<string, PendingInteraction>();
   readonly #models = new ModelCatalogCache();
+  readonly #imageInputs = new ImageInputs();
   readonly #nativeMutations = new Map<string, Promise<void>>();
   readonly #worktrees: WorktreeService;
   readonly #worktreeAccess = new WorktreeAccess();
@@ -132,6 +140,7 @@ export class SessionHub {
     drivers: AgentDriver[],
     private readonly repository: SessionRepository,
     worktreeRoot: string,
+    private readonly closeInputResources: () => Promise<void>,
   ) {
     this.#worktrees = new WorktreeService(worktreeRoot, (projectId) =>
       this.repository
@@ -563,49 +572,63 @@ export class SessionHub {
     projectId: string,
     path: string,
     requestId: string,
-    prompt: string,
+    inputContent: UserInput,
     inputSettings: ModelSettings,
   ): Promise<{ ref: SessionRef; snapshot: SessionSnapshotMessage }> {
     if (this.#closed) throw new Error("Racco closed");
-    const modelSettings = ModelSettingsSchema.parse(inputSettings);
-    const hash = creationHash(provider, projectId, path, prompt, modelSettings);
-    const inflight = this.#creating.get(requestId);
-    if (inflight && inflight.hash !== hash)
-      throw new Error(
-        "Session request ID was already used with different parameters",
-      );
-    let task = inflight?.task;
-    if (!task) {
-      task = this.#worktreeAccess.use(projectId, path, () =>
-        this.#allocateSession(
-          provider,
-          projectId,
-          path,
-          requestId,
-          modelSettings,
-          hash,
-        ),
-      );
-      this.#creating.set(requestId, { hash, task });
-    }
-    let managed: ManagedSession;
+    const lease = await this.#imageInputs.prepare(inputContent);
     try {
-      managed = await task;
+      if (this.#closed) throw new Error("Racco closed");
+      const content = lease.content;
+      const modelSettings = ModelSettingsSchema.parse(inputSettings);
+      const hash = creationHash(
+        provider,
+        projectId,
+        path,
+        content,
+        modelSettings,
+      );
+      const inflight = this.#creating.get(requestId);
+      if (inflight && inflight.hash !== hash)
+        throw new Error(
+          "Session request ID was already used with different parameters",
+        );
+      let task = inflight?.task;
+      if (!task) {
+        task = this.#worktreeAccess.use(projectId, path, () =>
+          this.#allocateSession(
+            provider,
+            projectId,
+            path,
+            requestId,
+            modelSettings,
+            hash,
+            inputImageCount(content),
+          ),
+        );
+        this.#creating.set(requestId, { hash, task });
+      }
+      let managed: ManagedSession;
+      try {
+        managed = await task;
+      } finally {
+        if (this.#creating.get(requestId)?.task === task)
+          this.#creating.delete(requestId);
+      }
+      if (this.#closed) throw new Error("Racco closed");
+      const runtime = this.#runtimeFor(managed);
+      if (socket.readyState === WebSocket.OPEN) {
+        this.#unsubscribe(socket);
+        runtime.subscribers.add(socket);
+        this.#socketSubscriptions.set(socket, managed.sessionId);
+      }
+      return {
+        ref: { sessionId: managed.sessionId },
+        snapshot: this.#snapshotMessage(managed.sessionId, runtime),
+      };
     } finally {
-      if (this.#creating.get(requestId)?.task === task)
-        this.#creating.delete(requestId);
+      lease.release();
     }
-    if (this.#closed) throw new Error("Racco closed");
-    const runtime = this.#runtimeFor(managed);
-    if (socket.readyState === WebSocket.OPEN) {
-      this.#unsubscribe(socket);
-      runtime.subscribers.add(socket);
-      this.#socketSubscriptions.set(socket, managed.sessionId);
-    }
-    return {
-      ref: { sessionId: managed.sessionId },
-      snapshot: this.#snapshotMessage(managed.sessionId, runtime),
-    };
   }
 
   async #allocateSession(
@@ -615,6 +638,7 @@ export class SessionHub {
     requestId: string,
     modelSettings: ModelSettings,
     hash: string,
+    imageCount: number,
   ): Promise<ManagedSession> {
     const existing = this.repository.findByCreateRequestId(requestId);
     if (existing) {
@@ -630,6 +654,7 @@ export class SessionHub {
     const catalog = await this.listModels(provider, path);
     const issue = modelSettingsError(catalog, modelSettings);
     if (issue) throw new Error(issue);
+    assertImageModel(catalog, modelSettings, imageCount);
     if (this.#closed) throw new Error("Racco closed");
     const driver = this.#requireDriver(provider);
     const sessionId = randomUUID();
@@ -858,43 +883,36 @@ export class SessionHub {
 
   async startTurn(
     ref: SessionRef,
-    prompt: string,
+    inputContent: UserInput,
     requestId: string,
     inputSettings: ModelSettings,
   ): Promise<boolean> {
     if (this.#closed) throw new Error("Racco closed");
     const target = this.#requireManaged(ref.sessionId);
     return this.#worktreeAccess.use(target.projectId, target.cwd, async () => {
-      const modelSettings = ModelSettingsSchema.parse(inputSettings);
-      let managed = this.#requireManaged(ref.sessionId);
-      this.#assertNativeAvailable(managed);
-      const initial =
-        managed.createRequestId !== undefined &&
-        requestId === `create:${managed.createRequestId}`;
+      const candidate = UserInputSchema.parse(inputContent);
+      const initialRequest =
+        target.createRequestId !== undefined &&
+        requestId === `create:${target.createRequestId}`;
       if (
-        initial &&
-        managed.createRequestHash !==
+        initialRequest &&
+        target.createRequestHash !==
           creationHash(
-            managed.provider,
-            managed.projectId,
-            managed.cwd,
-            prompt,
-            modelSettings,
+            target.provider,
+            target.projectId,
+            target.cwd,
+            candidate,
+            ModelSettingsSchema.parse(inputSettings),
           )
       ) {
         throw new Error("Initial turn does not match the creation request");
       }
-      if (initial && managed.lifecycle === "active") return false;
-      if (!initial && managed.lifecycle !== "active")
-        throw new Error("Session is not active");
-      // Check again after asynchronous discovery: another request may have won meanwhile.
+      let lease;
       try {
-        const catalog = await this.listModels(managed.provider, managed.cwd);
-        const issue = modelSettingsError(catalog, modelSettings);
-        if (issue) throw new Error(issue);
+        lease = await this.#imageInputs.prepare(candidate);
       } catch (error) {
         if (
-          initial &&
+          initialRequest &&
           !this.#closed &&
           this.repository.get(ref.sessionId)?.lifecycle === "provisioning"
         ) {
@@ -905,48 +923,100 @@ export class SessionHub {
         }
         throw error;
       }
-      if (this.#closed) throw new Error("Racco closed");
-      managed = this.#requireManaged(ref.sessionId);
-      this.#assertNativeAvailable(managed);
-      if (initial && managed.lifecycle === "active") return false;
-      if (!projectDirectoryIsAvailable(managed.cwd)) {
-        throw new Error("Managed session working directory is unavailable");
-      }
-      const driver = this.#requireDriver(managed.provider);
-      const runtime = this.#runtimeFor(managed);
-      if (runtime.activeTurn !== undefined || runtime.summary.compacting)
-        throw new Error("Session already has an active turn");
+      let transferred = false;
+      try {
+        if (this.#closed) throw new Error("Racco closed");
+        const content = lease.content;
+        const modelSettings = ModelSettingsSchema.parse(inputSettings);
+        let managed = this.#requireManaged(ref.sessionId);
+        this.#assertNativeAvailable(managed);
+        const initial =
+          managed.createRequestId !== undefined &&
+          requestId === `create:${managed.createRequestId}`;
+        if (
+          initial &&
+          managed.createRequestHash !==
+            creationHash(
+              managed.provider,
+              managed.projectId,
+              managed.cwd,
+              content,
+              modelSettings,
+            )
+        ) {
+          throw new Error("Initial turn does not match the creation request");
+        }
+        if (initial && managed.lifecycle === "active") return false;
+        if (!initial && managed.lifecycle !== "active")
+          throw new Error("Session is not active");
+        // Check again after asynchronous discovery: another request may have won meanwhile.
+        try {
+          const catalog = await this.listModels(managed.provider, managed.cwd);
+          const issue = modelSettingsError(catalog, modelSettings);
+          if (issue) throw new Error(issue);
+          assertImageModel(catalog, modelSettings, inputImageCount(content));
+        } catch (error) {
+          if (
+            initial &&
+            !this.#closed &&
+            this.repository.get(ref.sessionId)?.lifecycle === "provisioning"
+          ) {
+            this.repository.failProvisioning(ref.sessionId);
+            this.#broadcastSessionSummary(
+              this.#runtimeFor(this.#requireManaged(ref.sessionId)),
+            );
+          }
+          throw error;
+        }
+        if (this.#closed) throw new Error("Racco closed");
+        managed = this.#requireManaged(ref.sessionId);
+        this.#assertNativeAvailable(managed);
+        if (initial && managed.lifecycle === "active") return false;
+        if (!projectDirectoryIsAvailable(managed.cwd)) {
+          throw new Error("Managed session working directory is unavailable");
+        }
+        const driver = this.#requireDriver(managed.provider);
+        const runtime = this.#runtimeFor(managed);
+        if (runtime.activeTurn !== undefined || runtime.summary.compacting)
+          throw new Error("Session already has an active turn");
 
-      managed = this.repository.acceptTurn(
-        ref.sessionId,
-        modelSettings,
-        initial,
-      );
-
-      const abortController = new AbortController();
-      const activeTurn: NonNullable<RuntimeSession["activeTurn"]> = {
-        abortController,
-      };
-      runtime.activeTurn = activeTurn;
-      this.#refreshRuntime(runtime, this.#requireManaged(ref.sessionId));
-      this.#appendTimelineEvent(runtime, ref.sessionId, {
-        type: "user.message",
-        id: randomUUID(),
-        text: prompt,
-      });
-      this.#broadcastSessionSummary(runtime);
-
-      this.#launchOperation(managed, runtime, activeTurn, (context, signal) =>
-        driver.runTurn({
-          handle: providerHandle(managed),
-          mode: managed.providerState === "allocated" ? "first" : "resume",
-          prompt,
+        managed = this.repository.acceptTurn(
+          ref.sessionId,
           modelSettings,
-          context,
-          signal,
-        }),
-      );
-      return true;
+          initial,
+        );
+
+        const abortController = new AbortController();
+        const activeTurn: NonNullable<RuntimeSession["activeTurn"]> = {
+          abortController,
+        };
+        runtime.activeTurn = activeTurn;
+        this.#refreshRuntime(runtime, this.#requireManaged(ref.sessionId));
+        this.#appendTimelineEvent(runtime, ref.sessionId, {
+          type: "user.message",
+          id: randomUUID(),
+          text: inputText(content),
+          imageCount: inputImageCount(content),
+        });
+        this.#broadcastSessionSummary(runtime);
+
+        this.#launchOperation(managed, runtime, activeTurn, (context, signal) =>
+          driver
+            .runTurn({
+              handle: providerHandle(managed),
+              mode: managed.providerState === "allocated" ? "first" : "resume",
+              content,
+              modelSettings,
+              context,
+              signal,
+            })
+            .finally(() => lease.release()),
+        );
+        transferred = true;
+        return true;
+      } finally {
+        if (!transferred) lease.release();
+      }
     });
   }
 
@@ -1111,7 +1181,11 @@ export class SessionHub {
       ...[...this.#creating.values()].map((entry) => entry.task),
     ]);
     this.#clients.clear();
-    this.repository.close();
+    try {
+      await this.closeInputResources();
+    } finally {
+      this.repository.close();
+    }
   }
 
   #requireDriver(provider: Provider): AgentDriver {
@@ -1304,4 +1378,17 @@ export class SessionHub {
     this.#rejectInteractions(sessionId, new Error("Session deleted"));
     this.#sessions.delete(sessionId);
   }
+}
+
+function assertImageModel(
+  catalog: ModelCatalog,
+  settings: ModelSettings,
+  imageCount: number,
+): void {
+  if (
+    imageCount > 0 &&
+    catalog.models.find((model) => model.id === settings.modelId)
+      ?.imageInput === "unsupported"
+  )
+    throw new Error("所选模型不支持图片，请选择支持图片的模型");
 }

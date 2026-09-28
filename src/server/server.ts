@@ -20,6 +20,8 @@ import { SessionHub } from "./session-hub.js";
 import { WorktreeDirtyError } from "./worktrees/manager.js";
 import { openRaccoStateDatabase } from "./state/database.js";
 import { SessionRepository } from "./state/session-repository.js";
+import { TemporaryImages } from "./images/temporary.js";
+import { MAX_CLIENT_MESSAGE_BYTES } from "../shared/user-input.js";
 
 function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === socket.OPEN) {
@@ -41,7 +43,10 @@ function hasAllowedOrigin(
 }
 
 export type ServerOptions = {
-  createDrivers: (log: FastifyBaseLogger) => AgentDriver[];
+  createDrivers: (
+    log: FastifyBaseLogger,
+    images: TemporaryImages,
+  ) => AgentDriver[];
   build: BuildInfo;
   webRoot?: string;
   logger?: boolean;
@@ -59,11 +64,20 @@ export async function buildServer(
   await app.register(directoryRoutes);
   const state = openRaccoStateDatabase(config.stateDir);
   const repository = new SessionRepository(state.database, state.close);
+  let images: TemporaryImages;
+  try {
+    images = await TemporaryImages.open(config.stateDir, app.log);
+  } catch (error) {
+    repository.close();
+    throw error;
+  }
   await app.register(projectFileRoutes, {
     worktreeIsAvailable: (path: string) => hub.worktreePathIsReadable(path),
   });
-  const drivers = options.createDrivers(app.log);
-  const hub = new SessionHub(drivers, repository, config.worktreeRoot);
+  const drivers = options.createDrivers(app.log, images);
+  const hub = new SessionHub(drivers, repository, config.worktreeRoot, () =>
+    images.close(),
+  );
   app.addHook("onClose", async () => {
     await hub.close();
   });
@@ -86,6 +100,7 @@ export async function buildServer(
     await hub.initialize();
     await app.register(fastifyWebsocket, {
       options: {
+        maxPayload: MAX_CLIENT_MESSAGE_BYTES,
         perMessageDeflate: {
           // Compress large snapshots without retaining a dictionary per socket.
           serverNoContextTakeover: true,
@@ -515,9 +530,25 @@ export async function buildServer(
 
           const parsed = ClientCommandSchema.safeParse(decoded);
           if (!parsed.success) {
+            const requestId =
+              typeof decoded === "object" &&
+              decoded !== null &&
+              "requestId" in decoded &&
+              typeof decoded.requestId === "string" &&
+              decoded.requestId.length > 0
+                ? decoded.requestId
+                : undefined;
+            const contentIssue = parsed.error.issues.find(
+              (issue) => issue.path[0] === "content",
+            );
             send(socket, {
               type: "error",
-              message: "Message does not match the Racco protocol",
+              ...(requestId === undefined ? {} : { requestId }),
+              message: contentIssue
+                ? contentIssue.code === "unrecognized_keys"
+                  ? "消息内容包含不支持的字段"
+                  : `消息内容无效：${contentIssue.message}`
+                : "Message does not match the Racco protocol",
             });
             return;
           }
@@ -539,12 +570,12 @@ export async function buildServer(
                 command.projectId,
                 command.path,
                 command.requestId,
-                command.prompt,
+                command.content,
                 command.modelSettings,
               );
               await hub.startTurn(
                 created.ref,
-                command.prompt,
+                command.content,
                 `create:${command.requestId}`,
                 command.modelSettings,
               );
@@ -561,7 +592,7 @@ export async function buildServer(
             if (command.type === "turn.start") {
               await hub.startTurn(
                 command,
-                command.prompt,
+                command.content,
                 command.requestId,
                 command.modelSettings,
               );

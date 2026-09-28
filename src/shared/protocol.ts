@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { UserInputSchema } from "./user-input.js";
+export type { UserInput, UserInputPart } from "./user-input.js";
 import {
   ModelSettingsSchema,
   ProviderModelCatalogSchema,
@@ -126,7 +128,7 @@ export type ToolProgress = {
 };
 
 export type AgentTimelineEvent =
-  | { type: "user.message"; id: string; text: string }
+  | { type: "user.message"; id: string; text: string; imageCount: number }
   | AssistantContentEvent
   | PlanUpdatedEvent
   | { type: "assistant.message.removed"; id: string }
@@ -227,7 +229,7 @@ export const ClientCommandSchema = z.discriminatedUnion("type", [
     projectId: z.string().min(1),
     /** The worktree the session runs in; its directory is the session's cwd. */
     path: z.string().min(1),
-    prompt: z.string().min(1),
+    content: UserInputSchema,
     modelSettings: ModelSettingsSchema,
   }),
   z.strictObject({
@@ -239,7 +241,7 @@ export const ClientCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("turn.start"),
     requestId: RequestIdSchema,
     sessionId: z.string().min(1),
-    prompt: z.string().min(1),
+    content: UserInputSchema,
     modelSettings: ModelSettingsSchema,
   }),
   z.strictObject({

@@ -5,7 +5,12 @@ import { buildTrajectory } from "./trajectory.js";
 
 test("projects main and subagent interactions into one session trajectory", () => {
   const rows: TimelineRow[] = [
-    { type: "user.message", id: "user-1", text: "delegate this" },
+    {
+      imageCount: 0,
+      type: "user.message",
+      id: "user-1",
+      text: "delegate this",
+    },
     {
       type: "tool",
       id: "root-command",

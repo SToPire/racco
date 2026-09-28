@@ -36,6 +36,7 @@ async function fixture(t: test.TestContext) {
     [driver],
     repository,
     join(directory, "worktrees"),
+    async () => {},
   );
   t.after(async () => {
     await hub.close();
@@ -81,7 +82,7 @@ async function fixture(t: test.TestContext) {
       project.projectId,
       worktree.path,
       "create",
-      "wait",
+      [{ type: "text", text: "wait" }],
       fixtureModelSettings,
     );
   return { hub, driver, repository, project, worktree, input, ref, create };
@@ -113,7 +114,12 @@ for (const scope of ["worktree", "project"] as const) {
     );
     await entered.promise;
     await assert.rejects(
-      f.hub.startTurn(f.ref, "wait", "start", fixtureModelSettings),
+      f.hub.startTurn(
+        f.ref,
+        [{ type: "text", text: "wait" }],
+        "start",
+        fixtureModelSettings,
+      ),
       /busy/,
     );
     await assert.rejects(f.hub.compact(f.ref), /busy/);
@@ -132,7 +138,12 @@ for (const scope of ["worktree", "project"] as const) {
     release.resolve();
     await deleting;
     assert.equal(
-      await f.hub.startTurn(f.ref, "wait", "retry", fixtureModelSettings),
+      await f.hub.startTurn(
+        f.ref,
+        [{ type: "text", text: "wait" }],
+        "retry",
+        fixtureModelSettings,
+      ),
       true,
     );
     await access(f.worktree.path);
@@ -164,7 +175,12 @@ for (const operation of ["create", "start", "import"] as const) {
       operation === "create"
         ? f.create()
         : operation === "start"
-          ? f.hub.startTurn(f.ref, "wait", "start", fixtureModelSettings)
+          ? f.hub.startTurn(
+              f.ref,
+              [{ type: "text", text: "wait" }],
+              "start",
+              fixtureModelSettings,
+            )
           : f.hub.importSession({ ...f.input, providerSessionId: "other" });
     await entered.promise;
     await assert.rejects(
@@ -189,7 +205,12 @@ for (const busy of ["running", "compacting"] as const) {
   test(`project cleanup keeps a ${busy} worktree while single deletion refuses it`, async (t) => {
     const f = await fixture(t);
     if (busy === "running") {
-      await f.hub.startTurn(f.ref, "wait", "active", fixtureModelSettings);
+      await f.hub.startTurn(
+        f.ref,
+        [{ type: "text", text: "wait" }],
+        "active",
+        fixtureModelSettings,
+      );
     } else {
       t.mock.method(f.driver, "compact", async () => undefined);
       await f.hub.compact(f.ref);

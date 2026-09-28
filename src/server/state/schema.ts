@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export function initializeStateSchema(database: DatabaseSync): void {
   const version = database.prepare("PRAGMA user_version").get()!.user_version;

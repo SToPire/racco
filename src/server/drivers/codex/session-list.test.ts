@@ -1,3 +1,4 @@
+import { temporaryImages } from "../../../../test/images.js";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,7 +13,10 @@ test("Codex pages the exact project without reading/resuming candidates and leav
   const transcript = join(directory, "requests.jsonl");
   const previousPath = process.env.PATH;
   process.env.PATH = `${directory}:${previousPath}`;
-  const driver = new CodexDriver({ info() {}, warn() {} });
+  const driver = new CodexDriver(
+    { info() {}, warn() {} },
+    await temporaryImages(),
+  );
   t.after(async () => {
     await driver.close();
     process.env.PATH = previousPath;
