@@ -82,8 +82,10 @@ for (const viewport of [
         );
       }
       if (agentId !== undefined) {
+        await page.locator(".agent-switcher-trigger").click();
         await page
-          .getByRole("button", { name: "查看 Spacing worker 的对话" })
+          .getByRole("option")
+          .filter({ hasText: "Spacing worker" })
           .click();
       }
       const row = (index: number) =>
@@ -272,7 +274,8 @@ for (const viewport of [
         input: { description: "更新项目说明" },
       },
     });
-    await page.getByRole("button", { name: "查看 Worker 的对话" }).click();
+    await page.locator(".agent-switcher-trigger").click();
+    await page.getByRole("option").filter({ hasText: "Worker" }).click();
     const childTool = page.locator(".trajectory-tool-row");
     await expect(childTool).toContainText("更新项目说明");
     await expect

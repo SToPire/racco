@@ -7,7 +7,7 @@ for (const provider of ["codex", "claude"] as const) {
     page,
     racco,
   }) => {
-    await page.setViewportSize({ width: 2000, height: 900 });
+    await page.setViewportSize({ width: 2200, height: 900 });
     const session = racco.sessions.find(
       (candidate) => candidate.provider === provider,
     )!;
@@ -153,7 +153,7 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
   page,
   racco,
 }) => {
-  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.setViewportSize({ width: 1920, height: 900 });
   const session = racco.sessions.find((entry) => entry.provider === "codex")!;
   let socket: WebSocketRoute | undefined;
   await page.routeWebSocket("**/api/ws", (route) => {
@@ -175,6 +175,7 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
   const beforeHeight = await page
     .locator(".conversation")
     .evaluate((element) => element.scrollHeight);
+  const beforeTimeline = (await page.locator(".timeline").boundingBox())!;
   emit({
     type: "subagent.started",
     id: "nested",
@@ -190,7 +191,19 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
       name: `Worker ${i}`,
     });
   }
+  emit({
+    type: "subagent.event",
+    id: "worker-29-reasoning",
+    agentId: "worker-29",
+    event: {
+      type: "assistant.reasoning",
+      id: "worker-29-reasoning",
+      summary: [],
+      partial: true,
+    },
+  });
   const panel = page.getByRole("complementary", { name: "子 Agent 拓扑" });
+  const toggle = panel.getByRole("button", { name: "子 Agent 31" });
   await expect(
     panel.getByRole("button", { name: "查看 Worker 29 的对话", exact: true }),
   ).toBeAttached();
@@ -205,7 +218,15 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
   ).toBe(true);
   const panelBox = (await panel.boundingBox())!;
   const conversationBox = (await page.locator(".conversation").boundingBox())!;
-  expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(conversationBox.x);
+  const timelineBox = (await page.locator(".timeline").boundingBox())!;
+  const composerBox = (await page.locator(".composer-stack").boundingBox())!;
+  expect(timelineBox.x).toBeCloseTo(beforeTimeline.x, 1);
+  expect(timelineBox.width).toBeCloseTo(beforeTimeline.width, 1);
+  expect(timelineBox.x + timelineBox.width / 2).toBeCloseTo(
+    composerBox.x + composerBox.width / 2,
+    1,
+  );
+  expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(timelineBox.x);
   expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(
     conversationBox.y + conversationBox.height,
   );
@@ -222,13 +243,69 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
     "Main Agent",
   );
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  const toggle = panel.getByRole("button", { name: "子 Agent 31" });
+  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const tabsBox = (await page.locator(".session-view-tabs").boundingBox())!;
+  const trajectoryToggleBox = (await panel.boundingBox())!;
+  expect(trajectoryToggleBox.y).toBeGreaterThanOrEqual(tabsBox.y);
+  expect(
+    trajectoryToggleBox.y + trajectoryToggleBox.height,
+  ).toBeLessThanOrEqual(tabsBox.y + tabsBox.height);
+  await page
+    .locator(".trajectory-entry")
+    .first()
+    .click({
+      position: { x: 20, y: 4 },
+    });
+  await expect(
+    page.getByRole("button", { name: "Trajectory", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(
+    page.getByRole("complementary", { name: "交互详情" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const beforeExpand = (await page.locator(".timeline").boundingBox())!;
+  await toggle.click();
+  await expect(content).toBeVisible();
+  const afterExpand = (await page.locator(".timeline").boundingBox())!;
+  const compactComposer = (await page
+    .locator(".composer-stack")
+    .boundingBox())!;
+  expect(afterExpand.x).toBeCloseTo(beforeExpand.x, 1);
+  expect(afterExpand.width).toBeCloseTo(beforeExpand.width, 1);
+  expect(afterExpand.x + afterExpand.width / 2).toBeCloseTo(
+    compactComposer.x + compactComposer.width / 2,
+    1,
+  );
+  await toggle.click();
+  await expect(content).toBeHidden();
+  expect((await page.locator(".timeline").boundingBox())!.x).toBeCloseTo(
+    beforeExpand.x,
+    1,
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const chatTabsBox = (await page.locator(".session-view-tabs").boundingBox())!;
+  const chatMenuBox = (await panel.boundingBox())!;
+  const chatToggleBox = (await toggle.boundingBox())!;
+  expect(chatToggleBox.y).toBeGreaterThanOrEqual(chatTabsBox.y);
+  expect(chatToggleBox.y + chatToggleBox.height).toBeLessThanOrEqual(
+    chatTabsBox.y + chatTabsBox.height,
+  );
   await toggle.click();
   await expect(content).toBeVisible();
   const narrowBox = (await panel.boundingBox())!;
   const footerBox = (await page.locator(".session-footer").boundingBox())!;
+  expect(narrowBox.y).toBeCloseTo(chatMenuBox.y, 1);
+  expect(narrowBox.x + narrowBox.width).toBeCloseTo(
+    chatMenuBox.x + chatMenuBox.width,
+    1,
+  );
   expect(narrowBox.x).toBeGreaterThanOrEqual(0);
   expect(narrowBox.x + narrowBox.width).toBeLessThanOrEqual(390);
   expect(narrowBox.y + narrowBox.height).toBeLessThanOrEqual(footerBox.y);
@@ -239,6 +316,16 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
     "Worker 29",
   );
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const reasoning = page.locator(".reasoning-summary > summary");
+  await expect(reasoning).toContainText("正在整理思路");
+  const reasoningBox = (await reasoning.boundingBox())!;
+  const collapsedBox = (await panel.boundingBox())!;
+  expect(collapsedBox.y + collapsedBox.height).toBeLessThanOrEqual(
+    reasoningBox.y,
+  );
+  await reasoning.click({ position: { x: 24, y: 2 } });
+  await expect(page.locator(".reasoning-summary")).toHaveAttribute("open", "");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
   await page.keyboard.press("Escape");
   await expect(toggle).toBeFocused();
@@ -246,4 +333,22 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
+
+  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const narrowTabsBox = (await page
+    .locator(".session-view-tabs")
+    .boundingBox())!;
+  const narrowToggleBox = (await panel.boundingBox())!;
+  const viewSwitchBox = (await page
+    .locator(".segmented-switch")
+    .boundingBox())!;
+  expect(narrowToggleBox.x).toBeGreaterThanOrEqual(
+    viewSwitchBox.x + viewSwitchBox.width,
+  );
+  expect(narrowToggleBox.x + narrowToggleBox.width).toBeLessThanOrEqual(390);
+  expect(narrowToggleBox.y).toBeGreaterThanOrEqual(narrowTabsBox.y);
+  expect(narrowToggleBox.y + narrowToggleBox.height).toBeLessThanOrEqual(
+    narrowTabsBox.y + narrowTabsBox.height,
+  );
 });

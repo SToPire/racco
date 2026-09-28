@@ -49,7 +49,8 @@ test("links selected Chat tools to trajectory and returns to the correct agent",
       input: { file_path: "src/index.ts" },
     },
   });
-  await page.getByRole("button", { name: "查看 Reviewer 的对话" }).click();
+  await page.locator(".agent-switcher-trigger").click();
+  await page.getByRole("option").filter({ hasText: "Reviewer" }).click();
   await page.locator(".trajectory-tool-row").click();
   await page.getByRole("button", { name: "Trajectory", exact: true }).click();
   await expect(details).toContainText("子任务 · Step");

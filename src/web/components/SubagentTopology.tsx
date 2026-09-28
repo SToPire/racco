@@ -6,6 +6,10 @@ import { UiIcon } from "./UiIcon";
 
 type AgentNode = { row: SubagentTimelineRow; children: AgentNode[] };
 
+// Keep the centered 760px transcript clear of the 252px card, its 12px
+// outer inset, and a 12px gap. Both sides of a centered column need that room.
+const EXPANDED_CONTENT_WIDTH = 760 + 2 * (252 + 12 + 12);
+
 // Streaming discovery may deliver children before their parents. Rebuild from
 // current relationships, keeping disconnected nodes visible and cycles bounded.
 export function agentForest(rows: SubagentTimelineRow[]): AgentNode[] {
@@ -35,18 +39,21 @@ export function SubagentTopology({
   subagents,
   session,
   selectedAgentId,
+  defaultExpanded,
   onSelect,
 }: {
   subagents: SubagentTimelineRow[];
   session: SessionSummary;
   selectedAgentId?: string;
+  defaultExpanded: boolean;
   onSelect: (agentId: string | undefined) => void;
 }) {
   const container = useRef<HTMLElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
-  const [compact, setCompact] = useState(false);
+  // Keep the menu in the tabs until the available width is known.
+  const [compact, setCompact] = useState(true);
   const [expanded, setExpanded] = useState<boolean>();
-  const open = expanded ?? !compact;
+  const open = expanded ?? (defaultExpanded && !compact);
   const contentId = useId();
   const forest = agentForest(subagents);
   const rooted = forest.filter((node) => node.row.parentAgentId === undefined);
@@ -58,7 +65,7 @@ export function SubagentTopology({
     if (!parent) return;
     const observer = new ResizeObserver(([entry]) => {
       const width = entry?.borderBoxSize[0]?.inlineSize ?? parent.clientWidth;
-      if (width > 0) setCompact(width < 1000);
+      if (width > 0) setCompact(width < EXPANDED_CONTENT_WIDTH);
     });
     observer.observe(parent);
     return () => observer.disconnect();
@@ -129,6 +136,7 @@ export function SubagentTopology({
       ref={container}
       className="subagent-topology"
       aria-label="子 Agent 拓扑"
+      data-compact={compact}
       data-expanded={open}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;

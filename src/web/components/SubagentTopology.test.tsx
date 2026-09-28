@@ -51,6 +51,7 @@ function renderAgent(overrides: Partial<SubagentTimelineRow> = {}) {
   return renderToStaticMarkup(
     <SubagentTopology
       subagents={[row]}
+      defaultExpanded={true}
       session={{
         sessionId: "s",
         projectId: "p",

@@ -251,6 +251,7 @@ export function SessionView({
             subagents={subagents}
             session={session}
             selectedAgentId={selectedSubagent?.agentId}
+            defaultExpanded={viewMode === "chat"}
             onSelect={selectAgent}
           />
         )}
