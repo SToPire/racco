@@ -901,7 +901,11 @@ export class CodexDriver implements AgentDriver {
       )
         return;
       this.#registerSpawn(item, rootThreadId);
-      const events = mapItemEvents(item, subagents);
+      const events = mapItemEvents(
+        item,
+        subagents,
+        notification.method === "item/started" ? "started" : "completed",
+      );
       if (item.type === "subAgentActivity") {
         const link = this.#subagents.get(item.agentThreadId);
         if (link?.rootThreadId === rootThreadId)
@@ -1219,8 +1223,8 @@ export class CodexDriver implements AgentDriver {
             (item) =>
               !read?.changedItems.has(item.id) &&
               previousTurn.completedItems.has(item.id) &&
-              "status" in item &&
-              item.status === "inProgress",
+              (("status" in item && item.status === "inProgress") ||
+                (item.type === "webSearch" && item.action === null)),
           ),
       )
     ) {
@@ -1287,11 +1291,11 @@ export class CodexDriver implements AgentDriver {
         this.#toolLifecycle.observe(
           thread.id,
           turn.id,
-          mapItemEvents(item, subagents),
+          mapItemEvents(item, subagents, "snapshot"),
         );
         if (
-          "status" in item &&
-          item.status !== "inProgress" &&
+          (("status" in item && item.status !== "inProgress") ||
+            (item.type === "webSearch" && item.action !== null)) &&
           link.currentTurn?.id === turn.id
         )
           link.currentTurn.completedItems.add(item.id);

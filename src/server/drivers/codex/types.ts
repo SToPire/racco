@@ -143,6 +143,18 @@ export type CodexThreadItem =
       success: boolean | null;
     }
   | {
+      type: "webSearch";
+      id: string;
+      query: string;
+      action:
+        | { type: "search"; query: string | null; queries: string[] | null }
+        | { type: "openPage"; url: string | null }
+        | { type: "findInPage"; url: string | null; pattern: string | null }
+        | { type: "other" }
+        | null;
+      results: unknown[] | null;
+    }
+  | {
       type: "collabAgentToolCall";
       id: string;
       tool: CollabAgentTool;

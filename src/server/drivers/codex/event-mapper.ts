@@ -81,7 +81,7 @@ export function mapThreadEvents(
   const tools = new CodexToolLifecycle();
   return thread.turns.flatMap((turn) => {
     const events = turn.items.flatMap((item) =>
-      mapItemEvents(item, resolveSubagentId),
+      mapItemEvents(item, resolveSubagentId, "snapshot"),
     );
     tools.observe(thread.id, turn.id, events);
     if (turn.status !== "inProgress") {
@@ -112,6 +112,7 @@ export function mapThreadEvents(
 export function mapItemEvents(
   item: CodexThreadItem,
   resolveSubagentId: SubagentIdResolver,
+  phase: "started" | "completed" | "snapshot",
 ): ItemEvent[] {
   if (item.type === "contextCompaction") {
     return [
@@ -258,6 +259,33 @@ export function mapItemEvents(
             ? "completed"
             : "failed",
         output: stringify(item.contentItems),
+        details: item,
+      });
+    }
+    return events;
+  }
+
+  if (item.type === "webSearch") {
+    const events: ItemEvent[] = [
+      {
+        type: "tool.started",
+        id: item.id,
+        tool: "webSearch",
+        input: { query: item.query, action: item.action },
+        details: item,
+      },
+    ];
+    // Native history sets action on WebSearchEnd; results may still be null.
+    // Live starts can already carry an action, so their envelope owns the state.
+    if (
+      phase === "completed" ||
+      (phase === "snapshot" && item.action !== null)
+    ) {
+      events.push({
+        type: "tool.completed",
+        id: item.id,
+        status: "completed",
+        output: stringify(item.results),
         details: item,
       });
     }

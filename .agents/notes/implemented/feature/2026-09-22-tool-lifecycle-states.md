@@ -10,6 +10,8 @@ Status: implemented
 
 共享工具契约明确区分完成、失败、中断和结果未知，并保留 Provider 报告的耗时进度。Codex 在查询期间跟踪尚未结束的调用：原生轮次中断或失败时收束对应工具，Provider 退出时终止仍等待结果的调用；正常轮次结束却没有工具终态时标为结果未知，不推断成功。原生历史采用相同规则，保留已收到输出，不补造退出码、最终耗时或完成结果。
 
+Codex 网页操作也进入主、子对话的工具时间线，保留查询、页面动作和原生结果。实时开始与完成由通知阶段区分；历史依据原生网页结束记录才具有的 action 恢复完成状态，空结果不代表未完成。只有开始记录的调用继续遵循上述中断与结果未知规则，刷新不能把已观测终态回退成运行中。该边界对应 [Codex 原生历史构建](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/src/protocol/thread_history.rs)的开始与结束语义。
+
 本决策补充[工具活动摘要](2026-09-22-tool-activity-summaries.md)的状态真实性，并与[Codex 展示性过程](2026-09-22-codex-visible-activity.md)共享终止语义；两者继续持有各自的摘要和内容投影决定。相关记录没有被完整替代。[无逐轮记录](../simplification/2026-09-17-session-state-without-turn-ledger.md)仍约束历史归属，新增跟踪仅服务于未结束调用，结束即清除。
 
 [Codex 后台子任务事件](../bug-fix/2026-09-22-codex-background-child-events.md)补充主轮次结束后的投递边界，子任务工具仍依其自身原生终态收束。

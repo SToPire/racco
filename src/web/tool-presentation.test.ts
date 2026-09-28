@@ -224,3 +224,35 @@ test("increment/decrement hunk lines and Claude Write creations remain real chan
     "Claude already supplies a patch, even for a newly created file",
   );
 });
+
+test("Codex web actions retain their search queries and page targets", () => {
+  for (const [action, query, summary] of [
+    [
+      { type: "search", queries: ["北京天气", "上海天气"], query: null },
+      "",
+      "北京天气、上海天气",
+    ],
+    [{ type: "search", queries: null, query: "深圳天气" }, "", "深圳天气"],
+    [
+      { type: "openPage", url: "https://example.com" },
+      "",
+      "https://example.com",
+    ],
+    [
+      { type: "findInPage", url: "https://example.com", pattern: "温度" },
+      "",
+      "温度 · https://example.com",
+    ],
+    [{ type: "other" }, "", "网页操作"],
+    [null, "天气", "天气"],
+  ]) {
+    assert.deepEqual(
+      describeTool({
+        ...command,
+        tool: "webSearch",
+        input: { query, action },
+      }),
+      { label: "webSearch", summary },
+    );
+  }
+});

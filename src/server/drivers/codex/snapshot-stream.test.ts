@@ -873,3 +873,54 @@ test("continuous initial races fail after two reads and recover only from a full
   assert.equal(command.output, "log prefix recovered");
   assert.equal(f.count(), 3);
 });
+
+test("Codex child web searches survive refresh, completion and stale snapshot rejection", async (t) => {
+  const f = fixture(t);
+  const item: CodexThreadItem = {
+    type: "webSearch",
+    id: "search",
+    query: "",
+    action: null,
+    results: null,
+  };
+  f.child.turns[0]!.items = [item];
+  await f.driver.start();
+  const initial = await f.read();
+  assert.equal(f.rows(initial.events).timeline[0]!.type, "tool");
+  f.emit("item/started", { item });
+  const completed: CodexThreadItem = {
+    ...item,
+    action: { type: "other" },
+    results: [],
+  };
+  f.emit("item/completed", { item: completed });
+  const row = f.rows(initial.events).timeline[0]!;
+  assert(row.type === "tool");
+  assert.equal(row.status, "completed");
+  await assert.rejects(f.read(), /工具终态/);
+  f.child.turns[0]!.items = [completed];
+  const refreshed = buildTimeline((await f.read()).events)[0]!;
+  assert(refreshed.type === "subagent");
+  assert.deepEqual(refreshed.timeline, [row]);
+});
+
+test("Codex tracks a web search restored while running until interruption", async (t) => {
+  const f = fixture(t);
+  f.child.turns[0]!.items = [
+    {
+      type: "webSearch",
+      id: "search",
+      query: "",
+      action: null,
+      results: null,
+    },
+  ];
+  await f.driver.start();
+  const initial = await f.read();
+  f.emit("turn/completed", {
+    turn: { id: "turn", status: "interrupted", error: null, items: [] },
+  });
+  const row = f.rows(initial.events).timeline[0]!;
+  assert(row.type === "tool");
+  assert.equal(row.status, "interrupted");
+});

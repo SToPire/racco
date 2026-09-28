@@ -200,6 +200,7 @@ test("renders current Codex file changes from the mapped timeline", () => {
         ],
       },
       () => "unused-agent",
+      "snapshot",
     ),
   );
   assert(row?.type === "tool");

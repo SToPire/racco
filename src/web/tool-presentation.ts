@@ -120,7 +120,20 @@ export function describeTool(row: ToolTimelineRow): ToolPresentation {
     summary = description || text(input.prompt);
   } else if (row.tool === "backgroundTask") {
     summary = description || text(input.taskId);
-  } else if (row.tool === "WebSearch" || row.tool === "webSearch") {
+  } else if (row.tool === "webSearch") {
+    const action = record(input.action);
+    if (action.type === "openPage") summary = text(action.url);
+    else if (action.type === "findInPage")
+      summary = [text(action.pattern), text(action.url)]
+        .filter(Boolean)
+        .join(" · ");
+    else if (action.type === "search")
+      summary =
+        (Array.isArray(action.queries)
+          ? action.queries.map(text).filter(Boolean).join("、")
+          : "") || text(action.query);
+    summary ||= text(input.query) || "网页操作";
+  } else if (row.tool === "WebSearch") {
     summary = text(input.query) || description;
   } else if (row.tool === "WebFetch") {
     summary = text(input.url) || description;

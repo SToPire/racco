@@ -29,7 +29,9 @@ test("native Codex file content has the same addition/deletion facts through the
       status: "completed",
       changes: [{ path: "README.md", kind: { type }, diff: content }],
     };
-    const [row] = buildTimeline(mapItemEvents(item, () => "unused"));
+    const [row] = buildTimeline(
+      mapItemEvents(item, () => "unused", "snapshot"),
+    );
     assert(row?.type === "tool");
     assert.equal(
       describeTool(row).outcome,

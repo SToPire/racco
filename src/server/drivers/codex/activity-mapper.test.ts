@@ -232,7 +232,7 @@ test("live public reasoning, plans and message phases converge to the native his
   emit(itemNotification("item/completed", answer));
 
   const expected = [reasoning, plan, commentary, answer].flatMap((item) =>
-    mapItemEvents(item, () => "unused"),
+    mapItemEvents(item, () => "unused", "snapshot"),
   );
   assert.deepEqual(buildTimeline(events), buildTimeline(expected));
   assert.doesNotMatch(JSON.stringify(events), /PRIVATE RAW/);

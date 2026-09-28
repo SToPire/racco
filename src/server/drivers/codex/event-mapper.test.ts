@@ -157,6 +157,7 @@ test("MCP failure is not completed merely because its optional error payload is 
       result: null,
     },
     () => "unused",
+    "snapshot",
   );
   assert.equal(
     events.find((event) => event.type === "tool.completed")?.status,
@@ -203,6 +204,7 @@ test("maps Codex subagent activity without exposing provider thread IDs", () => 
         agentPath: "/root/reviewer",
       },
       () => raccoAgentId,
+      "snapshot",
     ),
     ...mapItemEvents(
       {
@@ -220,6 +222,7 @@ test("maps Codex subagent activity without exposing provider thread IDs", () => 
         },
       },
       () => raccoAgentId,
+      "snapshot",
     ),
   ];
 
@@ -368,4 +371,101 @@ test("resolves nested collaboration events to Racco agent IDs", () => {
     ),
   );
   assert.equal(JSON.stringify(events).includes("provider-grandchild"), false);
+});
+
+test("web search live envelopes distinguish running calls from completed empty results", () => {
+  const item: Extract<CodexThreadItem, { type: "webSearch" }> = {
+    type: "webSearch",
+    id: "search",
+    query: "北京天气",
+    action: { type: "search", query: "北京天气", queries: null },
+    results: null,
+  };
+  const started = mapItemEvents(item, () => undefined, "started");
+  const [running] = buildTimeline(started);
+  assert(running.type === "tool");
+  assert.equal(running.status, "running");
+  for (const results of [
+    null,
+    [],
+    [{ url: "https://example.com", title: "天气" }],
+  ]) {
+    const completed = { ...item, results };
+    const [row] = buildTimeline([
+      ...started,
+      ...mapItemEvents(completed, () => undefined, "completed"),
+    ]);
+    assert(row.type === "tool");
+    assert.equal(row.status, "completed");
+    assert.equal(row.tool, "webSearch");
+    assert.deepEqual(row.input, { query: item.query, action: item.action });
+    assert.deepEqual(row.details, completed);
+    assert.equal(
+      row.output,
+      results === null ? "" : JSON.stringify(results, null, 2),
+    );
+  }
+});
+
+test("web search history preserves completed actions in both main and child timelines", () => {
+  for (const action of [
+    { type: "search", query: null, queries: ["北京天气", "上海天气"] },
+    { type: "openPage", url: "https://example.com/weather" },
+    { type: "findInPage", url: "https://example.com/weather", pattern: "温度" },
+    { type: "other" },
+  ] as const) {
+    const item: CodexThreadItem = {
+      type: "webSearch",
+      id: "search",
+      query: "",
+      action: structuredClone(action) as Extract<
+        CodexThreadItem,
+        { type: "webSearch" }
+      >["action"],
+      results: [],
+    };
+    const history: CodexThread = {
+      ...thread,
+      turns: [{ id: "turn", status: "completed", error: null, items: [item] }],
+    };
+    const [main] = buildTimeline(mapThreadEvents(history, () => undefined));
+    const [child] = buildTimeline(
+      mapSubagentThread(history, "child", () => undefined),
+    );
+    assert(main.type === "tool");
+    assert(child.type === "subagent");
+    assert.deepEqual(child.timeline, [{ ...main, id: "child:search" }]);
+    assert.equal(main.status, "completed");
+    assert.deepEqual(main.details, item);
+  }
+});
+
+test("unfinished web searches follow native turn termination without inventing success", () => {
+  const item: CodexThreadItem = {
+    type: "webSearch",
+    id: "search",
+    query: "",
+    action: null,
+    results: null,
+  };
+  for (const [turnStatus, expected] of [
+    ["inProgress", "running"],
+    ["completed", "incomplete"],
+    ["interrupted", "interrupted"],
+    ["failed", "failed"],
+  ] as const) {
+    const [row] = buildTimeline(
+      mapThreadEvents(
+        {
+          ...thread,
+          turns: [
+            { id: "turn", status: turnStatus, error: null, items: [item] },
+          ],
+        },
+        () => undefined,
+      ),
+    );
+    assert(row.type === "tool");
+    assert.equal(row.status, expected);
+  }
 });
