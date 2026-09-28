@@ -11,6 +11,7 @@ import type {
   TimelineEvent,
   ToolCompletionStatus,
 } from "../../../shared/protocol.js";
+import type { AgentTaskNotification } from "./task-notification.js";
 
 type Owner = { parentToolUseId: string | null; ownerAgentId?: string };
 type ToolCall = Owner & { name: string; input: unknown };
@@ -68,6 +69,10 @@ export class ClaudeActivityTracker {
   readonly #pendingChildEvents = new Map<string, AgentTimelineEvent[]>();
   readonly #tasks = new Map<string, Task>();
   readonly #pendingTaskUpdates = new Map<string, TaskUpdate[]>();
+  readonly #pendingAgentNotifications = new Map<
+    string,
+    AgentTaskNotification[]
+  >();
   readonly #ignoredTasks = new Set<string>();
   readonly #appliedStops = new Set<string>();
 
@@ -249,7 +254,32 @@ export class ClaudeActivityTracker {
         });
       }
     }
+    const notifications = this.#pendingAgentNotifications.get(agentId);
+    this.#pendingAgentNotifications.delete(agentId);
+    for (const notification of notifications ?? [])
+      events.push(...this.restoreAgentNotification(notification));
     return events;
+  }
+
+  /** History notices describe existing agents; they cannot establish ownership. */
+  restoreAgentNotification(message: AgentTaskNotification): TimelineEvent[] {
+    const agent = this.#agents.get(message.task_id);
+    if (agent === undefined) {
+      const pending =
+        this.#pendingAgentNotifications.get(message.task_id) ?? [];
+      pending.push(message);
+      this.#pendingAgentNotifications.set(message.task_id, pending);
+      return [];
+    }
+    if (
+      message.tool_use_id !== undefined &&
+      agent.toolUseId !== undefined &&
+      message.tool_use_id !== agent.toolUseId
+    )
+      return [];
+    const task = this.#tasks.get(agent.id);
+    if (task) task.settled = true;
+    return this.#completeAgent(message);
   }
 
   map(message: SDKMessage): TimelineEvent[] | undefined {
@@ -402,6 +432,7 @@ export class ClaudeActivityTracker {
         });
     }
     this.#pendingTaskUpdates.clear();
+    this.#pendingAgentNotifications.clear();
     for (const agent of this.#agents.values()) {
       if (agent.state !== "starting" && agent.state !== "running") continue;
       const message = [agent.message, "执行流已结束，未收到子任务终态"]
@@ -722,27 +753,7 @@ export class ClaudeActivityTracker {
       );
     }
     task.settled = true;
-    if (task.agent)
-      return [
-        ...this.#finishAgentTools(
-          task.id,
-          message.status === "completed"
-            ? "incomplete"
-            : message.status === "stopped"
-              ? "interrupted"
-              : "failed",
-        ),
-        ...this.#setAgentState(
-          task.id,
-          message.status === "completed"
-            ? "completed"
-            : message.status === "stopped"
-              ? "interrupted"
-              : "error",
-          message.summary,
-          message.uuid,
-        ),
-      ];
+    if (task.agent) return this.#completeAgent(message);
     return this.#route(
       [
         {
@@ -761,5 +772,28 @@ export class ClaudeActivityTracker {
       task.parentToolUseId,
       task.ownerAgentId,
     );
+  }
+
+  #completeAgent(message: AgentTaskNotification): TimelineEvent[] {
+    return [
+      ...this.#finishAgentTools(
+        message.task_id,
+        message.status === "completed"
+          ? "incomplete"
+          : message.status === "stopped"
+            ? "interrupted"
+            : "failed",
+      ),
+      ...this.#setAgentState(
+        message.task_id,
+        message.status === "completed"
+          ? "completed"
+          : message.status === "stopped"
+            ? "interrupted"
+            : "error",
+        message.summary,
+        message.uuid,
+      ),
+    ];
   }
 }

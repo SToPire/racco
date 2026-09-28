@@ -8,6 +8,7 @@ import type {
   TimelineEvent,
 } from "../../../shared/protocol.js";
 import { ClaudeActivityTracker } from "./activity-tracker.js";
+import { historicalTaskNotifications } from "./task-notification.js";
 
 export type ClaudeHistoryMessage = SessionMessage & {
   toolUseResult?: unknown;
@@ -163,9 +164,18 @@ export function mapClaudeHistory(
     }
     return [];
   }
-  const events = messages.flatMap((entry) =>
-    activities.observe(project(entry), entry.parent_tool_use_id),
-  );
+  function observe(
+    entry: ClaudeHistoryMessage,
+    agentId?: string,
+  ): TimelineEvent[] {
+    return [
+      ...activities.observe(project(entry), entry.parent_tool_use_id, agentId),
+      ...historicalTaskNotifications(entry).flatMap((notification) =>
+        activities.restoreAgentNotification(notification),
+      ),
+    ];
+  }
+  const events = messages.flatMap((entry) => observe(entry));
   for (const child of subagents) {
     const toolUseId =
       child.messages.find((entry) => entry.parent_tool_use_id !== null)
@@ -182,13 +192,7 @@ export function mapClaudeHistory(
       ),
     );
     for (const entry of child.messages)
-      events.push(
-        ...activities.observe(
-          project(entry),
-          entry.parent_tool_use_id,
-          child.agentId,
-        ),
-      );
+      events.push(...observe(entry, child.agentId));
   }
   events.push(...activities.finish("incomplete"));
   return events;
