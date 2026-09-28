@@ -858,6 +858,62 @@ test("a native task_started can reopen a stopped agent whose old launch identity
   assert.equal(worker.state, "running");
 });
 
+test("historical notices preserve an observed stop until a native task start resumes the agent", () => {
+  for (const knownLaunch of [true, false]) {
+    const tracker = new ClaudeActivityTracker();
+    const events = knownLaunch ? tracker.map(started("worker", "spawn"))! : [];
+    events.push(
+      ...stopEvents(tracker, {
+        task_id: "worker",
+        task_type: "local_agent",
+        message: "Stopped worker",
+      }),
+    );
+    for (const status of ["completed", "failed", "stopped"] as const) {
+      assert.deepEqual(
+        tracker.restoreAgentNotification({
+          ...finished("worker", status),
+          tool_use_id: "spawn",
+        }),
+        [],
+      );
+    }
+    const stopped = buildTimeline(events).find(
+      (row) => row.type === "subagent",
+    );
+    assert(stopped?.type === "subagent");
+    assert.equal(stopped.state, "interrupted");
+    assert.equal(stopped.statusMessage, "Stopped worker");
+
+    events.push(...tracker.map(started("worker", "resume-call"))!);
+    const resumed = buildTimeline(events).find(
+      (row) => row.type === "subagent",
+    );
+    assert(resumed?.type === "subagent");
+    assert.equal(resumed.state, "running");
+    assert.deepEqual(
+      tracker.restoreAgentNotification({
+        ...finished("worker"),
+        tool_use_id: "spawn",
+      }),
+      [],
+    );
+    events.push(
+      ...tracker.restoreAgentNotification({
+        ...finished("worker"),
+        tool_use_id: "resume-call",
+      }),
+    );
+    events.push(...tracker.finish("incomplete"));
+    const completed = buildTimeline(events).find(
+      (row) => row.type === "subagent",
+    );
+    assert(completed?.type === "subagent");
+    assert.equal(completed.state, "completed");
+    assert.equal(completed.statusMessage, "Parser checked");
+  }
+});
+
 test("a successful result without TaskStop provenance or complete target identity cannot stop a task", () => {
   for (const [toolName, output] of [
     ["Read", { task_id: "worker", task_type: "local_agent" }],

@@ -580,7 +580,11 @@ for (const retainLaunch of [true, false]) {
   }
 }
 
-for (const oldStatus of ["async_launched", "completed"] as const) {
+for (const oldStatus of [
+  "async_launched",
+  "completed",
+  "notification",
+] as const) {
   for (const parentFirst of [true, false]) {
     test(`root stop survives a later ${oldStatus} leaf result in ${parentFirst ? "parent-first" : "leaf-first"} child history`, async () => {
       const key = { projectKey: "-history-fixture", sessionId };
@@ -644,9 +648,9 @@ for (const oldStatus of ["async_launched", "completed"] as const) {
       );
       const store = new InMemorySessionStore();
       const leafResult =
-        oldStatus === "async_launched"
+        oldStatus !== "completed"
           ? {
-              status: oldStatus,
+              status: "async_launched",
               agentId: "leaf",
               description: "Leaf task",
               prompt: "Read parser",
@@ -678,6 +682,18 @@ for (const oldStatus of ["async_launched", "completed"] as const) {
             description: "Leaf task",
           }),
           result("leaf-returned", "leaf-launch", "leaf-spawn", leafResult),
+          ...(oldStatus === "notification"
+            ? [
+                {
+                  ...user(
+                    "leaf-notice",
+                    "leaf-returned",
+                    "<task-notification>\n<task-id>leaf</task-id>\n<tool-use-id>leaf-spawn</tool-use-id>\n<output-file>/work/leaf.txt</output-file>\n<status>completed</status>\n<summary>Earlier leaf completion</summary>\n</task-notification>",
+                  ),
+                  origin: { kind: "task-notification" },
+                },
+              ]
+            : []),
         ].map((entry) => ({ ...entry, isSidechain: true })),
       );
       await store.append(
@@ -692,6 +708,15 @@ for (const oldStatus of ["async_launched", "completed"] as const) {
           call("leaf-read", "leaf-request", "leaf-pending-read", "Read", {
             file_path: "parser.ts",
           }),
+          call("finished-read", "leaf-read", "leaf-completed-read", "Read", {
+            file_path: "README.md",
+          }),
+          result(
+            "read-result",
+            "finished-read",
+            "leaf-completed-read",
+            undefined,
+          ),
         ].map((entry) => ({ ...entry, isSidechain: true })),
       );
       const children = await selectClaudeSubagentHistory(
@@ -713,6 +738,12 @@ for (const oldStatus of ["async_launched", "completed"] as const) {
       const read = leaf.timeline.find((row) => row.id === "leaf-pending-read");
       assert(read?.type === "tool");
       assert.equal(read.status, "interrupted");
+      const completedRead = leaf.timeline.find(
+        (row) => row.id === "leaf-completed-read",
+      );
+      assert(completedRead?.type === "tool");
+      assert.equal(completedRead.status, "completed");
+      assert.equal(completedRead.output, "Native tool result");
       const parent = rows.find(
         (row) => row.type === "subagent" && row.agentId === "parent",
       );

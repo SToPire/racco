@@ -271,6 +271,9 @@ export class ClaudeActivityTracker {
       this.#pendingAgentNotifications.set(message.task_id, pending);
       return [];
     }
+    // Child history can replay older notices after the root's TaskStop.
+    // Match Agent receipts: only a native task start can reopen a stopped agent.
+    if (agent.state === "interrupted") return [];
     if (
       message.tool_use_id !== undefined &&
       agent.toolUseId !== undefined &&
