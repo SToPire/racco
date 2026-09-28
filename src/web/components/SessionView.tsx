@@ -1,3 +1,4 @@
+import type { UserInput } from "../../shared/user-input";
 import { UiIcon } from "./UiIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -37,7 +38,10 @@ type SessionViewProps = {
   sending: boolean;
   error?: string;
   onBack: () => void;
-  onSend: (text: string, modelSettings: ModelSettings) => Promise<boolean>;
+  onSend: (
+    content: UserInput,
+    modelSettings: ModelSettings,
+  ) => Promise<boolean>;
   onSelectTool: (id: string | undefined) => void;
   onInterrupt: () => void;
   onCompact: () => Promise<boolean>;
@@ -106,6 +110,7 @@ export function SessionView({
                     type: "user.message" as const,
                     id: `subagent-task:${selectedSubagent.agentId}`,
                     text: selectedSubagent.prompt,
+                    imageCount: 0,
                   },
                 ]),
             ...selectedSubagent.timeline,
@@ -156,9 +161,9 @@ export function SessionView({
     onSelectTool(undefined);
   }
 
-  function sendToMainAgent(text: string, modelSettings: ModelSettings) {
+  function sendToMainAgent(content: UserInput, modelSettings: ModelSettings) {
     setSelectedAgentId(undefined);
-    return onSend(text, modelSettings);
+    return onSend(content, modelSettings);
   }
 
   return (
@@ -345,6 +350,7 @@ export function SessionView({
             </button>
           )}
           <Composer
+            scope={session.sessionId}
             compacting={session.compacting}
             contextControls={
               session.provider === "codex" ? (

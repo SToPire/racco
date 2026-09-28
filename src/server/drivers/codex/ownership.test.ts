@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { temporaryImages } from "../../../../test/images.js";
 import { setImmediate } from "node:timers/promises";
 import test, { type TestContext } from "node:test";
 import type { SessionState, TimelineEvent } from "../../../shared/protocol.js";
@@ -94,7 +95,10 @@ async function fixture(t: TestContext) {
       };
     },
   );
-  const driver = new CodexDriver({ info() {}, warn() {} });
+  const driver = new CodexDriver(
+    { info() {}, warn() {} },
+    await temporaryImages(),
+  );
   t.after(async () => {
     await driver.close();
     await Promise.all(pending);
@@ -139,7 +143,7 @@ async function fixture(t: TestContext) {
         .runTurn({
           handle,
           mode: "resume",
-          prompt: "Continue",
+          content: [{ type: "text", text: "Continue" }],
           modelSettings,
           signal: new AbortController().signal,
           context: {

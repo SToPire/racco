@@ -14,7 +14,12 @@ test("returning to a long conversation reuses its DOM, draft and reading positio
   );
   const history = JSON.parse(await readFile(file, "utf8"));
   history.events = Array.from({ length: 120 }, (_, index) => [
-    { type: "user.message", id: `user-${index}`, text: `Request ${index}` },
+    {
+      imageCount: 0,
+      type: "user.message",
+      id: `user-${index}`,
+      text: `Request ${index}`,
+    },
     {
       type: "assistant.message",
       id: `reply-${index}`,

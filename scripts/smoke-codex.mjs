@@ -137,7 +137,12 @@ try {
       provider,
       projectId: project.projectId,
       path: project.path,
-      prompt: `Reply with exactly ${firstExpected}. Do not use any tools.`,
+      content: [
+        {
+          type: "text",
+          text: `Reply with exactly ${firstExpected}. Do not use any tools.`,
+        },
+      ],
     }),
   );
 
@@ -155,7 +160,12 @@ try {
       modelSettings,
       requestId: followupRequestId,
       sessionId: ref.sessionId,
-      prompt: `Reply with exactly ${secondExpected}. Do not use any tools.`,
+      content: [
+        {
+          type: "text",
+          text: `Reply with exactly ${secondExpected}. Do not use any tools.`,
+        },
+      ],
     }),
   );
   await secondAck;

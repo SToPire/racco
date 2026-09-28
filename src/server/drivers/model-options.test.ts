@@ -24,6 +24,7 @@ test("Codex retains native names and model-specific effort strings", () => {
   assert.equal(catalog.suggestedModelId, "test-model");
   assert.deepEqual(catalog.models, [
     {
+      imageInput: "unsupported",
       id: "test-model",
       displayName: "Provider NAME",
       description: "native description",

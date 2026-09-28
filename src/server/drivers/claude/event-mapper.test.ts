@@ -70,6 +70,7 @@ const messages: SessionMessage[] = [
 test("maps Claude history into the shared materialized timeline", () => {
   assert.deepEqual(buildTimeline(mapClaudeHistory(messages)), [
     {
+      imageCount: 0,
       type: "user.message",
       id: "user-1",
       text: "inspect package.json",
@@ -872,4 +873,32 @@ test("an SDK error envelope does not replace or withdraw the in-flight answer", 
     ]);
     assert.equal(buildTimeline([...events, ...notice, ...stopped]).length, 2);
   }
+});
+
+test("pure-image Claude history retains a placeholder without exposing image bytes", () => {
+  const events = mapClaudeHistory([
+    {
+      type: "user",
+      uuid: "image-only",
+      session_id: "session",
+      parent_tool_use_id: null,
+      parent_agent_id: null,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "PRIVATE_IMAGE_BYTES",
+            },
+          },
+        ],
+      },
+    },
+  ]);
+  assert.deepEqual(events, [
+    { type: "user.message", id: "image-only", text: "", imageCount: 1 },
+  ]);
 });

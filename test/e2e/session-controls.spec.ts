@@ -1,3 +1,4 @@
+import { inputText } from "../../src/shared/user-input";
 import type { Page } from "@playwright/test";
 import type { ClientCommand, ServerMessage } from "../../src/shared/protocol";
 import { test, expect } from "./fixtures";
@@ -14,7 +15,8 @@ function observeTurnStarts(page: Page) {
   page.on("websocket", (socket) => {
     socket.on("framesent", ({ payload }) => {
       const command = JSON.parse(String(payload)) as ClientCommand;
-      if (command.type === "turn.start") prompts.push(command.prompt);
+      if (command.type === "turn.start")
+        prompts.push(inputText(command.content));
     });
   });
   return prompts;

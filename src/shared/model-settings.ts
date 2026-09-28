@@ -38,6 +38,7 @@ export const ModelOptionSchema = z.strictObject({
   id: z.string().min(1),
   displayName: z.string().min(1),
   description: z.string(),
+  imageInput: z.enum(["supported", "unsupported", "unknown"]),
   reasoningEffort: EffortCapabilitySchema,
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;

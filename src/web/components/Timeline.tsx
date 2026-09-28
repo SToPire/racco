@@ -110,7 +110,12 @@ export const Timeline = memo(function Timeline({
                       .join(" · ")}
                   </small>
                 )}
-              <MarkdownContent text={row.text} />
+              {user && row.imageCount > 0 && (
+                <p className="message-image-placeholder">
+                  图片 × {row.imageCount} · 未保留预览
+                </p>
+              )}
+              {row.text && <MarkdownContent text={row.text} />}
             </div>
           </article>
         );

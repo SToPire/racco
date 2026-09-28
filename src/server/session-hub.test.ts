@@ -1,3 +1,6 @@
+import sharp from "sharp";
+import { ImageInputs } from "./images/input.js";
+import type { UserInput } from "../shared/user-input.js";
 import {
   fixtureModelCatalog,
   fixtureModelSettings,
@@ -77,7 +80,7 @@ async function modelTestHub() {
       context.setState("interrupted");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   return {
     hub,
     driver,
@@ -103,7 +106,7 @@ test("rejects invalid model/effort pairs before allocating a native session", as
         f.projectId,
         f.cwd,
         "bad",
-        "task",
+        [{ type: "text", text: "task" }],
         {
           modelId: "fixture-fast",
           reasoningEffort: "xhigh",
@@ -141,12 +144,12 @@ test("broadcasts withdrawn and stopped text and replays it consistently on recon
       f.projectId,
       f.cwd,
       "stream-lifecycle",
-      "hello",
+      [{ type: "text", text: "hello" }],
       fixtureModelSettings,
     );
     await f.hub.startTurn(
       ref,
-      "hello",
+      [{ type: "text", text: "hello" }],
       "create:stream-lifecycle",
       fixtureModelSettings,
     );
@@ -206,7 +209,7 @@ test("coalesces creation and binds accepted requests to both model and effort", 
         f.projectId,
         f.cwd,
         "same",
-        "task",
+        [{ type: "text", text: "task" }],
         fixtureModelSettings,
       );
     const [first, second] = await Promise.all([create(), create()]);
@@ -221,8 +224,18 @@ test("coalesces creation and binds accepted requests to both model and effort", 
       "provisioning",
     );
     const starts = await Promise.all([
-      f.hub.startTurn(first.ref, "task", "create:same", fixtureModelSettings),
-      f.hub.startTurn(first.ref, "task", "create:same", fixtureModelSettings),
+      f.hub.startTurn(
+        first.ref,
+        [{ type: "text", text: "task" }],
+        "create:same",
+        fixtureModelSettings,
+      ),
+      f.hub.startTurn(
+        first.ref,
+        [{ type: "text", text: "task" }],
+        "create:same",
+        fixtureModelSettings,
+      ),
     ]);
     assert.deepEqual(starts.sort(), [false, true]);
     assert.deepEqual(f.received, [fixtureModelSettings]);
@@ -231,10 +244,15 @@ test("coalesces creation and binds accepted requests to both model and effort", 
       fixtureModelSettings,
     );
     await assert.rejects(
-      f.hub.startTurn(first.ref, "task", "create:same", {
-        ...fixtureModelSettings,
-        reasoningEffort: "xhigh",
-      }),
+      f.hub.startTurn(
+        first.ref,
+        [{ type: "text", text: "task" }],
+        "create:same",
+        {
+          ...fixtureModelSettings,
+          reasoningEffort: "xhigh",
+        },
+      ),
       /Initial turn does not match/,
     );
     await assert.rejects(
@@ -244,7 +262,7 @@ test("coalesces creation and binds accepted requests to both model and effort", 
         f.projectId,
         f.cwd,
         "same",
-        "changed task",
+        [{ type: "text", text: "changed task" }],
         fixtureModelSettings,
       ),
       /different parameters/,
@@ -253,7 +271,7 @@ test("coalesces creation and binds accepted requests to both model and effort", 
     assert.equal(
       await f.hub.startTurn(
         first.ref,
-        "task",
+        [{ type: "text", text: "task" }],
         "create:same",
         fixtureModelSettings,
       ),
@@ -274,7 +292,7 @@ test("a provisioning session with a native ID can complete after recovery withou
       f.projectId,
       f.cwd,
       "recover",
-      "task",
+      [{ type: "text", text: "task" }],
       fixtureModelSettings,
     );
     await f.hub.initialize();
@@ -288,14 +306,14 @@ test("a provisioning session with a native ID can complete after recovery withou
       f.projectId,
       f.cwd,
       "recover",
-      "task",
+      [{ type: "text", text: "task" }],
       fixtureModelSettings,
     );
     assert.deepEqual(replay.ref, created.ref);
     assert.equal(f.allocations(), 1);
     await f.hub.startTurn(
       replay.ref,
-      "task",
+      [{ type: "text", text: "task" }],
       "create:recover",
       fixtureModelSettings,
     );
@@ -319,8 +337,18 @@ test("competing clients cannot combine settings or start concurrent turns", asyn
     });
     const alternate = { modelId: "fixture-fast", reasoningEffort: "medium" };
     const results = await Promise.allSettled([
-      f.hub.startTurn(session, "a", "client-a", fixtureModelSettings),
-      f.hub.startTurn(session, "b", "client-b", alternate),
+      f.hub.startTurn(
+        session,
+        [{ type: "text", text: "a" }],
+        "client-a",
+        fixtureModelSettings,
+      ),
+      f.hub.startTurn(
+        session,
+        [{ type: "text", text: "b" }],
+        "client-b",
+        alternate,
+      ),
     ]);
     assert.equal(
       results.filter((result) => result.status === "fulfilled").length,
@@ -333,7 +361,12 @@ test("competing clients cannot combine settings or start concurrent turns", asyn
     );
     f.hub.interrupt(session);
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await f.hub.startTurn(session, "next", "next", alternate);
+    await f.hub.startTurn(
+      session,
+      [{ type: "text", text: "next" }],
+      "next",
+      alternate,
+    );
     assert.deepEqual(f.received[1], alternate);
     assert.deepEqual(
       f.repository.get(session.sessionId)?.selectedModelSettings,
@@ -381,7 +414,7 @@ test("publishes idle only after the active turn is cleared", async () => {
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   hub.registerClient(socket);
   const created = await hub.createSession(
     socket,
@@ -389,14 +422,14 @@ test("publishes idle only after the active turn is cleared", async () => {
     fixtureProjectId(repository, cwd),
     cwd,
     "create-1",
-    "first",
+    [{ type: "text", text: "first" }],
     fixtureModelSettings,
   );
 
   sent.length = 0;
   await hub.startTurn(
     created.ref,
-    "first",
+    [{ type: "text", text: "first" }],
     "create:create-1",
     fixtureModelSettings,
   );
@@ -413,7 +446,7 @@ test("publishes idle only after the active turn is cleared", async () => {
     async () =>
       await hub.startTurn(
         created.ref,
-        "second",
+        [{ type: "text", text: "second" }],
         "turn-2",
         fixtureModelSettings,
       ),
@@ -463,6 +496,7 @@ test("publishes the accepted user message before the provider responds", async (
     async runTurn({ context }) {
       await turnDone;
       context.emit({
+        imageCount: 0,
         type: "user.message",
         id: "provider-user",
         text: "hello",
@@ -475,21 +509,21 @@ test("publishes the accepted user message before the provider responds", async (
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const created = await hub.createSession(
     socket,
     "codex",
     fixtureProjectId(repository, cwd),
     cwd,
     "create-immediate-user",
-    "hello",
+    [{ type: "text", text: "hello" }],
     fixtureModelSettings,
   );
   sent.length = 0;
 
   await hub.startTurn(
     created.ref,
-    "hello",
+    [{ type: "text", text: "hello" }],
     "create:create-immediate-user",
     fixtureModelSettings,
   );
@@ -501,6 +535,7 @@ test("publishes the accepted user message before the provider responds", async (
     immediateEvents.map((message) => message.event),
     [
       {
+        imageCount: 0,
         type: "user.message",
         id: immediateEvents[0]!.event.id,
         text: "hello",
@@ -560,7 +595,7 @@ test("does not overwrite live events when a targeted provider read races with a 
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const imported = repository.importSession({
     provider: "claude",
     providerSessionId: "native-race",
@@ -573,7 +608,7 @@ test("does not overwrite live events when a targeted provider read races with a 
 
   await hub.startTurn(
     created.ref,
-    "race",
+    [{ type: "text", text: "race" }],
     "create:create-race",
     fixtureModelSettings,
   );
@@ -646,14 +681,14 @@ test("keeps an allocated session readable without scanning provider history", as
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const created = await hub.createSession(
     socket,
     "claude",
     fixtureProjectId(repository, cwd),
     cwd,
     "create-pending",
-    "initial",
+    [{ type: "text", text: "initial" }],
     fixtureModelSettings,
   );
 
@@ -695,7 +730,7 @@ test("rejects unregistered Racco IDs before calling a provider", async () => {
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
 
   assert.equal(
     await hub.snapshot({ sessionId: "native-or-unknown-id" }),
@@ -743,20 +778,20 @@ test("repairs an allocated session with a targeted startup lookup", async () => 
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const created = await hub.createSession(
     recordingSocket(),
     "claude",
     fixtureProjectId(repository, cwd),
     cwd,
     "create-recovered",
-    "initial",
+    [{ type: "text", text: "initial" }],
     fixtureModelSettings,
   );
 
   await hub.startTurn(
     created.ref,
-    "initial",
+    [{ type: "text", text: "initial" }],
     "create:create-recovered",
     fixtureModelSettings,
   );
@@ -812,21 +847,21 @@ test("does not resubmit an initial message for an already activated session", as
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const created = await hub.createSession(
     recordingSocket(),
     "claude",
     fixtureProjectId(repository, cwd),
     cwd,
     "create-idempotent",
-    "hello",
+    [{ type: "text", text: "hello" }],
     fixtureModelSettings,
   );
 
   assert.equal(
     await hub.startTurn(
       created.ref,
-      "hello",
+      [{ type: "text", text: "hello" }],
       "create:create-idempotent",
       fixtureModelSettings,
     ),
@@ -835,7 +870,7 @@ test("does not resubmit an initial message for an already activated session", as
   assert.equal(
     await hub.startTurn(
       created.ref,
-      "hello",
+      [{ type: "text", text: "hello" }],
       "create:create-idempotent",
       fixtureModelSettings,
     ),
@@ -845,7 +880,7 @@ test("does not resubmit an initial message for an already activated session", as
     async () =>
       await hub.startTurn(
         created.ref,
-        "different",
+        [{ type: "text", text: "different" }],
         "another-turn-request",
         fixtureModelSettings,
       ),
@@ -880,7 +915,9 @@ test("imports only the explicitly requested native session and deduplicates it",
           updatedAt: "2026-09-03T00:00:00.000Z",
           title: "Imported thread",
         },
-        events: [{ type: "user.message", id: "user-1", text: "hello" }],
+        events: [
+          { imageCount: 0, type: "user.message", id: "user-1", text: "hello" },
+        ],
       };
     },
     async deleteSession() {
@@ -891,7 +928,7 @@ test("imports only the explicitly requested native session and deduplicates it",
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const projectId = fixtureProjectId(repository, cwd);
 
   const first = await hub.importSession({
@@ -953,19 +990,19 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
       });
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const created = await hub.createSession(
     recordingSocket(),
     "codex",
     fixtureProjectId(repository, cwd),
     cwd,
     "create-shutdown",
-    "wait",
+    [{ type: "text", text: "wait" }],
     fixtureModelSettings,
   );
   await hub.startTurn(
     created.ref,
-    "wait",
+    [{ type: "text", text: "wait" }],
     "create:create-shutdown",
     fixtureModelSettings,
   );
@@ -979,7 +1016,12 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
 test("imports canonical projects into the database without scanning a parent", async () => {
   const cwd = await fixtureCwd();
   const repository = memoryRepository();
-  const hub = new SessionHub([], repository, await fixtureCwd());
+  const hub = new SessionHub(
+    [],
+    repository,
+    await fixtureCwd(),
+    async () => {},
+  );
 
   const first = await hub.importProject(cwd);
   const second = await hub.importProject(cwd);
@@ -1021,7 +1063,7 @@ test("rejects session creation unless the project is already imported", async ()
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
 
   await assert.rejects(
     hub.createSession(
@@ -1030,7 +1072,7 @@ test("rejects session creation unless the project is already imported", async ()
       "unknown-project",
       cwd,
       "create-unknown",
-      "initial",
+      [{ type: "text", text: "initial" }],
       fixtureModelSettings,
     ),
     /Project not found/,
@@ -1071,7 +1113,12 @@ test("broadcasts a real session turn to every subscribed client", async () => {
       return { providerSessionId: "native-shared", cwd, materialized: true };
     },
     async runTurn({ context }) {
-      context.emit({ type: "user.message", id: "user-shared", text: "hello" });
+      context.emit({
+        imageCount: 0,
+        type: "user.message",
+        id: "user-shared",
+        text: "hello",
+      });
       context.emit({
         type: "assistant.message",
         id: "agent-shared",
@@ -1080,14 +1127,14 @@ test("broadcasts a real session turn to every subscribed client", async () => {
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   const created = await hub.createSession(
     socketA,
     "codex",
     fixtureProjectId(repository, cwd),
     cwd,
     "create-shared",
-    "hello",
+    [{ type: "text", text: "hello" }],
     fixtureModelSettings,
   );
   await hub.subscribe(socketB, created.ref);
@@ -1096,7 +1143,7 @@ test("broadcasts a real session turn to every subscribed client", async () => {
 
   await hub.startTurn(
     created.ref,
-    "hello",
+    [{ type: "text", text: "hello" }],
     "create:create-shared",
     fixtureModelSettings,
   );
@@ -1148,7 +1195,7 @@ test("broadcasts project and session catalog updates to every connected client",
       context.setState("idle");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   hub.registerClient(socketA);
   hub.registerClient(socketB);
 
@@ -1172,7 +1219,7 @@ test("broadcasts project and session catalog updates to every connected client",
     project.projectId,
     project.path,
     "create-catalog",
-    "hello",
+    [{ type: "text", text: "hello" }],
     fixtureModelSettings,
   );
   for (const sent of [sentA, sentB]) {
@@ -1190,7 +1237,7 @@ test("broadcasts project and session catalog updates to every connected client",
   sentB.length = 0;
   await hub.startTurn(
     created.ref,
-    "hello",
+    [{ type: "text", text: "hello" }],
     "create:create-catalog",
     fixtureModelSettings,
   );
@@ -1224,7 +1271,7 @@ test("compaction keeps a shared busy flag until completion without database writ
   f.driver.onSessionUpdate = (listener) => {
     notify = listener;
   };
-  const hub = new SessionHub([f.driver], f.repository, f.cwd);
+  const hub = new SessionHub([f.driver], f.repository, f.cwd, async () => {});
   let calls = 0;
   f.driver.compact = async () => {
     calls++;
@@ -1244,7 +1291,12 @@ test("compaction keeps a shared busy flag until completion without database writ
     await hub.compact(ref);
     await assert.rejects(hub.compact(ref), /busy/);
     await assert.rejects(
-      hub.startTurn(ref, "blocked", "while-compacting", fixtureModelSettings),
+      hub.startTurn(
+        ref,
+        [{ type: "text", text: "blocked" }],
+        "while-compacting",
+        fixtureModelSettings,
+      ),
       /active turn/,
     );
     assert.equal(calls, 1);
@@ -1281,7 +1333,12 @@ test("compaction keeps a shared busy flag until completion without database writ
       usedTokens: 12000,
       maxTokens: 272000,
     });
-    const freshHub = new SessionHub([f.driver], f.repository, f.cwd);
+    const freshHub = new SessionHub(
+      [f.driver],
+      f.repository,
+      f.cwd,
+      async () => {},
+    );
     assert.equal((await freshHub.snapshot(ref))?.session.contextUsage, null);
     const beforeFailure = f.repository.get(ref.sessionId);
     f.driver.compact = async () => {
@@ -1301,7 +1358,7 @@ test("metadata.changed updates the session title and broadcasts upsert", async (
   f.driver.onSessionUpdate = (listener) => {
     notify = listener;
   };
-  const hub = new SessionHub([f.driver], f.repository, f.cwd);
+  const hub = new SessionHub([f.driver], f.repository, f.cwd, async () => {});
   try {
     const sent: ServerMessage[] = [];
     const socket = recordingSocket(sent);
@@ -1376,7 +1433,7 @@ test("deleteNativeSession removes the provider file and the managed record atomi
     },
     async runTurn() {},
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   try {
     const imported = await hub.importSession({
       provider: "codex",
@@ -1459,7 +1516,7 @@ test("deleteNativeSession rejects foreign management, busy sessions and stale pr
       context.setState("interrupted");
     },
   };
-  const hub = new SessionHub([driver], repository, cwd);
+  const hub = new SessionHub([driver], repository, cwd, async () => {});
   try {
     const imported = await hub.importSession({
       provider: "codex",
@@ -1467,7 +1524,12 @@ test("deleteNativeSession rejects foreign management, busy sessions and stale pr
       projectId,
       path: cwd,
     });
-    await hub.startTurn(imported, "task", "turn-1", fixtureModelSettings);
+    await hub.startTurn(
+      imported,
+      [{ type: "text", text: "task" }],
+      "turn-1",
+      fixtureModelSettings,
+    );
     await assert.rejects(
       hub.deleteNativeSession({
         provider: "codex",
@@ -1550,8 +1612,18 @@ test("a late subscription cannot replace a newer session or reattach a disconnec
     await f.hub.subscribe(socket, fast);
     release.resolve();
     await pending;
-    await f.hub.startTurn(fast, "fast", "fast-turn", fixtureModelSettings);
-    await f.hub.startTurn(slow, "slow", "slow-turn", fixtureModelSettings);
+    await f.hub.startTurn(
+      fast,
+      [{ type: "text", text: "fast" }],
+      "fast-turn",
+      fixtureModelSettings,
+    );
+    await f.hub.startTurn(
+      slow,
+      [{ type: "text", text: "slow" }],
+      "slow-turn",
+      fixtureModelSettings,
+    );
     assert.deepEqual(
       sent
         .filter((message) => message.type === "timeline.event")
@@ -1579,7 +1651,12 @@ test("a late subscription cannot replace a newer session or reattach a disconnec
     finishRead.resolve();
     await disconnected;
     sent.length = 0;
-    await f.hub.startTurn(idle, "idle", "idle-turn", fixtureModelSettings);
+    await f.hub.startTurn(
+      idle,
+      [{ type: "text", text: "idle" }],
+      "idle-turn",
+      fixtureModelSettings,
+    );
     assert.equal(
       sent.filter((message) => message.type === "timeline.event").length,
       0,
@@ -1618,7 +1695,12 @@ test("native deletion blocks starts across model discovery and compaction, and r
       assert.fail("compaction must not start during deletion");
     };
     const starting = assert.rejects(
-      f.hub.startTurn(ref, "task", "racing-start", fixtureModelSettings),
+      f.hub.startTurn(
+        ref,
+        [{ type: "text", text: "task" }],
+        "racing-start",
+        fixtureModelSettings,
+      ),
       /busy/,
     );
     await modelEntered.promise;
@@ -1630,7 +1712,12 @@ test("native deletion blocks starts across model discovery and compaction, and r
     modelRelease.resolve();
     await starting;
     await assert.rejects(
-      f.hub.startTurn(ref, "task", "later-start", fixtureModelSettings),
+      f.hub.startTurn(
+        ref,
+        [{ type: "text", text: "task" }],
+        "later-start",
+        fixtureModelSettings,
+      ),
       /busy/,
     );
     await assert.rejects(f.hub.compact(ref), /busy/);
@@ -1648,7 +1735,7 @@ test("native deletion blocks starts across model discovery and compaction, and r
     assert.equal(
       await f.hub.startTurn(
         ref,
-        "retry",
+        [{ type: "text", text: "retry" }],
         "after-failure",
         fixtureModelSettings,
       ),
@@ -1754,7 +1841,7 @@ test("reports creation errors immediately and returns a generic error on retry",
       f.projectId,
       f.cwd,
       "failed-create",
-      "hello",
+      [{ type: "text", text: "hello" }],
       fixtureModelSettings,
     );
   try {
@@ -1779,12 +1866,12 @@ test("broadcasts execution errors immediately while retaining the execution stat
       f.projectId,
       f.cwd,
       "failed-turn",
-      "hello",
+      [{ type: "text", text: "hello" }],
       fixtureModelSettings,
     );
     await f.hub.startTurn(
       ref,
-      "hello",
+      [{ type: "text", text: "hello" }],
       "create:failed-turn",
       fixtureModelSettings,
     );
@@ -1846,7 +1933,7 @@ test("deleteProject leaves linked worktrees on disk unless asked to remove them"
     name: "fixture",
     path: project,
   }).projectId;
-  const hub = new SessionHub([], repository, worktreeRoot);
+  const hub = new SessionHub([], repository, worktreeRoot, async () => {});
   t.after(() => hub.close());
   const linkedPath = join(worktreeRoot, "linked");
   assert.equal(await exists(linkedPath), true);
@@ -1881,3 +1968,138 @@ test("deleteProject leaves linked worktrees on disk unless asked to remove them"
     "project directory itself is never removed",
   );
 });
+
+test("a matching initial image preparation failure marks provisioning failed without poisoning mismatched requests", async (t) => {
+  const f = await modelTestHub();
+  const sent: ServerMessage[] = [];
+  const socket = recordingSocket(sent);
+  f.hub.registerClient(socket);
+  const content: UserInput = [
+    {
+      type: "image",
+      mediaType: "image/png",
+      data: (
+        await sharp({
+          create: { width: 8, height: 8, channels: 3, background: "red" },
+        })
+          .png()
+          .toBuffer()
+      ).toString("base64"),
+    },
+  ];
+  try {
+    const created = await f.hub.createSession(
+      socket,
+      "codex",
+      f.projectId,
+      f.cwd,
+      "image-prepare",
+      content,
+      fixtureModelSettings,
+    );
+    let preparations = 0;
+    t.mock.method(ImageInputs.prototype, "prepare", async () => {
+      preparations++;
+      throw new Error("图片处理容量已满");
+    });
+    await assert.rejects(
+      f.hub.startTurn(
+        created.ref,
+        [{ type: "text", text: "changed" }],
+        "create:image-prepare",
+        fixtureModelSettings,
+      ),
+      /does not match/,
+    );
+    assert.equal(preparations, 0);
+    assert.equal(
+      f.repository.get(created.ref.sessionId)?.lifecycle,
+      "provisioning",
+    );
+    await assert.rejects(
+      f.hub.startTurn(
+        created.ref,
+        content,
+        "create:image-prepare",
+        fixtureModelSettings,
+      ),
+      /容量已满/,
+    );
+    assert.equal(f.repository.get(created.ref.sessionId)?.lifecycle, "failed");
+    assert.equal(f.received.length, 0);
+    assert(
+      sent.some(
+        (message) =>
+          message.type === "session.upserted" &&
+          message.session.sessionId === created.ref.sessionId &&
+          message.session.lifecycle === "failed",
+      ),
+    );
+    const existing = await f.hub.importSession({
+      provider: "codex",
+      providerSessionId: "existing-images",
+      projectId: f.projectId,
+      path: f.cwd,
+    });
+    await assert.rejects(
+      f.hub.startTurn(
+        existing,
+        content,
+        "ordinary-request",
+        fixtureModelSettings,
+      ),
+      /容量已满/,
+    );
+    assert.equal(f.repository.get(existing.sessionId)?.lifecycle, "active");
+  } finally {
+    await f.hub.close();
+  }
+});
+
+for (const outcome of ["success", "failure", "interrupt"] as const) {
+  test(`image input leases are released when a turn ends with ${outcome}`, async (t) => {
+    const f = await modelTestHub();
+    const released: boolean[] = [];
+    t.mock.method(
+      ImageInputs.prototype,
+      "prepare",
+      async (content: UserInput) => {
+        const index = released.push(false) - 1;
+        return {
+          content,
+          release() {
+            released[index] = true;
+          },
+        };
+      },
+    );
+    f.driver.runTurn = async ({ signal, context }) => {
+      if (outcome === "interrupt")
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      if (outcome === "failure") throw new Error("fixture failed");
+      context.setState(outcome === "interrupt" ? "interrupted" : "idle");
+    };
+    const content: UserInput = [
+      { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
+    ];
+    try {
+      const { ref } = await f.hub.createSession(
+        f.socket,
+        "codex",
+        f.projectId,
+        f.cwd,
+        "lease",
+        content,
+        fixtureModelSettings,
+      );
+      assert.deepEqual(released, [true]);
+      await f.hub.startTurn(ref, content, "create:lease", fixtureModelSettings);
+      if (outcome === "interrupt") assert.equal(released[1], false);
+    } finally {
+      await f.hub.close();
+    }
+    assert.deepEqual(released, [true, true]);
+  });
+}

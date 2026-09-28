@@ -20,7 +20,7 @@ test("requires an imported project ID when creating a session", () => {
     provider: "codex",
     projectId: "project-1",
     path: "/work/project-1",
-    prompt: "hello",
+    content: [{ type: "text", text: "hello" }],
     modelSettings: fixtureModelSettings,
   });
   const missingProject = ClientCommandSchema.safeParse({
@@ -28,7 +28,7 @@ test("requires an imported project ID when creating a session", () => {
     requestId: "create-2",
     provider: "codex",
     path: "/work/project-2",
-    prompt: "hello",
+    content: [{ type: "text", text: "hello" }],
     modelSettings: fixtureModelSettings,
   });
 
@@ -51,7 +51,7 @@ test("every task requires the complete current model settings contract", () => {
     const base = {
       type,
       requestId: "request",
-      prompt: "hello",
+      content: [{ type: "text", text: "hello" }],
       ...(type === "session.create"
         ? { provider: "codex", projectId: "project", path: "/work/project" }
         : { sessionId: "session" }),
@@ -90,7 +90,7 @@ test("rejects unknown command and interaction response fields", () => {
       projectId: "project-1",
       path: "/work/project-1",
       cwd: "/work/project",
-      prompt: "hello",
+      content: [{ type: "text", text: "hello" }],
       modelSettings: fixtureModelSettings,
     }).success,
     false,
@@ -123,4 +123,47 @@ test("interaction responses accept answers or cancellation only", () => {
     InteractionResponseSchema.safeParse({ decision: "allow" }).success,
     false,
   );
+});
+
+test("image-only commands use the current content contract and reject legacy prompt fields", () => {
+  const base = {
+    type: "turn.start",
+    requestId: "image",
+    sessionId: "session",
+    modelSettings: fixtureModelSettings,
+  };
+  assert.equal(
+    ClientCommandSchema.safeParse({
+      ...base,
+      content: [{ type: "image", mediaType: "image/png", data: "aW1hZ2U=" }],
+    }).success,
+    true,
+  );
+  assert.equal(
+    ClientCommandSchema.safeParse({ ...base, prompt: "legacy" }).success,
+    false,
+  );
+  assert.equal(
+    ClientCommandSchema.safeParse({
+      ...base,
+      content: [{ type: "text", text: "valid" }],
+      prompt: "legacy",
+    }).success,
+    false,
+  );
+  assert.equal(
+    ClientCommandSchema.safeParse({ ...base, content: [] }).success,
+    false,
+  );
+});
+
+test("image support does not impose a separate character limit on text input", () => {
+  const command = {
+    type: "turn.start",
+    requestId: "long-text",
+    sessionId: "session",
+    modelSettings: fixtureModelSettings,
+    content: [{ type: "text", text: "x".repeat(1024 * 1024) }],
+  };
+  assert.equal(ClientCommandSchema.safeParse(command).success, true);
 });

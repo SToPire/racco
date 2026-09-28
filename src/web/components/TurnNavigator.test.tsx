@@ -9,8 +9,18 @@ test("renders the current request position in its collapsed state", () => {
     <TurnNavigator
       sessionId="session-1"
       requests={[
-        { type: "user.message", id: "user-1", text: "First request" },
-        { type: "user.message", id: "user-2", text: "Second request" },
+        {
+          imageCount: 0,
+          type: "user.message",
+          id: "user-1",
+          text: "First request",
+        },
+        {
+          imageCount: 0,
+          type: "user.message",
+          id: "user-2",
+          text: "Second request",
+        },
       ]}
       scrollContainerRef={createRef<HTMLElement>()}
     />,

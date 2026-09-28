@@ -132,9 +132,12 @@ export function mapItemEvents(
       )
       .map((content) => content.text)
       .join("\n");
-    return text.length === 0
+    const imageCount = item.content.filter(
+      (content) => content.type === "image" || content.type === "localImage",
+    ).length;
+    return text.length === 0 && imageCount === 0
       ? []
-      : [{ type: "user.message", id: item.id, text }];
+      : [{ type: "user.message", id: item.id, text, imageCount }];
   }
 
   if (isAssistantItem(item)) return [mapAssistantItem(item)];

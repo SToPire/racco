@@ -1,3 +1,4 @@
+import { temporaryImages } from "../../../../test/images.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -56,7 +57,10 @@ lines.on('line', line => {
       ["exit", "failed"],
       ["close", "failed"],
     ] as const) {
-      const driver = new CodexDriver({ info() {}, warn() {} });
+      const driver = new CodexDriver(
+        { info() {}, warn() {} },
+        await temporaryImages(),
+      );
       const events: TimelineEvent[] = [];
       let sawOutput!: () => void;
       const started = new Promise<void>((resolve) => {
@@ -85,7 +89,7 @@ lines.on('line', line => {
         const completion = driver.runTurn({
           handle,
           mode: "first",
-          prompt: scenario,
+          content: [{ type: "text", text: scenario }],
           modelSettings,
           context,
           signal: new AbortController().signal,
@@ -171,8 +175,8 @@ lines.on('line', line => {
         throw new Error("Unexpected user input request");
       },
     };
-    const first = new CodexDriver(log);
-    const resumed = new CodexDriver(log);
+    const first = new CodexDriver(log, await temporaryImages());
+    const resumed = new CodexDriver(log, await temporaryImages());
     try {
       await first.start();
       const settings = { modelId: "native-model-a", reasoningEffort: "xhigh" };
@@ -184,7 +188,7 @@ lines.on('line', line => {
       await first.runTurn({
         handle,
         mode: "first",
-        prompt: "first",
+        content: [{ type: "text", text: "first" }],
         modelSettings: settings,
         context,
         signal: new AbortController().signal,
@@ -194,7 +198,7 @@ lines.on('line', line => {
       await resumed.runTurn({
         handle,
         mode: "resume",
-        prompt: "next",
+        content: [{ type: "text", text: "next" }],
         modelSettings: { modelId: "native-model-b", reasoningEffort: "low" },
         context,
         signal: new AbortController().signal,
@@ -286,7 +290,10 @@ lines.on('line', line => {
 `,
       { mode: 0o700 },
     );
-    const driver = new CodexDriver({ info() {}, warn() {} });
+    const driver = new CodexDriver(
+      { info() {}, warn() {} },
+      await temporaryImages(),
+    );
     const events: TimelineEvent[] = [];
     const context: DriverContext = {
       emit: (event) => events.push(event),
@@ -307,7 +314,7 @@ lines.on('line', line => {
       await driver.runTurn({
         handle,
         mode: "first",
-        prompt: "Inspect",
+        content: [{ type: "text", text: "Inspect" }],
         modelSettings,
         context,
         signal: new AbortController().signal,
@@ -421,7 +428,10 @@ lines.on('line', line => {
     const usages: ContextUsage[] = [];
     const events: TimelineEvent[] = [];
     const finished: string[] = [];
-    const driver = new CodexDriver({ info() {}, warn() {} });
+    const driver = new CodexDriver(
+      { info() {}, warn() {} },
+      await temporaryImages(),
+    );
     let changed!: () => void;
     let nextUpdate = new Promise<void>((resolve) => {
       changed = resolve;
@@ -533,7 +543,7 @@ lines.on('line', line => {
       { mode: 0o700 },
     );
     const log = { info() {}, warn() {} };
-    const driver = new CodexDriver(log);
+    const driver = new CodexDriver(log, await temporaryImages());
     try {
       const cwd = process.cwd();
       process.env.RACCO_TEST_THREAD_CWD = cwd;
@@ -622,14 +632,17 @@ lines.on('line', line => {
 `,
       { mode: 0o700 },
     );
-    const driver = new CodexDriver({ info() {}, warn() {} });
+    const driver = new CodexDriver(
+      { info() {}, warn() {} },
+      await temporaryImages(),
+    );
     let questions = 0;
     try {
       await driver.start();
       await driver.runTurn({
         handle: { providerSessionId: "thread", cwd: process.cwd() },
         mode: "resume",
-        prompt: "Choose the target",
+        content: [{ type: "text", text: "Choose the target" }],
         modelSettings: { modelId: "model", reasoningEffort: "high" },
         signal: new AbortController().signal,
         context: {

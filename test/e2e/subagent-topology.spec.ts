@@ -59,6 +59,7 @@ for (const provider of ["codex", "claude"] as const) {
         type: "user.message",
         id: "reviewer-task",
         text: "检查会话导航",
+        imageCount: 0,
       },
     });
     emit({

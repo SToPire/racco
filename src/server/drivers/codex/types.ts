@@ -86,7 +86,13 @@ export type CodexThreadItem =
   | {
       type: "userMessage";
       id: string;
-      content: Array<{ type: string; text?: string }>;
+      content: Array<{
+        type: string;
+        text?: string;
+        path?: string;
+        url?: string;
+        fileId?: string;
+      }>;
     }
   | {
       type: "hookPrompt";

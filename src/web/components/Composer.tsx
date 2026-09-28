@@ -1,3 +1,12 @@
+import { useImageDraft } from "../hooks/useImageDraft";
+import {
+  AttachImageButton,
+  ImageAttachments,
+  imagePaste,
+  imageDrop,
+  imageDragOver,
+} from "./ImageAttachments";
+import type { UserInput } from "../../shared/user-input";
 import { type FormEvent, type ReactNode, useState } from "react";
 import type { ModelSettings } from "../../shared/protocol";
 import { submitOnEnter } from "../composer-keyboard";
@@ -8,16 +17,18 @@ import {
 } from "./ModelSettingsControls";
 
 type ComposerProps = {
+  scope: string;
   inputDisabled: boolean;
   sendDisabled: boolean;
   sending: boolean;
-  onSend: (text: string, settings: ModelSettings) => Promise<boolean>;
+  onSend: (content: UserInput, settings: ModelSettings) => Promise<boolean>;
   selection: ModelSelection;
   contextControls?: ReactNode;
   compacting?: boolean;
 };
 
 export function Composer({
+  scope,
   inputDisabled,
   sendDisabled,
   sending,
@@ -27,6 +38,11 @@ export function Composer({
   compacting = false,
 }: ComposerProps) {
   const [text, setText] = useState("");
+  const images = useImageDraft(scope);
+  const unsupported =
+    selection.catalog?.models.find(
+      (model) => model.id === selection.draft?.modelId,
+    )?.imageInput === "unsupported";
   const editingDisabled = inputDisabled || sending || compacting;
   const submissionDisabled = sendDisabled || editingDisabled;
 
@@ -34,21 +50,38 @@ export function Composer({
     event.preventDefault();
     const value = text.trim();
     if (
-      value.length === 0 ||
+      (value.length === 0 && images.images.length === 0) ||
+      images.preparing ||
+      (unsupported && images.images.length > 0) ||
       submissionDisabled ||
       !selection.valid ||
       !selection.draft
     )
       return;
-    if (await onSend(value, selection.draft)) setText("");
+    if (await onSend(images.content(value), selection.draft)) {
+      setText("");
+      images.clear();
+    }
   }
 
   return (
     <form
       className={`composer${compacting ? " composer-compacting" : ""}`}
       onSubmit={submit}
+      onPaste={(event) =>
+        imagePaste(event, images, editingDisabled || unsupported)
+      }
+      onDragOver={imageDragOver}
+      onDrop={(event) =>
+        imageDrop(event, images, editingDisabled || unsupported)
+      }
       aria-busy={compacting}
     >
+      <ImageAttachments
+        draft={images}
+        disabled={editingDisabled}
+        unsupported={unsupported}
+      />
       <textarea
         aria-label="发送给 Racco"
         disabled={editingDisabled}
@@ -69,15 +102,25 @@ export function Composer({
         value={text}
       />
       <div className="composer-toolbar">
-        <ModelSettingsControls
-          selection={selection}
-          disabled={submissionDisabled}
-        />
+        <div className="composer-input-tools">
+          <AttachImageButton
+            draft={images}
+            disabled={editingDisabled || unsupported}
+          />
+          <ModelSettingsControls
+            selection={selection}
+            disabled={submissionDisabled}
+          />
+        </div>
         <button
           className="round-send-button"
           aria-label={sending ? "发送中" : "发送"}
           disabled={
-            submissionDisabled || !selection.valid || text.trim().length === 0
+            submissionDisabled ||
+            !selection.valid ||
+            images.preparing ||
+            (unsupported && images.images.length > 0) ||
+            (text.trim().length === 0 && images.images.length === 0)
           }
           title="发送"
           type="submit"

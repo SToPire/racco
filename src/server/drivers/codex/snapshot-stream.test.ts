@@ -1,3 +1,4 @@
+import { temporaryImages } from "../../../../test/images.js";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { WebSocket } from "ws";
@@ -13,7 +14,7 @@ import type {
   JsonRpcNotification,
 } from "./types.js";
 
-function fixture(t: TestContext) {
+async function fixture(t: TestContext) {
   let notify!: (notification: JsonRpcNotification) => void;
   let childReads = 0;
   let listChild = true;
@@ -120,7 +121,10 @@ function fixture(t: TestContext) {
       };
     },
   );
-  const driver = new CodexDriver({ info() {}, warn() {} });
+  const driver = new CodexDriver(
+    { info() {}, warn() {} },
+    await temporaryImages(),
+  );
   const updates: TimelineEvent[] = [];
   driver.onSessionUpdate((rootId, event) => {
     assert.equal(rootId, "root");
@@ -169,7 +173,7 @@ function fixture(t: TestContext) {
   };
 }
 
-function appendAndInterrupt(f: ReturnType<typeof fixture>) {
+function appendAndInterrupt(f: Awaited<ReturnType<typeof fixture>>) {
   f.emit("item/commandExecution/outputDelta", {
     itemId: "command",
     delta: " tail",
@@ -218,7 +222,7 @@ function checkPrefixes(row: SubagentTimelineRow) {
   assert.doesNotMatch(JSON.stringify(row), /PRIVATE RAW/);
 }
 
-function discoverInRoot(f: ReturnType<typeof fixture>, ids: string[]) {
+function discoverInRoot(f: Awaited<ReturnType<typeof fixture>>, ids: string[]) {
   f.root.turns = [
     {
       id: "main-turn",
@@ -245,7 +249,7 @@ function discoverInRoot(f: ReturnType<typeof fixture>, ids: string[]) {
 }
 
 test("a child discovered in root history cannot broadcast a suffix during thread/list", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   discoverInRoot(f, ["child"]);
   await f.driver.start();
   f.setList(() => {
@@ -295,7 +299,7 @@ test("a child discovered in root history cannot broadcast a suffix during thread
 
 for (const discovery of ["root history", "thread/list"]) {
   test(`an unseeded child from ${discovery} stays protected while another child is read`, async (t) => {
-    const f = fixture(t);
+    const f = await fixture(t);
     const second = structuredClone(f.child);
     second.id = "second";
     second.agentNickname = "Second";
@@ -398,7 +402,7 @@ for (const discovery of ["root history", "thread/list"]) {
 }
 
 test("first active child snapshot preserves every public prefix and leaves completed text dormant", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   const snapshot = await f.read();
   assert.equal(f.updates.length, 0);
@@ -419,7 +423,7 @@ test("first active child snapshot preserves every public prefix and leaves compl
 });
 
 test("thread/started with existing turn content establishes the same continuation baseline", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   f.setListChild(false);
   await f.driver.start();
   await f.read();
@@ -430,7 +434,7 @@ test("thread/started with existing turn content establishes the same continuatio
 });
 
 test("a repeated thread/started snapshot does not publish older text over a live continuation", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   f.setListChild(false);
   await f.driver.start();
   await f.read();
@@ -454,7 +458,7 @@ test("a repeated thread/started snapshot does not publish older text over a live
 });
 
 test("late repeated snapshots cannot replace a newer delta or resurrect an item completed during the RPC", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   const snapshot = await f.read();
   f.emit("item/agentMessage/delta", { itemId: "message", delta: " newer" });
@@ -498,7 +502,7 @@ test("late repeated snapshots cannot replace a newer delta or resurrect an item 
 });
 
 test("a native terminal observed before a later stale read cannot revive the old turn", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   const snapshot = await f.read();
   f.emit("item/completed", {
@@ -538,7 +542,10 @@ test("a native terminal observed before a later stale read cannot revive the old
   assert.equal(command.output, "finished result");
 });
 
-function setSnapshotPrefix(f: ReturnType<typeof fixture>, prefix: string) {
+function setSnapshotPrefix(
+  f: Awaited<ReturnType<typeof fixture>>,
+  prefix: string,
+) {
   for (const item of f.child.turns[0].items) {
     if (item.type === "commandExecution") item.aggregatedOutput = prefix;
     else if (item.type === "agentMessage" || item.type === "plan")
@@ -548,7 +555,7 @@ function setSnapshotPrefix(f: ReturnType<typeof fixture>, prefix: string) {
 }
 
 function assertSnapshotPrefixContinuation(
-  f: ReturnType<typeof fixture>,
+  f: Awaited<ReturnType<typeof fixture>>,
   snapshot: TimelineEvent[],
   expected: string,
 ) {
@@ -577,7 +584,7 @@ function assertSnapshotPrefixContinuation(
 }
 
 test("a more complete snapshot advances dormant baselines before the first live delta", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   await f.read();
   setSnapshotPrefix(f, "longer snapshot prefix");
@@ -592,7 +599,7 @@ test("a more complete snapshot advances dormant baselines before the first live 
 });
 
 test("concurrent snapshot reads returning out of order retain the newer dormant baseline", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   await f.read();
   let release!: () => void;
@@ -623,7 +630,7 @@ test("concurrent snapshot reads returning out of order retain the newer dormant 
 });
 
 test("a first-read race gets one bounded retry and never broadcasts an unaligned suffix", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   f.setRead((count) => {
     const old = structuredClone(f.child);
@@ -651,7 +658,7 @@ test("a first-read race gets one bounded retry and never broadcasts an unaligned
 });
 
 test("an interruption racing initial hydration is recovered by the one fresh read without suffix-only messages", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   f.setRead((count) => {
     const old = structuredClone(f.child);
@@ -693,7 +700,7 @@ test("an interruption racing initial hydration is recovered by the one fresh rea
 
 for (const warmRoot of [false, true]) {
   test(`Hub reports an interrupted first-child snapshot conflict with ${warmRoot ? "existing" : "uncached"} root history, then recovers on retry`, async (t) => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await f.driver.start();
     f.root.turns = [
       {
@@ -721,7 +728,12 @@ for (const warmRoot of [false, true]) {
       cwd: process.cwd(),
       updatedAt: "2026-09-22T00:00:00.000Z",
     });
-    const hub = new SessionHub([f.driver], repository, process.cwd());
+    const hub = new SessionHub(
+      [f.driver],
+      repository,
+      process.cwd(),
+      async () => {},
+    );
     t.after(() => hub.close());
     const ref = { sessionId: managed.sessionId };
     const sent: ServerMessage[] = [];
@@ -818,7 +830,7 @@ for (const warmRoot of [false, true]) {
 }
 
 test("continuous initial races fail after two reads and recover only from a full item or a later aligned snapshot", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await f.driver.start();
   f.setRead((count) => {
     f.emit("item/commandExecution/outputDelta", {
@@ -875,7 +887,7 @@ test("continuous initial races fail after two reads and recover only from a full
 });
 
 test("Codex child web searches survive refresh, completion and stale snapshot rejection", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const item: CodexThreadItem = {
     type: "webSearch",
     id: "search",
@@ -905,7 +917,7 @@ test("Codex child web searches survive refresh, completion and stale snapshot re
 });
 
 test("Codex tracks a web search restored while running until interruption", async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   f.child.turns[0]!.items = [
     {
       type: "webSearch",

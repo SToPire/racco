@@ -32,6 +32,7 @@ function renderComposer({
 } = {}) {
   return renderToStaticMarkup(
     <Composer
+      scope={"test"}
       inputDisabled={inputDisabled}
       sendDisabled={sendDisabled}
       sending={sending}

@@ -9,7 +9,10 @@ process.title = "raccod";
 
 const config = await loadConfig();
 const app = await buildServer(config, {
-  createDrivers: (log) => [new CodexDriver(log), new ClaudeDriver(log)],
+  createDrivers: (log, images) => [
+    new CodexDriver(log, images),
+    new ClaudeDriver(log),
+  ],
   build: await readBuildInfo(new URL("../build-info.json", import.meta.url)),
   webRoot: fileURLToPath(new URL("../web/", import.meta.url)),
 });

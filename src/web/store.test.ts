@@ -15,7 +15,7 @@ test("snapshot building matches streaming across replacements, removals, tools a
   for (let index = 0; index < 200; index++) {
     const id = String(index);
     events.push(
-      { type: "user.message", id: `user-${id}`, text: id },
+      { imageCount: 0, type: "user.message", id: `user-${id}`, text: id },
       {
         type: "tool.started",
         id: `tool-${id}`,
@@ -267,7 +267,7 @@ test("empty finished activity does not split tools, while streaming placeholders
 
 test("withdraws only the addressed assistant row, including nested rows and replayed removals", () => {
   const events: TimelineEvent[] = [
-    { type: "user.message", id: "user", text: "hello" },
+    { imageCount: 0, type: "user.message", id: "user", text: "hello" },
     { type: "tool.started", id: "tool", tool: "Read", input: {} },
     { type: "assistant.message", id: "main", text: "partial", partial: true },
     {

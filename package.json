@@ -36,7 +36,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"test/**/*.{ts,tsx,mjs}\" vite.config.ts playwright.config.ts",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"test/**/*.{ts,tsx,mjs}\" vite.config.ts playwright.config.ts",
     "test:tools": "node --test \"scripts/**/*.test.mjs\"",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "smoke:images": "node --import tsx scripts/smoke-images.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.251",
@@ -52,6 +53,7 @@
     "rehype-katex": "7.0.1",
     "remark-gfm": "4.0.1",
     "remark-math-extended": "6.1.1",
+    "sharp": "0.35.4",
     "ws": "8.21.3",
     "zod": "4.5.4"
   },

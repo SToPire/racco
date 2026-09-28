@@ -63,7 +63,7 @@ test("unacknowledged actions fail on disconnect and are never replayed after rec
     type: "turn.start",
     sessionId: "session",
     requestId: "original",
-    prompt: "task",
+    content: [{ type: "text", text: "task" }],
     modelSettings: { ...fixtureModelSettings },
   };
   const sent = socket.request(command);

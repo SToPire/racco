@@ -113,7 +113,12 @@ try {
       modelSettings,
       requestId: turnRequestId,
       sessionId,
-      prompt: `Reply with exactly ${expected}. Do not use any tools.`,
+      content: [
+        {
+          type: "text",
+          text: `Reply with exactly ${expected}. Do not use any tools.`,
+        },
+      ],
     }),
   );
   await completed;

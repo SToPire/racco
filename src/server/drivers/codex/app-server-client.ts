@@ -16,6 +16,23 @@ type ServerRequestHandler = (request: JsonRpcRequest) => Promise<unknown>;
 type NotificationListener = (notification: JsonRpcNotification) => void;
 type ExitListener = (error: Error) => void;
 
+/** A response from the peer, distinct from transport failure or a lost response. */
+export class CodexRpcResponseError extends Error {
+  constructor(
+    readonly code: number,
+    message: string,
+  ) {
+    super(`Codex ${code}: ${message}`);
+    this.name = "CodexRpcResponseError";
+  }
+
+  get requestRejected(): boolean {
+    // Invalid request, unknown method, invalid parameters. Internal/server errors
+    // do not establish that execution never began.
+    return [-32600, -32601, -32602].includes(this.code);
+  }
+}
+
 export class CodexAppServerClient {
   readonly #pending = new Map<RequestId, PendingRequest>();
   readonly #notificationListeners = new Set<NotificationListener>();
@@ -24,6 +41,9 @@ export class CodexAppServerClient {
   #readline?: Interface;
   #nextId = 1;
   #closing = false;
+  #child?: ChildProcessWithoutNullStreams;
+  #processClosed?: Promise<void>;
+  readonly #processExitListeners = new Set<() => void>();
 
   constructor(
     private readonly log: {
@@ -40,6 +60,14 @@ export class CodexAppServerClient {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.#process = child;
+    this.#child = child;
+    this.#processClosed = new Promise<void>((resolve) => {
+      child.once("close", () => {
+        this.#child = undefined;
+        for (const listener of this.#processExitListeners) listener();
+        resolve();
+      });
+    });
     this.#readline = createInterface({ input: child.stdout });
 
     this.#readline.on("line", (line) => this.#handleLine(line));
@@ -81,6 +109,10 @@ export class CodexAppServerClient {
     this.#exitListeners.add(listener);
   }
 
+  onProcessExit(listener: () => void): void {
+    this.#processExitListeners.add(listener);
+  }
+
   async request<T>(
     method: string,
     params?: unknown,
@@ -119,10 +151,26 @@ export class CodexAppServerClient {
   async close(): Promise<void> {
     this.#closing = true;
     this.#readline?.close();
-    const child = this.#process;
     this.#process = undefined;
-    if (child !== undefined && child.exitCode === null) child.kill("SIGTERM");
     this.#rejectPending(new Error("Codex app-server closed"));
+    await this.#stopProcess();
+  }
+
+  async #stopProcess(): Promise<void> {
+    const child = this.#child;
+    if (child === undefined) return;
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill("SIGTERM");
+    const force = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill("SIGKILL");
+    }, 3000);
+    force.unref();
+    try {
+      await this.#processClosed;
+    } finally {
+      clearTimeout(force);
+    }
   }
 
   #send(message: JsonRpcRequest | JsonRpcNotification | JsonRpcResponse): void {
@@ -185,7 +233,7 @@ export class CodexAppServerClient {
     this.#pending.delete(response.id);
     if (response.error !== undefined) {
       pending.reject(
-        new Error(`Codex ${response.error.code}: ${response.error.message}`),
+        new CodexRpcResponseError(response.error.code, response.error.message),
       );
     } else {
       pending.resolve(response.result);
@@ -215,7 +263,7 @@ export class CodexAppServerClient {
     if (child === undefined) return;
     this.#process = undefined;
     this.#readline?.close();
-    if (child.exitCode === null) child.kill("SIGTERM");
+    void this.#stopProcess();
     this.#rejectPending(error);
     for (const listener of this.#exitListeners) listener(error);
   }

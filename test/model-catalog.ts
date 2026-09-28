@@ -11,6 +11,7 @@ export function fixtureModelCatalog(): ProviderModelCatalog {
   return {
     models: [
       {
+        imageInput: "supported",
         id: "fixture-primary",
         displayName: "Fixture Primary",
         description: "Full reasoning range",
@@ -24,6 +25,7 @@ export function fixtureModelCatalog(): ProviderModelCatalog {
         },
       },
       {
+        imageInput: "unsupported",
         id: "fixture-fast",
         displayName: "Fixture Fast",
         description: "Limited reasoning range",
@@ -37,6 +39,7 @@ export function fixtureModelCatalog(): ProviderModelCatalog {
         },
       },
       {
+        imageInput: "supported",
         id: "fixture-fixed",
         displayName: "Fixture Fixed",
         description: "No effort control",

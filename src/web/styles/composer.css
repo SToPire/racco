@@ -279,3 +279,80 @@
     transform: rotate(360deg);
   }
 }
+
+.composer-input-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.attach-image-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.attach-image-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.attach-image-button:hover:enabled {
+  background: var(--surface-active);
+  color: var(--text);
+}
+.attach-image-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.image-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 2px;
+}
+.image-attachment {
+  position: relative;
+  width: 72px;
+  height: 72px;
+}
+.image-attachment img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-active);
+}
+.image-attachment button {
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.image-input-error {
+  color: var(--danger);
+  font-size: 0.75rem;
+}
+.image-input-status,
+.message-image-placeholder {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}

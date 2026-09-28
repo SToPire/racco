@@ -73,6 +73,7 @@ test("maps Codex history into materialized timeline rows", () => {
   const rows = buildTimeline(mapThreadEvents(thread, () => "racco-agent"));
   assert.equal(rows.length, 3);
   assert.deepEqual(rows[0], {
+    imageCount: 0,
     type: "user.message",
     id: "user-1",
     text: "hello",

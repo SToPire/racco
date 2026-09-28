@@ -1,3 +1,8 @@
+import { inputImageCount, type UserInput } from "../../../shared/user-input.js";
+import type {
+  TemporaryImages,
+  TemporaryImageBatch,
+} from "../../images/temporary.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ContextUsageSchema } from "../../../shared/protocol.js";
@@ -21,7 +26,10 @@ import type {
 } from "../driver.js";
 import { ProviderSessionNotFoundError, SESSION_PAGE_SIZE } from "../driver.js";
 import { resolveProjectDirectory } from "../../project-path.js";
-import { CodexAppServerClient } from "./app-server-client.js";
+import {
+  CodexAppServerClient,
+  CodexRpcResponseError,
+} from "./app-server-client.js";
 import { CodexActivityMapper } from "./activity-mapper.js";
 import { CodexToolLifecycle } from "./tool-lifecycle.js";
 import { CodexModelListSchema, codexModelCatalog } from "../model-options.js";
@@ -129,6 +137,14 @@ function emitAgentEvents(
   }
 }
 
+type TurnImages = {
+  threadId: string;
+  turnId?: string;
+  batch: TemporaryImageBatch;
+  submitted: boolean;
+  finished: boolean;
+};
+
 export class CodexDriver implements AgentDriver {
   readonly provider = "codex" as const;
   readonly #client: CodexAppServerClient;
@@ -136,6 +152,7 @@ export class CodexDriver implements AgentDriver {
   readonly #loadedThreads = new Set<string>();
   readonly #observedRoots = new Set<string>();
   readonly #turnWaiters = new Map<string, TurnWaiter>();
+  readonly #turnImages = new Set<TurnImages>();
   readonly #compactions = new Map<string, string | undefined>();
   readonly #activityMapper = new CodexActivityMapper();
   readonly #toolLifecycle = new CodexToolLifecycle();
@@ -152,7 +169,10 @@ export class CodexDriver implements AgentDriver {
     update: ProviderSessionUpdate,
   ) => void;
 
-  constructor(log: ConstructorParameters<typeof CodexAppServerClient>[0]) {
+  constructor(
+    log: ConstructorParameters<typeof CodexAppServerClient>[0],
+    private readonly images: TemporaryImages,
+  ) {
     this.#client = new CodexAppServerClient(log, (request) =>
       this.#handleServerRequest(request),
     );
@@ -160,6 +180,9 @@ export class CodexDriver implements AgentDriver {
       this.#handleNotification(notification),
     );
     this.#client.onExit((error) => this.#handleExit(error));
+    this.#client.onProcessExit(() => {
+      void this.#discardAllImages();
+    });
   }
 
   get ready(): boolean {
@@ -269,6 +292,7 @@ export class CodexDriver implements AgentDriver {
     this.#toolLifecycle.clear();
     this.#toolOutput.clear();
     await this.#client.close();
+    await this.#discardAllImages();
   }
 
   async readSession(handle: ProviderSessionHandle): Promise<SessionSnapshot> {
@@ -390,7 +414,7 @@ export class CodexDriver implements AgentDriver {
   async runTurn(input: {
     handle: ProviderSessionHandle;
     mode: "first" | "resume";
-    prompt: string;
+    content: UserInput;
     modelSettings: ModelSettings;
     context: DriverContext;
     signal: AbortSignal;
@@ -402,6 +426,7 @@ export class CodexDriver implements AgentDriver {
       throw new Error("Codex thread is already busy");
     this.#contexts.set(sessionId, input.context);
     let waiter: TurnWaiter | undefined;
+    let turnImages: TurnImages | undefined;
     let interrupted = false;
     const onAbort = () => {
       if (waiter?.turnId === undefined || interrupted) return;
@@ -419,6 +444,17 @@ export class CodexDriver implements AgentDriver {
     };
     try {
       await this.#ensureLoaded(sessionId, input.modelSettings);
+      input.signal.throwIfAborted();
+      if (inputImageCount(input.content) > 0) {
+        turnImages = {
+          threadId: sessionId,
+          batch: await this.images.create(input.content),
+          submitted: false,
+          finished: false,
+        };
+        this.#turnImages.add(turnImages);
+      }
+      this.#assertReady();
       input.signal.throwIfAborted();
       let resolve!: () => void;
       let reject!: (error: Error) => void;
@@ -438,23 +474,46 @@ export class CodexDriver implements AgentDriver {
       };
       this.#turnWaiters.set(sessionId, waiter);
       input.signal.addEventListener("abort", onAbort, { once: true });
-      const response = await this.#client.request<TurnStartResponse>(
-        "turn/start",
-        {
+      let imageIndex = 0;
+      const nativeInput = input.content.map((part) =>
+        part.type === "text"
+          ? { type: "text", text: part.text, text_elements: [] }
+          : {
+              type: "localImage",
+              path: turnImages!.batch.paths[imageIndex++]!,
+            },
+      );
+      if (turnImages) turnImages.submitted = true;
+      const response = await this.#client
+        .request<TurnStartResponse>("turn/start", {
           threadId: sessionId,
           model: input.modelSettings.modelId,
           effort: input.modelSettings.reasoningEffort,
           clientUserMessageId: randomUUID(),
-          input: [{ type: "text", text: input.prompt, text_elements: [] }],
-        },
-      );
+          input: nativeInput,
+        })
+        .catch((error: unknown) => {
+          if (
+            turnImages &&
+            turnImages.turnId === undefined &&
+            error instanceof CodexRpcResponseError &&
+            error.requestRejected &&
+            !waiter!.pending.some((event) => event.method === "turn/started")
+          ) {
+            turnImages.submitted = false;
+          }
+          throw error;
+        });
       waiter.turnId = response.turn.id;
+      if (turnImages) turnImages.turnId = response.turn.id;
       for (const notification of waiter.pending)
         this.#handleNotification(notification);
       waiter.pending.length = 0;
       waiter.interrupt();
       await completion;
     } finally {
+      if (turnImages && (!turnImages.submitted || turnImages.finished))
+        await this.#discardImages(turnImages);
       emitAgentEvents(
         input.context,
         this.#activityMapper.finish(
@@ -722,6 +781,19 @@ export class CodexDriver implements AgentDriver {
     const threadId =
       typeof params?.threadId === "string" ? params.threadId : undefined;
     if (threadId === undefined) return;
+    if (notification.method === "turn/completed") {
+      const turn = (notification.params as TurnNotification).turn;
+      if (["completed", "failed", "interrupted"].includes(turn.status)) {
+        for (const pending of this.#turnImages) {
+          if (
+            pending.threadId === threadId &&
+            pending.turnId !== undefined &&
+            pending.turnId === turn.id
+          )
+            void this.#discardImages(pending);
+        }
+      }
+    }
     if (this.#observeSnapshotNotification(threadId, notification)) return;
     if (this.#compactions.has(threadId)) {
       if (notification.method === "turn/started") {
@@ -1157,6 +1229,18 @@ export class CodexDriver implements AgentDriver {
             ...request,
             title: `${subagent.name ?? "Subagent"} · ${request.title}`,
           },
+    );
+  }
+
+  async #discardImages(input: TurnImages): Promise<void> {
+    input.finished = true;
+    await input.batch.dispose();
+    this.#turnImages.delete(input);
+  }
+
+  async #discardAllImages(): Promise<void> {
+    await Promise.all(
+      [...this.#turnImages].map((input) => this.#discardImages(input)),
     );
   }
 
