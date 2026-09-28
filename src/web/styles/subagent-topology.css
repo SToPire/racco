@@ -1,0 +1,180 @@
+.session-content {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.subagent-topology {
+  position: absolute;
+  z-index: 15;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  width: 252px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.subagent-topology[data-expanded="false"] {
+  width: auto;
+}
+
+.subagent-topology-toggle {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.subagent-topology-toggle > span {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.subagent-topology-content {
+  min-height: 0;
+  padding: 0 10px 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.subagent-topology-content[hidden] {
+  display: none;
+}
+
+.subagent-branches {
+  margin: 0 0 0 9px;
+  padding: 0 0 0 12px;
+  list-style: none;
+}
+
+.subagent-branches > li {
+  position: relative;
+  padding-top: 8px;
+}
+
+.subagent-branches > li::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -12px;
+  border-left: 1px solid var(--border-strong);
+  content: "";
+}
+
+.subagent-branches > li:last-child::before {
+  bottom: auto;
+  height: 27px;
+}
+
+.subagent-branches > li::after {
+  position: absolute;
+  top: 27px;
+  left: -12px;
+  width: 12px;
+  border-top: 1px solid var(--border-strong);
+  content: "";
+}
+
+.subagent-disconnected > p {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.subagent-node {
+  display: grid;
+  width: 100%;
+  min-width: 188px;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.subagent-node:hover,
+.subagent-topology-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.subagent-node[aria-current="true"] {
+  border-color: var(--accent);
+  background: var(--selection-bg);
+}
+
+.subagent-node.state-error {
+  border-color: var(--danger);
+}
+
+.subagent-node-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.subagent-node-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-node-state {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.subagent-node-task,
+.subagent-node-preview > span:last-child {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.subagent-node-preview {
+  display: grid;
+  gap: 3px;
+  color: var(--text-muted);
+}
+
+.subagent-node-preview > span:first-child,
+.subagent-node-empty {
+  color: var(--text-faint);
+  font-size: 0.68rem;
+}
+
+@container (min-width: 1000px) {
+  .session-content:has(.subagent-topology[data-expanded="true"]) {
+    padding-left: 276px;
+  }
+}

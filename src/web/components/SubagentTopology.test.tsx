@@ -2,7 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SubagentTimelineRow } from "../store";
-import { SubagentCards } from "./SubagentCards";
+import { agentForest, SubagentTopology } from "./SubagentTopology";
+
+test("groups out-of-order descendants and keeps missing parents and cycles bounded", () => {
+  const row = (
+    agentId: string,
+    parentAgentId?: string,
+  ): SubagentTimelineRow => ({
+    type: "subagent",
+    id: agentId,
+    agentId,
+    parentAgentId,
+    state: "running",
+    activities: [],
+    timeline: [],
+  });
+  const forest = agentForest([
+    row("grandchild", "child"),
+    row("sibling"),
+    row("child", "parent"),
+    row("parent"),
+    row("orphan", "missing"),
+    row("a", "b"),
+    row("b", "a"),
+  ]);
+  assert.deepEqual(
+    forest.map((node) => node.row.agentId),
+    ["sibling", "parent", "orphan", "a"],
+  );
+  assert.equal(forest[1]?.children[0]?.row.agentId, "child");
+  assert.equal(forest[1]?.children[0]?.children[0]?.row.agentId, "grandchild");
+  assert.equal(forest[3]?.children[0]?.row.agentId, "b");
+  assert.deepEqual(forest[3]?.children[0]?.children, []);
+});
 
 function renderAgent(overrides: Partial<SubagentTimelineRow> = {}) {
   const row: SubagentTimelineRow = {
@@ -17,7 +49,22 @@ function renderAgent(overrides: Partial<SubagentTimelineRow> = {}) {
     ...overrides,
   };
   return renderToStaticMarkup(
-    <SubagentCards subagents={[row]} onSelect={() => undefined} />,
+    <SubagentTopology
+      subagents={[row]}
+      session={{
+        sessionId: "s",
+        projectId: "p",
+        provider: "codex",
+        cwd: "/work",
+        state: "idle",
+        updatedAt: "",
+        lifecycle: "active",
+        selectedModelSettings: null,
+        contextUsage: null,
+        compacting: false,
+      }}
+      onSelect={() => undefined}
+    />,
   );
 }
 

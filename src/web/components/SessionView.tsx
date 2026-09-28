@@ -18,7 +18,7 @@ import { Composer } from "./Composer";
 import { ContextControls } from "./ContextControls";
 import { InteractionCard } from "./InteractionCard";
 import { ProviderLogo } from "./ProviderLogo";
-import { SubagentCards } from "./SubagentCards";
+import { SubagentTopology } from "./SubagentTopology";
 import { Timeline } from "./Timeline";
 import { TrajectoryView } from "./TrajectoryView";
 import { TurnNavigator } from "./TurnNavigator";
@@ -245,51 +245,58 @@ export function SessionView({
         </div>
       </nav>
 
-      {viewMode === "chat" ? (
-        <section
-          className="conversation"
-          ref={conversationRef}
-          aria-busy={!loaded}
-        >
-          {error && <p className="error-banner">{error}</p>}
-          {selectedRows.length === 0 ? (
-            <div className="conversation-empty">
-              <span
-                className={`history-avatar history-avatar-${session.provider}`}
+      <div className="session-content">
+        {subagents.length > 0 && (
+          <SubagentTopology
+            subagents={subagents}
+            session={session}
+            selectedAgentId={selectedSubagent?.agentId}
+            onSelect={selectAgent}
+          />
+        )}
+        {viewMode === "chat" ? (
+          <section
+            className="conversation"
+            ref={conversationRef}
+            aria-busy={!loaded}
+          >
+            {error && <p className="error-banner">{error}</p>}
+            {selectedRows.length === 0 ? (
+              <div className="conversation-empty">
+                <span
+                  className={`history-avatar history-avatar-${session.provider}`}
+                >
+                  <ProviderLogo provider={session.provider} />
+                </span>
+                <p>{loaded ? "等待第一条消息…" : "正在读取对话…"}</p>
+              </div>
+            ) : (
+              <FileReferenceScope
+                baseDirectory={
+                  selectedSubagent === undefined
+                    ? session.cwd
+                    : selectedSubagent.cwd
+                }
               >
-                <ProviderLogo provider={session.provider} />
-              </span>
-              <p>{loaded ? "等待第一条消息…" : "正在读取对话…"}</p>
-            </div>
-          ) : (
-            <FileReferenceScope
-              baseDirectory={
-                selectedSubagent === undefined
-                  ? session.cwd
-                  : selectedSubagent.cwd
-              }
-            >
-              <Timeline
-                sessionId={session.sessionId}
-                denseTools={selectedSubagent !== undefined}
-                onSelectTool={onSelectTool}
-                provider={session.provider}
-                rows={selectedRows}
-                selectedToolId={selectedToolId}
-              />
-            </FileReferenceScope>
-          )}
-          {selectedSubagent === undefined && subagents.length > 0 && (
-            <SubagentCards subagents={subagents} onSelect={selectAgent} />
-          )}
-        </section>
-      ) : (
-        <TrajectoryView
-          rows={rows}
-          focusRowId={trajectoryTargetId}
-          onReveal={revealInChat}
-        />
-      )}
+                <Timeline
+                  sessionId={session.sessionId}
+                  denseTools={selectedSubagent !== undefined}
+                  onSelectTool={onSelectTool}
+                  provider={session.provider}
+                  rows={selectedRows}
+                  selectedToolId={selectedToolId}
+                />
+              </FileReferenceScope>
+            )}
+          </section>
+        ) : (
+          <TrajectoryView
+            rows={rows}
+            focusRowId={trajectoryTargetId}
+            onReveal={revealInChat}
+          />
+        )}
+      </div>
 
       {viewMode === "chat" &&
         active &&
