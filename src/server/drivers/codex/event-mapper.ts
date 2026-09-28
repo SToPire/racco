@@ -16,7 +16,9 @@ import type {
   SubAgentActivityKind,
 } from "./types.js";
 
-type SubagentIdResolver = (providerThreadId: string) => string;
+// Communication targets can include the root or unknown threads. Only the
+// driver's established child identities may produce subagent events.
+type SubagentIdResolver = (providerThreadId: string) => string | undefined;
 type ItemEvent = Exclude<TimelineEvent, { type: "subagent.event" }>;
 
 function stringify(value: unknown): string | undefined {
@@ -264,6 +266,7 @@ export function mapItemEvents(
 
   if (item.type === "subAgentActivity") {
     const agentId = resolveSubagentId(item.agentThreadId);
+    if (agentId === undefined) return [];
     const events: ItemEvent[] = [];
     if (item.kind === "started") {
       events.push({
@@ -287,10 +290,12 @@ export function mapItemEvents(
     const events: ItemEvent[] = [];
     if (item.tool === "spawnAgent") {
       item.receiverThreadIds.forEach((threadId, index) => {
+        const agentId = resolveSubagentId(threadId);
+        if (agentId === undefined) return;
         events.push({
           type: "subagent.started",
           id: `${item.id}:spawn:${index}`,
-          agentId: resolveSubagentId(threadId),
+          agentId,
           prompt: item.prompt ?? undefined,
           model: item.model ?? undefined,
           reasoningEffort: item.reasoningEffort ?? undefined,
@@ -299,10 +304,12 @@ export function mapItemEvents(
     }
     for (const [threadId, state] of Object.entries(item.agentsStates)) {
       if (state === undefined) continue;
+      const agentId = resolveSubagentId(threadId);
+      if (agentId === undefined) continue;
       events.push({
         type: "subagent.state",
         id: `${item.id}:state:${events.length}`,
-        agentId: resolveSubagentId(threadId),
+        agentId,
         state: mapCollabAgentState(state.status),
         message: state.message ?? undefined,
       });

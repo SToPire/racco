@@ -41,6 +41,7 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   CodexThread,
+  CodexThreadItem,
   CodexTurn,
   ThreadReadResponse,
   ThreadListResponse,
@@ -295,10 +296,12 @@ export class CodexDriver implements AgentDriver {
     }
     const thread = { ...response.thread, cwd };
     this.#observedRoots.add(thread.id);
-    const resolveSubagentId = (providerThreadId: string) =>
-      this.#rememberSubagent(providerThreadId, thread.id).agentId;
-    const events: TimelineEvent[] = mapThreadEvents(thread, resolveSubagentId);
+    // Recognize recorded launches before any asynchronous discovery so live
+    // child deltas remain subject to the snapshot alignment checks.
+    this.#registerThreadSpawns(thread, thread.id);
     const subagentThreads = await this.#readSubagentThreads(thread.id);
+    const subagents = this.#subagentResolver(thread.id);
+    const events: TimelineEvent[] = mapThreadEvents(thread, subagents);
     for (const subagentThread of subagentThreads) {
       const parentThreadId = subagentThread.parentThreadId!;
       const link = this.#rememberSubagent(subagentThread.id, thread.id);
@@ -310,7 +313,7 @@ export class CodexDriver implements AgentDriver {
       const childEvents = mapSubagentThread(
         subagentThread,
         link.agentId,
-        resolveSubagentId,
+        subagents,
         parentAgentId,
       );
       events.push(...childEvents);
@@ -624,10 +627,40 @@ export class CodexDriver implements AgentDriver {
     return threads;
   }
 
+  #subagentResolver(rootThreadId: string) {
+    return (threadId: string): string | undefined => {
+      const link = this.#subagents.get(threadId);
+      return link?.rootThreadId === rootThreadId ? link.agentId : undefined;
+    };
+  }
+
+  #registerThreadSpawns(thread: CodexThread, rootThreadId: string): void {
+    for (const turn of thread.turns)
+      for (const item of turn.items) this.#registerSpawn(item, rootThreadId);
+  }
+
+  #registerSpawn(item: CodexThreadItem, rootThreadId: string): void {
+    if (item.type === "subAgentActivity" && item.kind === "started") {
+      this.#rememberSubagent(item.agentThreadId, rootThreadId);
+    } else if (
+      item.type === "collabAgentToolCall" &&
+      item.tool === "spawnAgent"
+    ) {
+      for (const threadId of item.receiverThreadIds)
+        this.#rememberSubagent(threadId, rootThreadId);
+    }
+  }
+
   #rememberSubagent(
     providerThreadId: string,
     rootThreadId: string,
   ): SubagentLink {
+    if (
+      providerThreadId === rootThreadId ||
+      this.#observedRoots.has(providerThreadId)
+    ) {
+      throw new Error("Codex root thread cannot be registered as a subagent");
+    }
     const existing = this.#subagents.get(providerThreadId);
     if (existing !== undefined) {
       if (existing.rootThreadId !== rootThreadId) {
@@ -809,8 +842,7 @@ export class CodexDriver implements AgentDriver {
     const emitter = {
       emit: (event: TimelineEvent) => this.#emitRootEvent(rootThreadId, event),
     };
-    const resolveSubagentId = (providerThreadId: string) =>
-      this.#rememberSubagent(providerThreadId, rootThreadId).agentId;
+    const subagents = this.#subagentResolver(rootThreadId);
 
     // Only the turn ID returned by turn/start belongs to the pending message.
     // An earlier compact action can emit its terminal event while this RPC waits.
@@ -868,11 +900,13 @@ export class CodexDriver implements AgentDriver {
         notification.method === "item/started"
       )
         return;
+      this.#registerSpawn(item, rootThreadId);
+      const events = mapItemEvents(item, subagents);
       if (item.type === "subAgentActivity") {
-        this.#rememberSubagent(item.agentThreadId, rootThreadId).name =
-          item.agentPath.split("/").filter(Boolean).at(-1);
+        const link = this.#subagents.get(item.agentThreadId);
+        if (link?.rootThreadId === rootThreadId)
+          link.name = item.agentPath.split("/").filter(Boolean).at(-1);
       }
-      const events = mapItemEvents(item, resolveSubagentId);
       this.#toolLifecycle.observe(threadId, turnId, events);
       for (const event of subagent === undefined
         ? events
@@ -1037,8 +1071,7 @@ export class CodexDriver implements AgentDriver {
     link.name = thread.agentNickname ?? undefined;
     const parentAgentId =
       parentThreadId === rootThreadId ? undefined : parent?.agentId;
-    const resolveSubagentId = (providerThreadId: string) =>
-      this.#rememberSubagent(providerThreadId, rootThreadId).agentId;
+    const subagents = this.#subagentResolver(rootThreadId);
     const protectedIds = new Set(
       thread.turns.flatMap((turn) =>
         turn.status !== "inProgress"
@@ -1063,7 +1096,7 @@ export class CodexDriver implements AgentDriver {
     for (const event of mapSubagentThread(
       thread,
       link.agentId,
-      resolveSubagentId,
+      subagents,
       parentAgentId,
     )) {
       if (
@@ -1215,8 +1248,8 @@ export class CodexDriver implements AgentDriver {
       }
     }
     link.appliedSnapshotGeneration = generation;
-    const resolveSubagentId = (id: string) =>
-      this.#rememberSubagent(id, rootThreadId).agentId;
+    this.#registerThreadSpawns(thread, rootThreadId);
+    const subagents = this.#subagentResolver(rootThreadId);
     for (const turn of thread.turns) {
       if (read?.endedTurns.has(turn.id)) continue;
       if (turn.status !== "inProgress") {
@@ -1254,7 +1287,7 @@ export class CodexDriver implements AgentDriver {
         this.#toolLifecycle.observe(
           thread.id,
           turn.id,
-          mapItemEvents(item, resolveSubagentId),
+          mapItemEvents(item, subagents),
         );
         if (
           "status" in item &&
