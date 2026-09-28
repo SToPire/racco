@@ -1,5 +1,6 @@
 import type { ToolTimelineRow } from "../store";
 import { describeTool, toolStatusLabel } from "../tool-presentation";
+import { ToolIcon } from "./ToolIcon";
 
 export function TrajectoryToolRow({
   row,
@@ -20,7 +21,7 @@ export function TrajectoryToolRow({
       type="button"
     >
       <span className="trajectory-tool-icon" aria-hidden="true">
-        {row.tool === "command" || row.tool === "Bash" ? ">_" : "▧"}
+        <ToolIcon tool={row.tool} />
       </span>
       <strong title={row.tool}>{description.label}</strong>
       <span>

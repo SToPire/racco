@@ -178,6 +178,10 @@
   max-width: 96px;
   flex: 0 0 auto;
 }
+.tool-card-heading > .ui-icon {
+  align-self: center;
+  color: var(--text-faint);
+}
 .tool-card-summary {
   flex: 1;
   min-width: 0;
@@ -264,10 +268,9 @@
 }
 
 .trajectory-tool-icon {
+  display: grid;
+  place-items: center;
   color: var(--text-faint);
-  font-family: var(--font-code);
-  font-size: 0.68rem;
-  text-align: center;
 }
 
 .trajectory-tool-row strong {

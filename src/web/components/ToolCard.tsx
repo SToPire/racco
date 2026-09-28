@@ -1,5 +1,6 @@
 import type { TimelineRow } from "../store";
 import { describeTool, toolStatusLabel } from "../tool-presentation";
+import { ToolIcon } from "./ToolIcon";
 
 type ToolCardProps = {
   row: Extract<TimelineRow, { type: "tool" }>;
@@ -19,6 +20,7 @@ export function ToolCard({ row, selected, onSelect }: ToolCardProps) {
     >
       <span className="tool-card-description">
         <span className="tool-card-heading">
+          <ToolIcon tool={row.tool} />
           <strong title={presentation.label}>{presentation.label}</strong>
           <span className="tool-card-summary" title={presentation.summary}>
             {presentation.summary}

@@ -222,7 +222,7 @@ export function TrajectoryView({
             {turns} Turns
           </span>
           <span>
-            <UiIcon name="terminal" />
+            <UiIcon name="wrench" />
             {calls} Calls
           </span>
           <span>
