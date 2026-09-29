@@ -573,12 +573,6 @@ export async function buildServer(
                 command.content,
                 command.modelSettings,
               );
-              await hub.startTurn(
-                created.ref,
-                command.content,
-                `create:${command.requestId}`,
-                command.modelSettings,
-              );
               send(socket, {
                 type: "ack",
                 requestId: command.requestId,
