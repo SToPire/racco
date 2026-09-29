@@ -1,7 +1,9 @@
 /* Composer and interactions */
 
 .session-footer {
-  padding: 0 24px 14px;
+  padding: 0
+    calc(var(--conversation-gutter) + var(--conversation-scrollbar-gutter, 0px))
+    14px;
   background: linear-gradient(180deg, transparent, var(--app-bg) 18px);
 }
 
@@ -17,7 +19,7 @@
 }
 
 .composer-stack {
-  width: min(760px, 100%);
+  width: min(var(--conversation-width), 100%);
   margin: 0 auto;
 }
 
@@ -55,7 +57,7 @@
   display: block;
   margin: 6px 0 0;
   color: var(--text-faint);
-  font-size: 0.63rem;
+  font-size: var(--font-size-xs);
   text-align: center;
 }
 
@@ -68,7 +70,7 @@
   padding-top: 7px;
   border-top: 1px solid var(--border);
   color: var(--text-faint);
-  font-size: 0.66rem;
+  font-size: var(--font-size-xs);
 }
 
 .context-usage {
@@ -165,7 +167,7 @@
   background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.72rem;
+  font-size: var(--font-size-sm);
 }
 
 .stop-button span {
@@ -186,7 +188,7 @@
 
 .interaction-card > strong {
   display: block;
-  font-size: 0.86rem;
+  font-size: var(--font-size-lg);
 }
 
 .question-card > button {
@@ -195,7 +197,7 @@
   border: 0;
   border-radius: 9px;
   cursor: pointer;
-  font-size: 0.76rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
 }
 
@@ -215,14 +217,14 @@
 
 .question-card legend {
   padding: 0 5px;
-  font-size: 0.78rem;
+  font-size: var(--font-size-md);
 }
 
 .question-option {
   display: flex;
   gap: 9px;
   align-items: flex-start;
-  font-size: 0.78rem;
+  font-size: var(--font-size-md);
 }
 
 .question-option span,
@@ -254,7 +256,7 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--danger) 6%, var(--surface));
   color: var(--danger);
-  font-size: 0.76rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -349,10 +351,19 @@
 }
 .image-input-error {
   color: var(--danger);
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
 }
 .image-input-status,
 .message-image-placeholder {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
+}
+
+.message-image-placeholder {
+  display: table;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  font-variant-numeric: tabular-nums;
 }

@@ -4,14 +4,14 @@
   border-left: 2px solid var(--border);
   padding: 8px 14px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .assistant-message-state {
   display: block;
   margin-bottom: 5px;
   color: var(--text-faint);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
 }
 
 .assistant-activity > header,
@@ -25,7 +25,7 @@
 .assistant-activity > summary > small {
   flex-shrink: 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .reasoning-summary > summary {
@@ -82,7 +82,7 @@
 .plan-step small {
   flex-shrink: 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .plan-step-inProgress {

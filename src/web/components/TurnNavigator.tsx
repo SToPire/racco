@@ -92,7 +92,12 @@ export function TurnNavigator({
   function jumpTo(request: UserRequestRow) {
     document
       .getElementById(userRequestAnchorId(sessionId, request.id))
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      ?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+        block: "start",
+      });
     setActiveId(request.id);
     setOpen(false);
   }

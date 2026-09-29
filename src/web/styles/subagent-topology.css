@@ -51,7 +51,7 @@
   border: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 
@@ -110,7 +110,7 @@
 .subagent-disconnected > p {
   margin: 12px 0 0;
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
 }
 
 .subagent-node {
@@ -146,7 +146,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 0.78rem;
+  font-size: var(--font-size-md);
 }
 
 .subagent-node-heading strong {
@@ -161,7 +161,7 @@
   align-items: center;
   gap: 5px;
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: var(--font-size-xs);
 }
 
 .subagent-node-task,
@@ -171,7 +171,7 @@
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -185,5 +185,5 @@
 .subagent-node-preview > span:first-child,
 .subagent-node-empty {
   color: var(--text-faint);
-  font-size: 0.68rem;
+  font-size: var(--font-size-xs);
 }

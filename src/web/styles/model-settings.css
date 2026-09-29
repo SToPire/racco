@@ -45,7 +45,7 @@
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: var(--font-size-md);
 }
 .selection-trigger:hover:not(:disabled) {
   background: var(--surface-active);
@@ -122,7 +122,7 @@
   color: var(--text);
   text-align: left;
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: var(--font-size-md);
 }
 .selection-back {
   border-bottom: 1px solid var(--border);
@@ -185,13 +185,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 0.8rem;
+  font-size: var(--font-size-md);
 }
 .model-settings-status {
   display: block;
   margin-top: 5px;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
 }
 .new-session-toolbar {

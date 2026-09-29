@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ProjectEntry,
   SessionRef,
-  SessionState,
   SessionSummary,
   WorktreeEntry,
 } from "../../shared/protocol";
 import { ProviderLogo } from "./ProviderLogo";
 import { RaccoLogo } from "./RaccoLogo";
+import { StateDot } from "./StateDot";
+import { sessionStateLabel } from "../session-presentation";
 
 type SessionListProps = {
   projects: ProjectEntry[];
@@ -29,14 +30,6 @@ type SessionListProps = {
   onDeleteSession?: (sessionId: string) => void;
   onRefreshWorktrees?: (projectId: string) => void;
   onDeleteWorktree?: (worktree: WorktreeEntry, deleteBranch: boolean) => void;
-};
-
-const SESSION_STATE_LABELS: Record<SessionState, string> = {
-  idle: "空闲",
-  running: "运行中",
-  waiting_interaction: "等待操作",
-  interrupted: "已中断",
-  error: "错误",
 };
 
 function isActive(activeRef: SessionRef | undefined, session: SessionSummary) {
@@ -160,19 +153,10 @@ export function SessionList({
             <small>
               {session.provider === "codex" ? "Codex" : "Claude"}
               {" · "}
-              {session.compacting
-                ? "压缩中"
-                : SESSION_STATE_LABELS[session.state]}
+              {sessionStateLabel(session.state, session.compacting)}
             </small>
           </span>
-          <span
-            aria-label={
-              session.compacting
-                ? "压缩中"
-                : SESSION_STATE_LABELS[session.state]
-            }
-            className={`state-dot state-dot-${session.compacting ? "running" : session.state}`}
-          />
+          <StateDot state={session.compacting ? "running" : session.state} />
         </button>
         {onDeleteSession !== undefined && (
           <button

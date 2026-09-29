@@ -11,7 +11,9 @@ try {
     viewport: { width: 1440, height: 900 },
   });
   await page.goto(url);
-  await page.getByRole("navigation", { name: "项目与对话" }).waitFor();
+  await page
+    .getByRole("navigation", { name: "项目、Worktree 与对话" })
+    .waitFor();
   await page.screenshot({ path: output });
   console.log(JSON.stringify({ url, output }));
 } finally {

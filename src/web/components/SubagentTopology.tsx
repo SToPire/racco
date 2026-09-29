@@ -3,6 +3,8 @@ import type { SessionSummary } from "../../shared/protocol";
 import type { SubagentTimelineRow } from "../store";
 import { subagentName, subagentStateLabel } from "../subagent-display";
 import { UiIcon } from "./UiIcon";
+import { StateDot } from "./StateDot";
+import { sessionStateLabel } from "../session-presentation";
 
 type AgentNode = { row: SubagentTimelineRow; children: AgentNode[] };
 
@@ -99,7 +101,7 @@ export function SubagentTopology({
                 <span className="subagent-node-heading">
                   <strong>{name}</strong>
                   <span className="subagent-node-state">
-                    <i className={`agent-status-dot state-${row.state}`} />
+                    <StateDot state={row.state} />
                     {subagentStateLabel(row.state)}
                   </span>
                 </span>
@@ -168,7 +170,12 @@ export function SubagentTopology({
         >
           <span className="subagent-node-heading">
             <strong>Main Agent</strong>
-            <i className={`agent-status-dot state-${session.state}`} />
+            <span className="subagent-node-state">
+              <StateDot
+                state={session.compacting ? "running" : session.state}
+              />
+              {sessionStateLabel(session.state, session.compacting)}
+            </span>
           </span>
         </button>
         {renderNodes(rooted)}

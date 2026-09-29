@@ -1,0 +1,66 @@
+/* Session and subagent states share colors without merging their lifecycles. */
+.state-idle,
+.state-unknown {
+  --state-color: var(--text-faint);
+}
+
+.state-starting,
+.state-running {
+  --state-color: var(--accent);
+}
+
+.state-waiting_interaction,
+.state-interrupted {
+  --state-color: var(--warning);
+}
+
+.state-completed {
+  --state-color: var(--success);
+}
+
+.state-error {
+  --state-color: var(--danger);
+}
+
+.state-dot,
+.connection-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.state-dot {
+  background: var(--state-color);
+}
+
+.run-state {
+  background: var(--surface-subtle);
+  color: var(--state-color);
+  white-space: nowrap;
+}
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.connection-open {
+  color: var(--success);
+}
+
+.connection-connecting {
+  color: var(--warning);
+}
+
+.connection-closed {
+  color: var(--danger);
+}
+
+.connection-dot {
+  background: currentColor;
+}
