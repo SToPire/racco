@@ -112,7 +112,7 @@ export const Timeline = memo(function Timeline({
                 )}
               {user && row.imageCount > 0 && (
                 <p className="message-image-placeholder">
-                  图片 × {row.imageCount} · 未保留预览
+                  {`[图片*${row.imageCount}]`}
                 </p>
               )}
               {row.text && <MarkdownContent text={row.text} />}

@@ -40,7 +40,7 @@ for (const provider of ["codex", "claude"] as const) {
     await expect(page).toHaveURL(/\/session\//);
     await expect(
       page.locator(".session-view:not([hidden]) .message-image-placeholder"),
-    ).toHaveText("图片 × 1 · 未保留预览");
+    ).toHaveText("[图片*1]");
     await expect(
       page.locator(".session-view:not([hidden]) .message-assistant"),
     ).toContainText("Fixture:");
@@ -52,7 +52,7 @@ for (const provider of ["codex", "claude"] as const) {
     await page.reload();
     await expect(
       page.locator(".session-view:not([hidden]) .message-image-placeholder"),
-    ).toHaveText("图片 × 1 · 未保留预览");
+    ).toHaveText("[图片*1]");
     await expect(page.locator(".message-user img")).toHaveCount(0);
     await expect(page.getByLabel("待发送图片")).toHaveCount(0);
     await page.getByRole("textbox", { name: "发送给 Racco" }).fill("continue");
