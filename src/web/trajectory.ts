@@ -53,7 +53,7 @@ function agentEntryContent(
       kind: "user",
       label: "User",
       summary: compact(
-        row.text || (row.imageCount > 0 ? `图片 × ${row.imageCount}` : ""),
+        row.text || (row.imageCount > 0 ? `[图片*${row.imageCount}]` : ""),
       ),
       actor,
       agentPath,

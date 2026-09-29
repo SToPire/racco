@@ -134,7 +134,7 @@ export function TurnNavigator({
                 {userRequestPreview(
                   request.text ||
                     (request.imageCount > 0
-                      ? `图片 × ${request.imageCount}`
+                      ? `[图片*${request.imageCount}]`
                       : ""),
                 )}
               </strong>
