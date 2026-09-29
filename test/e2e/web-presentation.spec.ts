@@ -357,8 +357,8 @@ test("message edges align with the composer through narrow panes, overflow and l
       }
     }
   }
-  // A larger, two-line offline header must not put the latest-message control
-  // over the tabs; its position belongs to the actual conversation viewport.
+  // The offline status keeps the title row: the statuses stay right of the
+  // heading and a long title truncates instead of pushing them to a new line.
   await page.setViewportSize({ width: 320, height: 900 });
   socket!.close({ code: 4000, reason: "test disconnect" });
   await expect(
@@ -373,9 +373,7 @@ test("message edges align with the composer through narrow panes, overflow and l
   const controlBox = (await followLatest.boundingBox())!;
   const contentBox = (await conversation.boundingBox())!;
   expect(controlBox.y).toBeGreaterThanOrEqual(contentBox.y);
-  const switcherBox = (await page
-    .locator(".agent-switcher-trigger")
-    .boundingBox())!;
+  const switcherBox = (await page.locator(".agent-switcher").boundingBox())!;
   const headingBox = (await page
     .locator(".session-heading-copy")
     .boundingBox())!;
@@ -383,9 +381,40 @@ test("message edges align with the composer through narrow panes, overflow and l
   expect(switcherBox.x + switcherBox.width).toBeLessThanOrEqual(
     headingBox.x + headingBox.width,
   );
-  expect(statusesBox.y).toBeGreaterThanOrEqual(
-    headingBox.y + headingBox.height,
+  expect(statusesBox.x).toBeGreaterThanOrEqual(headingBox.x + headingBox.width);
+  expect(statusesBox.y).toBeLessThan(headingBox.y + headingBox.height);
+  // A long title truncates instead of pushing the statuses to a new line; the
+  // squeezed switcher clips itself and never covers them.
+  await page.locator(".session-title-line h1").evaluate((title) => {
+    title.textContent = "在窄屏上验证会话标题缩略而不是换行的长标题";
+  });
+  const titleBox = (await page
+    .locator(".session-title-line h1")
+    .boundingBox())!;
+  const squeezedStatuses = (await page
+    .locator(".session-statuses")
+    .boundingBox())!;
+  const triggerBox = (await page
+    .locator(".agent-switcher-trigger")
+    .boundingBox())!;
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(squeezedStatuses.x);
+  expect(triggerBox.x + triggerBox.width).toBeLessThanOrEqual(
+    squeezedStatuses.x,
   );
+  expect(squeezedStatuses.x + squeezedStatuses.width).toBeLessThanOrEqual(320);
+  expect(
+    await page
+      .locator(".session-title-line h1")
+      .evaluate((title) => title.scrollWidth > title.clientWidth),
+  ).toBe(true);
+  // Hit-test probe: nothing from the title row may cover the statuses.
+  expect(
+    await page.locator(".session-statuses").evaluate((statuses) => {
+      const box = statuses.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + 2, box.y + box.height / 2);
+      return hit !== null && statuses.contains(hit);
+    }),
+  ).toBe(true);
   const send = page.getByRole("button", { name: "发送", exact: true });
   expect(
     await send.evaluate((button) => {

@@ -52,8 +52,9 @@
     padding-left: 10px;
   }
 
+  /* The statuses keep the title row; the title truncates to make room. */
   .session-header {
-    grid-template-columns: var(--control-size) minmax(0, 1fr);
+    grid-template-columns: var(--control-size) minmax(0, 1fr) auto;
     gap: 7px;
     padding: 7px 10px;
   }
@@ -72,10 +73,23 @@
     font-size: var(--font-size-xs);
   }
 
-  .session-statuses {
-    grid-column: 2;
-    justify-content: flex-start;
-    gap: 4px 8px;
+  /* The trigger's padding floor is 14px; keep it inside the title column. */
+  .agent-switcher {
+    min-width: 14px;
+  }
+
+  /* Mirror .sr-only: the dot carries the connection state visually and the
+     wording stays in the accessible name. */
+  .connection-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .new-session-content {
