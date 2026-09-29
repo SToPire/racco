@@ -96,6 +96,39 @@ async function modelTestHub() {
   };
 }
 
+async function imageContent(): Promise<UserInput> {
+  const data = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: "red" },
+  })
+    .png()
+    .toBuffer();
+  return [
+    { type: "image", mediaType: "image/png", data: data.toString("base64") },
+  ];
+}
+
+function trackInputLeases(t: test.TestContext) {
+  const leases: Array<{ content: UserInput; releases: number }> = [];
+  const prepare = ImageInputs.prototype.prepare;
+  t.mock.method(
+    ImageInputs.prototype,
+    "prepare",
+    async function (this: ImageInputs, content: UserInput) {
+      const lease = await prepare.call(this, content);
+      const record = { content: lease.content, releases: 0 };
+      leases.push(record);
+      return {
+        content: lease.content,
+        release() {
+          record.releases++;
+          lease.release();
+        },
+      };
+    },
+  );
+  return leases;
+}
+
 test("rejects invalid model/effort pairs before allocating a native session", async () => {
   const f = await modelTestHub();
   try {
@@ -145,12 +178,6 @@ test("broadcasts withdrawn and stopped text and replays it consistently on recon
       f.cwd,
       "stream-lifecycle",
       [{ type: "text", text: "hello" }],
-      fixtureModelSettings,
-    );
-    await f.hub.startTurn(
-      ref,
-      [{ type: "text", text: "hello" }],
-      "create:stream-lifecycle",
       fixtureModelSettings,
     );
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -215,14 +242,7 @@ test("coalesces creation and binds accepted requests to both model and effort", 
     const [first, second] = await Promise.all([create(), create()]);
     assert.deepEqual(first.ref, second.ref);
     assert.equal(f.allocations(), 1);
-    assert.equal(
-      f.repository.get(first.ref.sessionId)?.selectedModelSettings,
-      null,
-    );
-    assert.equal(
-      f.repository.get(first.ref.sessionId)?.lifecycle,
-      "provisioning",
-    );
+    assert.equal(f.repository.get(first.ref.sessionId)?.lifecycle, "active");
     const starts = await Promise.all([
       f.hub.startTurn(
         first.ref,
@@ -237,7 +257,7 @@ test("coalesces creation and binds accepted requests to both model and effort", 
         fixtureModelSettings,
       ),
     ]);
-    assert.deepEqual(starts.sort(), [false, true]);
+    assert.deepEqual(starts, [false, false]);
     assert.deepEqual(f.received, [fixtureModelSettings]);
     assert.deepEqual(
       f.repository.get(first.ref.sessionId)?.selectedModelSettings,
@@ -283,21 +303,30 @@ test("coalesces creation and binds accepted requests to both model and effort", 
   }
 });
 
-test("a provisioning session with a native ID can complete after recovery without allocation", async () => {
+test("a provisioning session with a native ID can complete after recovery without allocation", async (t) => {
   const f = await modelTestHub();
   try {
-    const created = await f.hub.createSession(
-      f.socket,
-      "codex",
-      f.projectId,
-      f.cwd,
-      "recover",
-      [{ type: "text", text: "task" }],
-      fixtureModelSettings,
+    const accept = t.mock.method(f.repository, "acceptTurn", () => {
+      throw new Error("stopped before acceptance");
+    });
+    await assert.rejects(
+      f.hub.createSession(
+        f.socket,
+        "codex",
+        f.projectId,
+        f.cwd,
+        "recover",
+        [{ type: "text", text: "task" }],
+        fixtureModelSettings,
+      ),
+      /stopped before acceptance/,
     );
+    accept.mock.restore();
+    const allocated = f.repository.findByCreateRequestId("recover")!;
+    assert.equal(f.received.length, 0);
     await f.hub.initialize();
     assert.equal(
-      f.repository.get(created.ref.sessionId)?.lifecycle,
+      f.repository.get(allocated.sessionId)?.lifecycle,
       "provisioning",
     );
     const replay = await f.hub.createSession(
@@ -309,14 +338,9 @@ test("a provisioning session with a native ID can complete after recovery withou
       [{ type: "text", text: "task" }],
       fixtureModelSettings,
     );
-    assert.deepEqual(replay.ref, created.ref);
+    assert.equal(replay.ref.sessionId, allocated.sessionId);
     assert.equal(f.allocations(), 1);
-    await f.hub.startTurn(
-      replay.ref,
-      [{ type: "text", text: "task" }],
-      "create:recover",
-      fixtureModelSettings,
-    );
+    assert.equal(f.received.length, 1);
     assert.deepEqual(
       f.repository.get(replay.ref.sessionId)?.selectedModelSettings,
       fixtureModelSettings,
@@ -382,6 +406,10 @@ test("publishes idle only after the active turn is cleared", async () => {
   const socket = recordingSocket(sent);
   const cwd = await fixtureCwd();
   const repository = memoryRepository();
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
   const driver: AgentDriver = {
     provider: "claude",
     ready: true,
@@ -412,6 +440,7 @@ test("publishes idle only after the active turn is cleared", async () => {
     },
     async runTurn({ context }) {
       context.setState("idle");
+      await pending;
     },
   };
   const hub = new SessionHub([driver], repository, cwd, async () => {});
@@ -426,21 +455,17 @@ test("publishes idle only after the active turn is cleared", async () => {
     fixtureModelSettings,
   );
 
-  sent.length = 0;
-  await hub.startTurn(
-    created.ref,
-    [{ type: "text", text: "first" }],
-    "create:create-1",
-    fixtureModelSettings,
-  );
   assert.equal(
     sent.some(
       (message) =>
-        message.type === "session.upserted" && message.session.state === "idle",
+        message.type === "session.upserted" &&
+        message.session.lifecycle === "active" &&
+        message.session.state === "idle",
     ),
     false,
   );
 
+  finish();
   await new Promise<void>((resolve) => setImmediate(resolve));
   await assert.doesNotReject(
     async () =>
@@ -510,21 +535,13 @@ test("publishes the accepted user message before the provider responds", async (
     },
   };
   const hub = new SessionHub([driver], repository, cwd, async () => {});
-  const created = await hub.createSession(
+  await hub.createSession(
     socket,
     "codex",
     fixtureProjectId(repository, cwd),
     cwd,
     "create-immediate-user",
     [{ type: "text", text: "hello" }],
-    fixtureModelSettings,
-  );
-  sent.length = 0;
-
-  await hub.startTurn(
-    created.ref,
-    [{ type: "text", text: "hello" }],
-    "create:create-immediate-user",
     fixtureModelSettings,
   );
 
@@ -605,13 +622,13 @@ test("does not overwrite live events when a targeted provider read races with a 
   });
   const created = { ref: { sessionId: imported.sessionId } };
   const pendingSnapshot = hub.snapshot(created.ref);
-
   await hub.startTurn(
     created.ref,
     [{ type: "text", text: "race" }],
-    "create:create-race",
+    "race-turn",
     fixtureModelSettings,
   );
+
   finishRead({
     metadata: { updatedAt: "2026-09-03T00:00:00.000Z", title: "Stale" },
     events: [
@@ -789,12 +806,6 @@ test("repairs an allocated session with a targeted startup lookup", async () => 
     fixtureModelSettings,
   );
 
-  await hub.startTurn(
-    created.ref,
-    [{ type: "text", text: "initial" }],
-    "create:create-recovered",
-    fixtureModelSettings,
-  );
   await new Promise<void>((resolve) => setImmediate(resolve));
   await hub.initialize();
 
@@ -865,7 +876,7 @@ test("does not resubmit an initial message for an already activated session", as
       "create:create-idempotent",
       fixtureModelSettings,
     ),
-    true,
+    false,
   );
   assert.equal(
     await hub.startTurn(
@@ -1000,12 +1011,6 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
     [{ type: "text", text: "wait" }],
     fixtureModelSettings,
   );
-  await hub.startTurn(
-    created.ref,
-    [{ type: "text", text: "wait" }],
-    "create:create-shutdown",
-    fixtureModelSettings,
-  );
 
   await hub.close();
 
@@ -1137,16 +1142,17 @@ test("broadcasts a real session turn to every subscribed client", async () => {
     [{ type: "text", text: "hello" }],
     fixtureModelSettings,
   );
+  await new Promise<void>((resolve) => setImmediate(resolve));
   await hub.subscribe(socketB, created.ref);
   sentA.length = 0;
   sentB.length = 0;
-
   await hub.startTurn(
     created.ref,
     [{ type: "text", text: "hello" }],
-    "create:create-shared",
+    "next-broadcast",
     fixtureModelSettings,
   );
+
   await new Promise<void>((resolve) => setImmediate(resolve));
 
   for (const sent of [sentA, sentB]) {
@@ -1233,14 +1239,6 @@ test("broadcasts project and session catalog updates to every connected client",
     );
   }
 
-  sentA.length = 0;
-  sentB.length = 0;
-  await hub.startTurn(
-    created.ref,
-    [{ type: "text", text: "hello" }],
-    "create:create-catalog",
-    fixtureModelSettings,
-  );
   const interaction = sentA.find(
     (message) => message.type === "interaction.requested",
   );
@@ -1257,6 +1255,7 @@ test("broadcasts project and session catalog updates to every connected client",
     assert.deepEqual(
       sent
         .filter((message) => message.type === "session.upserted")
+        .filter((message) => message.session.lifecycle === "active")
         .map((message) => message.session.state),
       ["running", "waiting_interaction", "running", "idle"],
     );
@@ -1869,12 +1868,6 @@ test("broadcasts execution errors immediately while retaining the execution stat
       [{ type: "text", text: "hello" }],
       fixtureModelSettings,
     );
-    await f.hub.startTurn(
-      ref,
-      [{ type: "text", text: "hello" }],
-      "create:failed-turn",
-      fixtureModelSettings,
-    );
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert(
       messages.some(
@@ -1988,15 +1981,28 @@ test("a matching initial image preparation failure marks provisioning failed wit
     },
   ];
   try {
-    const created = await f.hub.createSession(
-      socket,
-      "codex",
-      f.projectId,
-      f.cwd,
-      "image-prepare",
-      content,
-      fixtureModelSettings,
+    const accept = t.mock.method(f.repository, "acceptTurn", () => {
+      throw new Error("stopped before acceptance");
+    });
+    await assert.rejects(
+      f.hub.createSession(
+        socket,
+        "codex",
+        f.projectId,
+        f.cwd,
+        "image-prepare",
+        content,
+        fixtureModelSettings,
+      ),
+      /stopped before acceptance/,
     );
+    accept.mock.restore();
+    const created = {
+      ref: {
+        sessionId:
+          f.repository.findByCreateRequestId("image-prepare")!.sessionId,
+      },
+    };
     let preparations = 0;
     t.mock.method(ImageInputs.prototype, "prepare", async () => {
       preparations++;
@@ -2056,19 +2062,24 @@ test("a matching initial image preparation failure marks provisioning failed wit
   }
 });
 
-for (const outcome of ["success", "failure", "interrupt"] as const) {
+for (const outcome of [
+  "success",
+  "failure",
+  "sync failure",
+  "interrupt",
+] as const) {
   test(`image input leases are released when a turn ends with ${outcome}`, async (t) => {
     const f = await modelTestHub();
-    const released: boolean[] = [];
+    const released: number[] = [];
     t.mock.method(
       ImageInputs.prototype,
       "prepare",
       async (content: UserInput) => {
-        const index = released.push(false) - 1;
+        const index = released.push(0) - 1;
         return {
           content,
           release() {
-            released[index] = true;
+            released[index]++;
           },
         };
       },
@@ -2081,6 +2092,11 @@ for (const outcome of ["success", "failure", "interrupt"] as const) {
       if (outcome === "failure") throw new Error("fixture failed");
       context.setState(outcome === "interrupt" ? "interrupted" : "idle");
     };
+    if (outcome === "sync failure") {
+      f.driver.runTurn = () => {
+        throw new Error("synchronous driver failure");
+      };
+    }
     const content: UserInput = [
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
     ];
@@ -2094,12 +2110,185 @@ for (const outcome of ["success", "failure", "interrupt"] as const) {
         content,
         fixtureModelSettings,
       );
-      assert.deepEqual(released, [true]);
-      await f.hub.startTurn(ref, content, "create:lease", fixtureModelSettings);
-      if (outcome === "interrupt") assert.equal(released[1], false);
+      assert.equal(released.length, 1);
+      assert.equal(f.repository.get(ref.sessionId)?.lifecycle, "active");
+      if (outcome === "interrupt") assert.equal(released[0], 0);
     } finally {
       await f.hub.close();
     }
-    assert.deepEqual(released, [true, true]);
+    assert.deepEqual(released, [1]);
   });
 }
+
+test("creation transfers one image lease through allocation and execution while releasing duplicate requests", async (t) => {
+  const f = await modelTestHub();
+  const content = await imageContent();
+  const leases = trackInputLeases(t);
+  let entered!: () => void, releaseAllocation!: () => void;
+  const allocated = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    releaseAllocation = resolve;
+  });
+  const allocate = f.driver.createSession.bind(f.driver);
+  f.driver.createSession = async (input) => {
+    entered();
+    await gate;
+    return allocate(input);
+  };
+  let sentContent: UserInput | undefined;
+  const run = f.driver.runTurn.bind(f.driver);
+  f.driver.runTurn = (input) => {
+    sentContent = input.content;
+    return run(input);
+  };
+  const create = (input = content) =>
+    f.hub.createSession(
+      f.socket,
+      "codex",
+      f.projectId,
+      f.cwd,
+      "shared-images",
+      input,
+      fixtureModelSettings,
+    );
+  const first = create();
+  let second: ReturnType<typeof create> | undefined;
+  try {
+    await allocated;
+    assert.deepEqual(
+      leases.map((lease) => lease.releases),
+      [0],
+    );
+    second = create();
+    await assert.rejects(
+      create([...content, { type: "text", text: "different" }]),
+      /different parameters/,
+    );
+    releaseAllocation();
+    const [a, b] = await Promise.all([first, second]);
+    assert.deepEqual(a.ref, b.ref);
+    assert.equal(f.allocations(), 1);
+    assert.equal(f.received.length, 1);
+    assert.equal(sentContent, leases[0]!.content);
+    assert.deepEqual(leases.map((lease) => lease.releases).sort(), [0, 1, 1]);
+    f.setReady(false);
+    await create();
+    assert.equal(f.received.length, 1);
+    assert.equal(leases.length, 4);
+    assert.equal(leases[3]!.releases, 1);
+  } finally {
+    releaseAllocation();
+    await Promise.allSettled([first, ...(second ? [second] : [])]);
+    await f.hub.close();
+  }
+  assert.deepEqual(
+    leases.map((lease) => lease.releases),
+    [1, 1, 1, 1],
+  );
+});
+
+for (const failure of ["allocation", "model recheck", "acceptance"] as const) {
+  test(`creation releases its image lease exactly once on ${failure} failure`, async (t) => {
+    const f = await modelTestHub();
+    const content = await imageContent();
+    const leases = trackInputLeases(t);
+    if (failure === "allocation") {
+      f.driver.createSession = async () => {
+        throw new Error("allocation failed");
+      };
+    } else if (failure === "model recheck") {
+      const list = f.hub.listModels.bind(f.hub);
+      let calls = 0;
+      t.mock.method(f.hub, "listModels", (...args: Parameters<typeof list>) => {
+        if (++calls === 2) throw new Error("model recheck failed");
+        return list(...args);
+      });
+    } else {
+      t.mock.method(f.repository, "acceptTurn", () => {
+        throw new Error("acceptance failed");
+      });
+    }
+    try {
+      await assert.rejects(
+        f.hub.createSession(
+          f.socket,
+          "codex",
+          f.projectId,
+          f.cwd,
+          "lease-failure",
+          content,
+          fixtureModelSettings,
+        ),
+        /failed/,
+      );
+      assert.deepEqual(
+        leases.map((lease) => lease.releases),
+        [1],
+      );
+      assert.equal(f.received.length, 0);
+      assert.equal(
+        f.repository.list()[0]!.lifecycle,
+        failure === "acceptance" ? "provisioning" : "failed",
+      );
+    } finally {
+      await f.hub.close();
+    }
+    assert.deepEqual(
+      leases.map((lease) => lease.releases),
+      [1],
+    );
+  });
+}
+
+test("shutdown while preparing a new image request releases the late lease without allocating", async (t) => {
+  const f = await modelTestHub();
+  const content = await imageContent();
+  const prepare = ImageInputs.prototype.prepare;
+  let entered!: () => void, finishPreparation!: () => void;
+  const prepared = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    finishPreparation = resolve;
+  });
+  let releases = 0;
+  t.mock.method(
+    ImageInputs.prototype,
+    "prepare",
+    async function (this: ImageInputs, input: UserInput) {
+      const lease = await prepare.call(this, input);
+      entered();
+      await gate;
+      return {
+        content: lease.content,
+        release() {
+          releases++;
+          lease.release();
+        },
+      };
+    },
+  );
+  const creating = f.hub.createSession(
+    f.socket,
+    "codex",
+    f.projectId,
+    f.cwd,
+    "closing-images",
+    content,
+    fixtureModelSettings,
+  );
+  const rejected = assert.rejects(creating, /closed/);
+  try {
+    await prepared;
+    await f.hub.close();
+  } finally {
+    finishPreparation();
+    await rejected;
+    await f.hub.close();
+  }
+  assert.equal(releases, 1);
+  assert.equal(f.allocations(), 0);
+  assert.equal(f.received.length, 0);
+});

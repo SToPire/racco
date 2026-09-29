@@ -9,6 +9,7 @@ import { WebSocket } from "ws";
 import { startFixture } from "../../../test/fixtures/server.js";
 import { fixtureModelSettings } from "../../../test/model-catalog.js";
 import { MAX_CLIENT_MESSAGE_BYTES } from "../../shared/user-input.js";
+import { ImageInputs } from "./input.js";
 import type { ServerMessage } from "../../shared/protocol.js";
 
 const build = {
@@ -21,6 +22,7 @@ const build = {
 };
 
 test("the WebSocket enforces image model capability, emits only placeholders, and bounds decompressed messages", async (t) => {
+  const prepare = t.mock.method(ImageInputs.prototype, "prepare");
   const root = await mkdtemp(join(tmpdir(), "racco-image-wire-"));
   const fixture = await startFixture({ directory: root, build });
   const socket = new WebSocket(
@@ -130,6 +132,21 @@ test("the WebSocket enforces image model capability, emits only placeholders, an
       (event: { type: string; imageCount?: number }) =>
         event.type === "user.message" && event.imageCount === 1,
     ),
+  );
+  const beforeCreation = prepare.mock.callCount();
+  const created = await request({
+    type: "session.create",
+    provider: "codex",
+    projectId: fixture.projects[0]!.projectId,
+    path: fixture.projects[0]!.path,
+    content: Array(4).fill(content[0]),
+    modelSettings: fixtureModelSettings,
+  });
+  assert.equal(created.type, "ack");
+  assert.equal(
+    prepare.mock.callCount() - beforeCreation,
+    1,
+    "creation and its initial turn share one full image validation",
   );
   const closed = new Promise<number>((resolve) =>
     socket.once("close", resolve),
