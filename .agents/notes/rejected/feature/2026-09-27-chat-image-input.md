@@ -16,7 +16,7 @@ daemon 持有不可变原图和最小资源元数据，缩略图及可从原生�
 
 原生会话彻底删除后仅清理能证明安全的附件，未知或共享引用保留并报告。清理状态独立于项目及会话登记，失败与重启后仍可继续。另设独立附件管理入口，允许用户明确接受相关历史图片失效后销毁选定资源；不得触碰仍被使用的图片或 Provider 文件。首轮未产生原生记录、工作目录已移除时，资源仍应可见、可管理。数据库破坏性重置须显式处理附件目录，不自动接管旧资源。
 
-输入接口支持不等于历史可恢复。采用前必须验证两家真实图片往返、重启、续聊、分叉引用、编码后限制和 Claude 单消息输入流的结束时序；条件不成立就重审相关设计。只有原生历史能独立恢复图片时，才重新评估只保留可重建缓存的替代方案。协议与资源边界详见[完整设计](../../../../docs/design/chat-image-input.md)。
+输入接口支持不等于历史可恢复。采用前必须验证两家真实图片往返、重启、续聊、分叉引用、编码后限制和 Claude 单消息输入流的结束时序；条件不成立就重审相关设计。只有原生历史能独立恢复图片时，才重新评估只保留可重建缓存的替代方案。协议与资源边界详见[已实现决策](../../implemented/feature/2026-09-27-ephemeral-chat-images.md)。
 
 本提案拟部分扩展[无逐轮执行记录](../../implemented/simplification/2026-09-17-session-state-without-turn-ledger.md)及[原生会话导入](../../implemented/feature/2026-09-18-project-session-import.md)的持久化规模，但保留 Provider 历史归属、只读导入与无消息账本的决定；实施时再更新其存储描述。[完整历史读取](../../implemented/simplification/2026-09-27-full-history-with-websocket-compression.md)继续持有消息快照边界，图片资源及有界派生缓存不构成第二份消息历史。本提案扩展[原生会话删除](../../implemented/feature/2026-09-19-native-session-delete.md)的资源收尾义务，保留[显式磁盘清理](../../implemented/feature/2026-09-21-delete-explicit-disk-cleanup.md)的删除边界；[工具 Output](../../implemented/simplification/2026-09-22-single-tool-output.md)不属本范围。相关记录保留并关联本提案，没有需要拒绝或归档的现有提案。
 
