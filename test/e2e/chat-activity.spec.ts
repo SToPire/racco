@@ -10,6 +10,152 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
+  test(`tool history stays chronological through selection and status updates at ${viewport.width}px`, async ({
+    page,
+    racco,
+  }) => {
+    await page.setViewportSize(viewport);
+    const session = racco.sessions[0]!;
+    let socket: WebSocketRoute | undefined;
+    await page.routeWebSocket("**/api/ws", (route) => {
+      socket = route;
+      route.connectToServer();
+    });
+    const emit = (event: TimelineEvent) =>
+      socket!.send(
+        JSON.stringify({
+          type: "timeline.event",
+          session: { sessionId: session.sessionId },
+          event,
+        } satisfies ServerMessage),
+      );
+    await page.goto(`/session/${session.sessionId}`);
+    await expect(page.locator(".tool-card")).toBeVisible();
+    emit({
+      type: "assistant.message",
+      id: "history-intro",
+      text: "检查工具调用的时间线顺序。",
+    });
+    const calls = [
+      ["history-a", "failed"],
+      ["history-b", "completed"],
+      ["history-c", "running"],
+      ["history-d", "running"],
+      ["history-e", "completed"],
+      ["history-f", "completed"],
+    ] as const;
+    for (const [id, status] of calls) {
+      emit({
+        type: "tool.started",
+        id,
+        tool: "command",
+        input: { command: `run-${id}` },
+        details: {
+          type: "commandExecution",
+          id,
+          command: `run-${id}`,
+          cwd: session.cwd,
+          commandActions: [],
+        },
+      });
+      if (status !== "running") {
+        emit({ type: "tool.completed", id, status });
+      }
+    }
+    const ids = calls.map(([id]) => id);
+    const group = page.locator(".tool-group").filter({
+      has: page.locator('[data-timeline-row="history-a"]'),
+    });
+    const history = group.locator(".tool-history");
+    const row = (id: string) => group.locator(`[data-timeline-row="${id}"]`);
+    const expectOrder = async () => {
+      await expect
+        .poll(() =>
+          group
+            .locator(".tool-card")
+            .evaluateAll((rows) =>
+              rows.map((element) => element.getAttribute("data-timeline-row")),
+            ),
+        )
+        .toEqual(ids);
+      await expect(history.locator(".tool-card")).toHaveCount(4);
+      await expect(
+        group.locator(":scope > .tool-group-items > .tool-card"),
+      ).toHaveCount(2);
+      await expect(history.locator("summary")).toHaveText(
+        "较早 4 项 · command 4",
+      );
+    };
+    await expectOrder();
+    for (const id of ids.slice(0, 4)) await expect(row(id)).toBeHidden();
+    for (const id of ids.slice(4)) await expect(row(id)).toBeVisible();
+
+    await history.locator("summary").click();
+    for (const id of ids) await expect(row(id)).toBeVisible();
+    await expectOrder();
+    await row("history-b").click();
+    const inspector = page.getByRole("complementary", { name: "工具详情" });
+    await expect(inspector).toBeVisible();
+    await expect(row("history-b")).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      history.locator('[data-timeline-row="history-b"]'),
+    ).toBeVisible();
+    await expect(history).toHaveJSProperty("open", true);
+    await expectOrder();
+
+    emit({ type: "tool.completed", id: "history-c", status: "completed" });
+    await expect(row("history-c").locator(".tool-status")).toHaveText("已完成");
+    await expect(history).toHaveJSProperty("open", true);
+    await expectOrder();
+    await inspector.getByRole("button", { name: "关闭工具详情" }).click();
+    await expect(history).toHaveJSProperty("open", true);
+    await expectOrder();
+
+    await history.locator("summary").click();
+    emit({
+      type: "tool.completed",
+      id: "history-d",
+      status: "failed",
+      output: "history failure",
+    });
+    await expect(row("history-d").locator(".tool-status")).toHaveText("失败");
+    await expect(history).toHaveJSProperty("open", false);
+    await expectOrder();
+    for (const id of ids.slice(0, 4)) await expect(row(id)).toBeHidden();
+    await history.locator("summary").click();
+    for (const id of ids) await expect(row(id)).toBeVisible();
+    await expect(row("history-d")).toContainText("history failure");
+    await expectOrder();
+
+    emit({
+      type: "tool.started",
+      id: "history-g",
+      tool: "command",
+      input: { command: "run-history-g" },
+    });
+    await expect(history.locator("summary")).toHaveText(
+      "较早 5 项 · command 5",
+    );
+    await expect(history).toHaveJSProperty("open", true);
+    await expect
+      .poll(() =>
+        group
+          .locator(".tool-card")
+          .evaluateAll((rows) =>
+            rows.map((element) => element.getAttribute("data-timeline-row")),
+          ),
+      )
+      .toEqual([...ids, "history-g"]);
+    await expect(
+      history.locator('[data-timeline-row="history-e"]'),
+    ).toBeVisible();
+    await expect(
+      group.locator(":scope > .tool-group-items > .tool-card"),
+    ).toHaveCount(2);
+    await expect(row("history-f")).toBeVisible();
+    await expect(row("history-g")).toBeVisible();
+  });
+
   test(`empty activity does not add tool spacing at ${viewport.width}px`, async ({
     page,
     racco,

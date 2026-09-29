@@ -140,6 +140,8 @@ export function SessionView({
     );
     if (!target) return;
     reading.pauseFollowing();
+    const history = target.closest<HTMLDetailsElement>("details.tool-history");
+    if (history) history.open = true;
     target.scrollIntoView({ block: "center", behavior: "instant" });
     revealTarget.current = undefined;
   }, [viewMode, selectedAgentId, reading.pauseFollowing]);
