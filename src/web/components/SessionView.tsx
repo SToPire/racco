@@ -251,7 +251,13 @@ export function SessionView({
             aria-atomic="true"
           >
             <span className="connection-dot" aria-hidden="true" />
-            <span className={connection === "open" ? "sr-only" : undefined}>
+            <span
+              className={
+                connection === "open"
+                  ? "connection-label sr-only"
+                  : "connection-label"
+              }
+            >
               {connection === "open"
                 ? "已连接"
                 : connection === "connecting"
