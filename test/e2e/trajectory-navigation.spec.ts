@@ -2,6 +2,85 @@ import type { WebSocketRoute } from "@playwright/test";
 import type { ServerMessage, TimelineEvent } from "../../src/shared/protocol";
 import { test, expect } from "./fixtures";
 
+for (const width of [1440, 390]) {
+  test(`reveals folded tools from trajectory without moving them at ${width}px`, async ({
+    page,
+    racco,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const session = racco.sessions[0]!;
+    let socket: WebSocketRoute | undefined;
+    await page.routeWebSocket("**/api/ws", (route) => {
+      socket = route;
+      route.connectToServer();
+    });
+    const emit = (event: TimelineEvent) =>
+      socket!.send(
+        JSON.stringify({
+          type: "timeline.event",
+          session: { sessionId: session.sessionId },
+          event,
+        } satisfies ServerMessage),
+      );
+    await page.goto(`/session/${session.sessionId}`);
+    await expect(page.locator(".tool-card")).toBeVisible();
+    emit({
+      type: "assistant.message",
+      id: "history-intro",
+      text: "检查历史定位。",
+    });
+    const ids = ["earlier-failed", "earlier-completed", "recent-1", "recent-2"];
+    for (const id of ids) {
+      emit({
+        type: "tool.started",
+        id,
+        tool: "Read",
+        input: { file_path: `${id}.txt` },
+      });
+      emit({
+        type: "tool.completed",
+        id,
+        status: id === "earlier-failed" ? "failed" : "completed",
+      });
+    }
+    await expect(page.locator('[data-timeline-row="recent-2"]')).toBeVisible();
+    for (const id of ids.slice(0, 2)) {
+      await expect(page.locator(`[data-timeline-row="${id}"]`)).toBeHidden();
+      await page
+        .getByRole("button", { name: "Trajectory", exact: true })
+        .click();
+      await page
+        .getByRole("listitem")
+        .filter({ hasText: `${id}.txt` })
+        .click();
+      await page
+        .getByRole("complementary", { name: "交互详情" })
+        .getByRole("button", { name: "在 Chat 中查看" })
+        .click();
+      const history = page.locator(".tool-history");
+      const selected = history.locator(`[data-timeline-row="${id}"]`);
+      await expect(history).toHaveJSProperty("open", true);
+      await expect(selected).toBeVisible();
+      await expect(selected).toHaveAttribute("aria-pressed", "true");
+      await expect
+        .poll(() =>
+          page
+            .locator(".tool-group")
+            .last()
+            .locator(".tool-card")
+            .evaluateAll((rows) =>
+              rows.map((element) => element.getAttribute("data-timeline-row")),
+            ),
+        )
+        .toEqual(ids);
+      await expect(history.locator(".tool-card")).toHaveCount(2);
+      await page.getByRole("button", { name: "关闭工具详情" }).click();
+      await history.locator("summary").click();
+      await expect(selected).toBeHidden();
+    }
+  });
+}
+
 test("links selected Chat tools to trajectory and returns to the correct agent", async ({
   page,
   racco,
