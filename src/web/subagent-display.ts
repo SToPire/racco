@@ -1,12 +1,13 @@
 import type { SubagentState } from "../shared/protocol";
 import type { SubagentTimelineRow } from "./store";
+import { sessionStateLabel } from "./session-presentation";
 
 const STATE_LABELS: Record<SubagentState, string> = {
   starting: "启动中",
-  running: "运行中",
+  running: sessionStateLabel("running"),
   completed: "已完成",
-  interrupted: "已中断",
-  error: "失败",
+  interrupted: sessionStateLabel("interrupted"),
+  error: sessionStateLabel("error"),
   unknown: "状态未知",
 };
 

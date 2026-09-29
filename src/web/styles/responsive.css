@@ -17,6 +17,10 @@
 }
 
 @media (max-width: 760px) {
+  :root {
+    --conversation-gutter: 12px;
+  }
+
   .app-layout,
   .app-layout.inspector-open {
     display: block;
@@ -49,7 +53,7 @@
   }
 
   .session-header {
-    grid-template-columns: var(--control-size) minmax(0, 1fr) auto;
+    grid-template-columns: var(--control-size) minmax(0, 1fr);
     gap: 7px;
     padding: 7px 10px;
   }
@@ -65,7 +69,13 @@
 
   .run-state {
     padding: 0 6px;
-    font-size: 0.61rem;
+    font-size: var(--font-size-xs);
+  }
+
+  .session-statuses {
+    grid-column: 2;
+    justify-content: flex-start;
+    gap: 4px 8px;
   }
 
   .new-session-content {
@@ -88,7 +98,7 @@
 
   .timeline {
     gap: 20px;
-    padding: 26px 13px 36px;
+    padding: 26px 0 56px;
   }
 
   .trajectory-toolbar {
@@ -107,10 +117,6 @@
 
   .trajectory-view.detail-open .trajectory-workspace {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trajectory-entry-wrap {
-    grid-template-columns: 40px minmax(0, 1fr);
   }
 
   .trajectory-entry {
@@ -155,7 +161,7 @@
   .turn-navigator {
     top: auto;
     right: 8px;
-    bottom: 94px;
+    bottom: 12px;
     transform: none;
   }
 
@@ -169,7 +175,7 @@
   }
 
   .session-footer {
-    padding: 0 10px 8px;
+    padding-bottom: 8px;
   }
 
   .composer {
@@ -191,8 +197,8 @@
     --surface-hover: #2c4059;
     --surface-active: #324b69;
     --text: #e9f1fd;
-    --text-muted: #aec0d7;
-    --text-faint: #91a7c2;
+    --text-muted: #c0cede;
+    --text-faint: #a8bdd7;
     --border: #30435a;
     --border-strong: #49627f;
     --primary: #dceaff;
@@ -200,10 +206,27 @@
     --accent: #89b4fa;
     --codex: #a6b0ff;
     --claude: #edac86;
+    --trajectory-assistant: #cfb1f2;
+    --success: #75d4ac;
+    --warning: #efb75d;
+    --danger: #ff969c;
+    --avatar-codex-bg: #2b3c50;
+    --avatar-claude-bg: #443128;
+    --provider-logo: #e9f1fd;
     --selection-bg: #304b6d;
     --selection-text: #e7f1ff;
     --selection-border: #49678c;
     --shadow-subtle: 0 1px 3px rgb(0 0 0 / 14%);
     --shadow: 0 9px 30px rgba(0, 0, 0, 0.28);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }

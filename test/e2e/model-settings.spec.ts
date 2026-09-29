@@ -79,7 +79,9 @@ test("native model/effort selections are submitted, restored and synchronized as
   await page.getByRole("button", { name: "模型", exact: true }).click();
   await page.getByRole("option", { name: /Fixture Fast/ }).click();
   await expectEffort(page, "low");
-  await expect(page.getByRole("status")).toContainText("推理强度已调整为 low");
+  await expect(
+    page.getByRole("status", { name: "模型设置状态", exact: true }),
+  ).toContainText("推理强度已调整为 low");
   await page
     .getByRole("textbox", { name: "发送给 Racco" })
     .fill("switched-model");
@@ -109,7 +111,9 @@ test("native model/effort selections are submitted, restored and synchronized as
     other.getByRole("button", { name: "模型", exact: true }),
   ).toHaveText("Fixture Fast");
   await expectEffort(other, "medium");
-  await expect(other.getByRole("status")).toContainText("保留本地选择");
+  await expect(
+    other.getByRole("status", { name: "模型设置状态", exact: true }),
+  ).toContainText("保留本地选择");
 });
 
 test("model menus fit a narrow screen and keyboard selection never submits the prompt", async ({
@@ -177,7 +181,9 @@ test("catalog failures preserve the draft and loading the page again restores th
   await page
     .getByRole("textbox", { name: "发送给 Racco" })
     .fill("preserved draft");
-  await expect(page.getByRole("status")).toHaveText("catalog unavailable");
+  await expect(
+    page.getByRole("status", { name: "模型设置状态", exact: true }),
+  ).toHaveText("catalog unavailable");
   await expect(
     page.getByRole("button", { name: "发送", exact: true }),
   ).toBeDisabled();

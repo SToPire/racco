@@ -1,19 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { SessionSummary } from "../../shared/protocol";
 import type { SubagentTimelineRow } from "../store";
+import { sessionStateLabel } from "../session-presentation";
+import { StateDot } from "./StateDot";
 import {
   formatAgentPath,
   subagentName,
   subagentStateLabel,
 } from "../subagent-display";
-
-function sessionStateLabel(state: SessionSummary["state"]): string {
-  if (state === "running") return "运行中";
-  if (state === "waiting_interaction") return "等待操作";
-  if (state === "interrupted") return "已中断";
-  if (state === "error") return "失败";
-  return "空闲";
-}
 
 function subagentDepth(
   row: SubagentTimelineRow,
@@ -52,10 +46,12 @@ export function AgentSwitcherMenu({
         role="option"
         type="button"
       >
-        <span className={`agent-status-dot state-${session.state}`} />
+        <StateDot state={session.compacting ? "running" : session.state} />
         <span className="agent-option-copy">
           <strong>{session.title ?? "Main Agent"}</strong>
-          <small>Main Agent · {sessionStateLabel(session.state)}</small>
+          <small>
+            Main Agent · {sessionStateLabel(session.state, session.compacting)}
+          </small>
         </span>
       </button>
 
@@ -73,7 +69,7 @@ export function AgentSwitcherMenu({
             style={{ "--agent-indent": `${9 + depth * 12}px` } as CSSProperties}
             type="button"
           >
-            <span className={`agent-status-dot state-${row.state}`} />
+            <StateDot state={row.state} />
             <span className="agent-option-copy">
               <strong>{subagentName(row)}</strong>
               <small>
@@ -102,6 +98,9 @@ export function AgentSwitcher({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = subagents.find((row) => row.agentId === selectedAgentId);
+  const stateLabel = selected
+    ? subagentStateLabel(selected.state)
+    : sessionStateLabel(session.state, session.compacting);
 
   useEffect(() => {
     if (!open) return;
@@ -130,15 +129,19 @@ export function AgentSwitcher({
         aria-expanded={open}
         aria-haspopup="listbox"
         className="agent-switcher-trigger"
+        title={`${selected ? subagentName(selected) : "Main Agent"} · ${stateLabel}`}
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
-        <span
-          className={`agent-status-dot state-${selected?.state ?? session.state}`}
+        <StateDot
+          state={
+            selected?.state ?? (session.compacting ? "running" : session.state)
+          }
         />
         <strong>
           {selected === undefined ? "Main Agent" : subagentName(selected)}
         </strong>
+        <span className="sr-only"> · {stateLabel}</span>
         <svg aria-hidden="true" viewBox="0 0 24 24">
           <path d="m8 10 4-4 4 4M8 14l4 4 4-4" />
         </svg>

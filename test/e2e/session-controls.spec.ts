@@ -54,7 +54,7 @@ test("running tasks allow drafts across views and can be stopped from the trajec
   await expect(send).toBeDisabled();
 
   await page.getByRole("button", { name: "停止生成", exact: true }).click();
-  await expect(page.locator(".run-state")).toHaveText("已停止");
+  await expect(page.locator(".run-state")).toHaveText("已中断");
   await expect(input).toHaveValue("next task from trajectory");
   await expect(send).toBeEnabled();
   await expect(search).toHaveValue("README.md");
@@ -151,7 +151,7 @@ test("an unconfirmed send locks the draft even after the task starts and the vie
     page.getByRole("button", { name: "发送", exact: true }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "停止生成", exact: true }).click();
-  await expect(page.locator(".run-state")).toHaveText("已停止");
+  await expect(page.locator(".run-state")).toHaveText("已中断");
   await expect(input).toHaveValue("draft after confirmed send");
 });
 

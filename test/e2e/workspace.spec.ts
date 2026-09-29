@@ -260,7 +260,7 @@ test("compact layout, theme, question and interrupt controls work with fixture p
   await page.getByRole("button", { name: "停止生成" }).click();
   await expect(
     page.locator(".session-view:not([hidden]) .run-state"),
-  ).toHaveText("已停止");
+  ).toHaveText("已中断");
   await page.getByRole("button", { name: "展开文件侧栏" }).click();
   await page
     .getByRole("button", { name: "文件 other.txt", exact: true })

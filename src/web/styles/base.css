@@ -19,13 +19,13 @@
   --surface-hover: #edf3fa;
   --surface-active: #e7effa;
   --text: #202d3e;
-  --text-muted: #53667e;
-  --text-faint: #5d7089;
+  --text-muted: #45576d;
+  --text-faint: #566981;
   --border: #e5ebf3;
   --border-strong: #d6e0ee;
   --primary: #284c7d;
   --primary-text: #ffffff;
-  --accent: #4b76c8;
+  --accent: #345f9f;
   --selection-bg: #eaf2fc;
   --selection-text: #254b7b;
   --selection-border: #d5e2f3;
@@ -37,11 +37,25 @@
   --radius-control: 8px;
   --radius-pill: 999px;
   --shadow-subtle: 0 1px 3px rgb(39 66 110 / 7%);
-  --success: #1f9d72;
-  --warning: #c47b20;
-  --danger: #d14a4a;
-  --codex: #5e6ad2;
-  --claude: #c66f42;
+  --success: #197653;
+  --warning: #8a520c;
+  --danger: #b52d3a;
+  --codex: #4b54b3;
+  --claude: #9b4722;
+  --trajectory-assistant: #70429c;
+  --avatar-codex-bg: #ffffff;
+  --avatar-claude-bg: #f3e8e1;
+  --provider-logo: #141413;
+  --conversation-width: 760px;
+  --conversation-gutter: 24px;
+  --font-size-xs: 0.6875rem;
+  --font-size-sm: 0.75rem;
+  --font-size-md: 0.8125rem;
+  --font-size-lg: 0.875rem;
+  --font-size-body: 1rem;
+  --font-size-display: 1.75rem;
+  /* TS/JS file icons use letters as a compact symbol, not reading text. */
+  --font-size-badge: 0.5rem;
   --font-code:
     "Cascadia Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono", ui-monospace,
     monospace;

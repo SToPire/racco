@@ -1,6 +1,13 @@
 import type { UserInput } from "../../shared/user-input";
 import { UiIcon } from "./UiIcon";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type {
   InteractionRequest,
   InteractionResponse,
@@ -27,6 +34,7 @@ import { useModelSelection } from "../hooks/useModelSelection";
 import { useConversationScroll } from "../hooks/useConversationScroll";
 import type { TrajectoryEntry } from "../trajectory";
 import { FileReferenceScope } from "../FileNavigationContext";
+import { sessionStateLabel } from "../session-presentation";
 
 type SessionViewProps = {
   active: boolean;
@@ -81,6 +89,7 @@ export function SessionView({
   const [selectedAgentId, setSelectedAgentId] = useState<string>();
   const [viewMode, setViewMode] = useState<"chat" | "trajectory">("chat");
   const conversationRef = useRef<HTMLElement>(null);
+  const [scrollbarGutter, setScrollbarGutter] = useState(0);
   const [trajectoryTargetId, setTrajectoryTargetId] = useState<string>();
   const revealTarget = useRef<string | undefined>(undefined);
   const reading = useConversationScroll(
@@ -133,6 +142,18 @@ export function SessionView({
     connection !== "open" ||
     session.lifecycle !== "active";
 
+  // Match the scroll container's two stable gutters without clipping footer menus.
+  useLayoutEffect(() => {
+    const element = conversationRef.current;
+    if (!active || viewMode !== "chat" || !element) return;
+    const measure = () =>
+      setScrollbarGutter((element.offsetWidth - element.clientWidth) / 2);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active, viewMode]);
+
   useEffect(() => {
     if (viewMode !== "chat" || revealTarget.current === undefined) return;
     const target = conversationRef.current?.querySelector<HTMLElement>(
@@ -173,6 +194,11 @@ export function SessionView({
       className="session-view"
       hidden={!active}
       data-session-id={session.sessionId}
+      style={
+        {
+          "--conversation-scrollbar-gutter": `${viewMode === "chat" ? scrollbarGutter : 0}px`,
+        } as CSSProperties
+      }
     >
       <header className="pane-header session-header">
         <button
@@ -211,21 +237,28 @@ export function SessionView({
         </div>
         <div className="session-statuses">
           <span
-            className={`run-state run-state-${session.compacting ? "running" : session.state}`}
+            className={`run-state state-${session.compacting ? "running" : session.state}`}
+            role="status"
+            aria-label="会话状态"
+            aria-atomic="true"
           >
-            {session.compacting
-              ? "压缩中"
-              : session.state === "running"
-                ? "运行中"
-                : session.state === "waiting_interaction"
-                  ? "等待操作"
-                  : session.state === "error"
-                    ? "出错"
-                    : session.state === "interrupted"
-                      ? "已停止"
-                      : "空闲"}
+            {sessionStateLabel(session.state, session.compacting)}
           </span>
-          <span className={`connection-dot connection-${connection}`} />
+          <span
+            className={`connection-status connection-${connection}`}
+            role="status"
+            aria-label="连接状态"
+            aria-atomic="true"
+          >
+            <span className="connection-dot" aria-hidden="true" />
+            <span className={connection === "open" ? "sr-only" : undefined}>
+              {connection === "open"
+                ? "已连接"
+                : connection === "connecting"
+                  ? "连接中"
+                  : "连接已断开"}
+            </span>
+          </span>
         </div>
       </header>
 
@@ -304,28 +337,26 @@ export function SessionView({
             onReveal={revealInChat}
           />
         )}
-      </div>
-
-      {viewMode === "chat" &&
-        active &&
-        selectedSubagent === undefined &&
-        requests.length > 1 && (
-          <TurnNavigator
-            sessionId={session.sessionId}
-            requests={requests}
-            scrollContainerRef={conversationRef}
-          />
+        {viewMode === "chat" && !reading.following && (
+          <button
+            className="conversation-follow-latest"
+            type="button"
+            onClick={reading.followLatest}
+          >
+            回到最新内容 ↓
+          </button>
         )}
-
-      {viewMode === "chat" && !reading.following && (
-        <button
-          className="conversation-follow-latest"
-          type="button"
-          onClick={reading.followLatest}
-        >
-          回到最新内容 ↓
-        </button>
-      )}
+        {viewMode === "chat" &&
+          active &&
+          selectedSubagent === undefined &&
+          requests.length > 1 && (
+            <TurnNavigator
+              sessionId={session.sessionId}
+              requests={requests}
+              scrollContainerRef={conversationRef}
+            />
+          )}
+      </div>
 
       <footer
         className={`session-footer${viewMode === "trajectory" ? " session-footer-trajectory" : ""}`}

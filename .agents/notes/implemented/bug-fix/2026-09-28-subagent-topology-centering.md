@@ -10,6 +10,8 @@ Status: implemented
 
 Chat 正文和输入框保持共同的水平中心，悬浮拓扑的出现、展开和收起不改变正文布局。正文左侧空白足够容纳卡片及间距时默认展开；空白不足或进入没有正文留白的 Trajectory 时默认收起。空间不足的 Chat 与 Trajectory 都把入口放在视图切换栏的空白处，展开、收起使用同一锚点，避免收起入口覆盖首行或指标。首次显示在确认可用空间前同样保持收起。默认值随当前视图决定，用户显式展开或收起的选择继续优先。
 
+[呈现一致性](2026-09-29-web-ui-presentation.md)进一步统一可见消息边界与输入框外缘，水平留白计入滚动条占位；这里的居中与悬浮拓扑约束继续有效。
+
 本决策部分替代[悬浮拓扑](../feature/2026-09-28-floating-subagent-topology.md)中单侧预留空间的选择，该记录的层级展示、独立滚动与对话切换继续有效。[子任务摘要](../feature/2026-09-22-subagent-task-summaries.md)的内容来源和[阅读位置](../feature/2026-09-22-conversation-reading-position.md)的跟随规则继续保留，没有需要完整替代的记录。
 
 ## Alternatives considered

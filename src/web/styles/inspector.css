@@ -36,8 +36,8 @@
 .inspector-header small {
   display: block;
   color: var(--text-faint);
-  font-size: 9px;
-  line-height: 11px;
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -47,7 +47,7 @@
   margin: 2px 0 0;
   overflow: hidden;
   font-family: var(--font-code);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 16px;
   font-weight: 620;
   text-overflow: ellipsis;
@@ -85,7 +85,7 @@
 .inspector-output-toolbar > [role="status"] {
   flex: 1;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-output-scroll {
@@ -104,13 +104,13 @@
 
 .inspector-output-command small {
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-output-command code {
   overflow-wrap: anywhere;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   white-space: pre-wrap;
 }
 
@@ -152,7 +152,7 @@
   background: var(--surface-subtle);
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 620;
   list-style: none;
   user-select: none;
@@ -178,7 +178,7 @@
   overflow: hidden;
   color: var(--text-faint);
   font-family: var(--font-code);
-  font-size: 0.62rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -213,7 +213,7 @@
 
 .inspector-properties dt {
   color: var(--text-faint);
-  font-size: 0.66rem;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-properties dd {
@@ -222,7 +222,7 @@
   overflow-wrap: anywhere;
   color: var(--text);
   font-family: var(--font-code);
-  font-size: 0.66rem;
+  font-size: var(--font-size-xs);
   text-align: right;
 }
 
@@ -234,7 +234,7 @@
   display: block;
   margin-bottom: 6px;
   color: var(--text-faint);
-  font-size: 0.65rem;
+  font-size: var(--font-size-xs);
 }
 
 .command-actions {
@@ -256,7 +256,7 @@
   padding: 6px 8px;
   border-bottom: 0;
   background: var(--surface-subtle);
-  font-size: 0.63rem;
+  font-size: var(--font-size-xs);
 }
 
 .command-actions header span {
@@ -276,14 +276,14 @@
   border-radius: 8px;
   background: var(--surface-subtle);
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
 }
 
 .inspector-empty {
   margin: 8px 0;
   color: var(--text-faint);
-  font-size: 0.76rem;
+  font-size: var(--font-size-sm);
 }
 
 .file-changes {
@@ -312,7 +312,7 @@
 .file-change > header code {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.68rem;
+  font-size: var(--font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -322,7 +322,7 @@
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
 }
 
 .file-change-kind {
@@ -331,7 +331,7 @@
   border-radius: 999px;
   background: var(--surface-active);
   color: var(--text-muted);
-  font-size: 0.58rem;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   text-transform: uppercase;
 }

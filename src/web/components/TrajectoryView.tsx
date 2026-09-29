@@ -251,14 +251,18 @@ export function TrajectoryView({
               index === 0 ||
               visible[index - 1]?.turn !== entry.turn ||
               visible[index - 1]?.agentId !== entry.agentId;
+            const turnLabel = showTurn
+              ? entry.turn === undefined
+                ? "子任务"
+                : `Turn ${entry.turn}`
+              : "";
             return (
               <div className="trajectory-entry-wrap" key={entry.id}>
-                <small className="trajectory-turn-label">
-                  {showTurn
-                    ? entry.turn === undefined
-                      ? "子任务"
-                      : `Turn ${entry.turn}`
-                    : ""}
+                <small
+                  className="trajectory-turn-label"
+                  title={turnLabel || undefined}
+                >
+                  {turnLabel}
                 </small>
                 <button
                   aria-current={entry.id === selected?.id ? "true" : undefined}

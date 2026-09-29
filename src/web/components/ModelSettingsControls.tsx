@@ -63,7 +63,12 @@ export function ModelSettingsStatus({
         ? "Provider 未返回可用模型，请稍后重新加载页面"
         : selection.notice));
   return text ? (
-    <small className="model-settings-status" role="status">
+    <small
+      className="model-settings-status"
+      role="status"
+      aria-label="模型设置状态"
+      aria-atomic="true"
+    >
       {text}
     </small>
   ) : null;
