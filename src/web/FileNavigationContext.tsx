@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import {
   resolveFileReference,
   resolveProjectFilePath,
@@ -15,6 +15,37 @@ export const FileNavigationContext = createContext<
   | undefined
 >(undefined);
 
+export function FileNavigationProvider({
+  projectRoot,
+  available,
+  onOpenFile,
+  children,
+}: {
+  projectRoot: string | undefined;
+  available: boolean;
+  onOpenFile: (projectRoot: string, location: ProjectFileLocation) => void;
+  children: ReactNode;
+}) {
+  const value = useMemo(
+    () =>
+      projectRoot === undefined
+        ? undefined
+        : {
+            projectRoot,
+            baseDirectory: projectRoot,
+            available,
+            onOpenFile: (location: ProjectFileLocation) =>
+              onOpenFile(projectRoot, location),
+          },
+    [projectRoot, available, onOpenFile],
+  );
+  return (
+    <FileNavigationContext.Provider value={value}>
+      {children}
+    </FileNavigationContext.Provider>
+  );
+}
+
 /** Content may belong to another actor without expanding the project's read boundary. */
 export function FileReferenceScope({
   baseDirectory,
@@ -24,12 +55,13 @@ export function FileReferenceScope({
   children: ReactNode;
 }) {
   const navigation = useContext(FileNavigationContext);
+  const value = useMemo(
+    () =>
+      navigation === undefined ? undefined : { ...navigation, baseDirectory },
+    [navigation, baseDirectory],
+  );
   return (
-    <FileNavigationContext.Provider
-      value={
-        navigation === undefined ? undefined : { ...navigation, baseDirectory }
-      }
-    >
+    <FileNavigationContext.Provider value={value}>
       {children}
     </FileNavigationContext.Provider>
   );

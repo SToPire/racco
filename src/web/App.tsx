@@ -14,7 +14,7 @@ import { SessionLoadState } from "./components/SessionLoadState";
 import { SessionView } from "./components/SessionView";
 import { ToolInspector } from "./components/ToolInspector";
 import {
-  FileNavigationContext,
+  FileNavigationProvider,
   FileReferenceScope,
 } from "./FileNavigationContext";
 import type { FileOpenRequest, ProjectFileLocation } from "./file-navigation";
@@ -108,7 +108,8 @@ export function App() {
 
   useEffect(() => {
     setSelectedToolId(undefined);
-    if (window.matchMedia("(max-width: 1100px)").matches) setDockPanel(undefined);
+    if (window.matchMedia("(max-width: 1100px)").matches)
+      setDockPanel(undefined);
   }, [activeRef, historyOpen]);
 
   function startNewSession(worktree?: WorktreeEntry) {
@@ -200,31 +201,26 @@ export function App() {
     }
   }
 
-  function openReferencedFile(location: ProjectFileLocation) {
-    if (session === undefined) return;
-    setSelectedToolId(undefined);
-    setSelectedWorktreePath(session.cwd);
-    setDockPanel("files");
-    fileRequestSequence.current += 1;
-    setFileRequest({
-      ...location,
-      worktreePath: session.cwd,
-      requestId: fileRequestSequence.current,
-    });
-  }
+  const openReferencedFile = useCallback(
+    (worktreePath: string, location: ProjectFileLocation) => {
+      setSelectedToolId(undefined);
+      setSelectedWorktreePath(worktreePath);
+      setDockPanel("files");
+      fileRequestSequence.current += 1;
+      setFileRequest({
+        ...location,
+        worktreePath,
+        requestId: fileRequestSequence.current,
+      });
+    },
+    [],
+  );
 
   const content = (
-    <FileNavigationContext.Provider
-      value={
-        session === undefined
-          ? undefined
-          : {
-              projectRoot: session.cwd,
-              baseDirectory: session.cwd,
-              available: sessionWorktree?.available === true,
-              onOpenFile: openReferencedFile,
-            }
-      }
+    <FileNavigationProvider
+      projectRoot={session?.cwd}
+      available={sessionWorktree?.available === true}
+      onOpenFile={openReferencedFile}
     >
       <main
         style={{ "--project-dock-width": `${dockWidth}px` } as CSSProperties}
@@ -288,31 +284,39 @@ export function App() {
             />
           )}
           {sessionViews.map((view) => (
-            <SessionView
+            <FileNavigationProvider
               key={view.session.sessionId}
-              active={
-                activeRef?.sessionId === view.session.sessionId &&
-                racco.sessionLoadState === "ready"
-              }
-              loaded={view.loaded}
-              connection={connection}
-              error={
-                activeRef?.sessionId === view.session.sessionId
-                  ? sessionError
-                  : undefined
-              }
-              interactions={view.interactions}
-              onBack={showHistory}
-              onInterrupt={interruptTurn}
-              onCompact={compactSession}
-              onResolve={resolveInteraction}
-              onSelectTool={setSelectedToolId}
-              onSend={sendTurn}
-              rows={view.rows}
-              selectedToolId={selectedToolId}
-              sending={sending}
-              session={view.session}
-            />
+              projectRoot={view.session.cwd}
+              available={worktrees.some(
+                (entry) => entry.path === view.session.cwd && entry.available,
+              )}
+              onOpenFile={openReferencedFile}
+            >
+              <SessionView
+                active={
+                  activeRef?.sessionId === view.session.sessionId &&
+                  racco.sessionLoadState === "ready"
+                }
+                loaded={view.loaded}
+                connection={connection}
+                error={
+                  activeRef?.sessionId === view.session.sessionId
+                    ? sessionError
+                    : undefined
+                }
+                interactions={view.interactions}
+                onBack={showHistory}
+                onInterrupt={interruptTurn}
+                onCompact={compactSession}
+                onResolve={resolveInteraction}
+                onSelectTool={setSelectedToolId}
+                onSend={sendTurn}
+                rows={view.rows}
+                selectedToolId={selectedToolId}
+                sending={sending}
+                session={view.session}
+              />
+            </FileNavigationProvider>
           ))}
           {activeRef === undefined && (
             <NewSessionView
@@ -396,7 +400,7 @@ export function App() {
           onOpen={openSession}
         />
       </main>
-    </FileNavigationContext.Provider>
+    </FileNavigationProvider>
   );
   return (
     <ComposerDraftContext.Provider value={drafts}>
