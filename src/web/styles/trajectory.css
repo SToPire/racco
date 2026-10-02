@@ -54,7 +54,6 @@
   padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  outline: 0;
   background: var(--surface);
   color: var(--text);
   font-size: var(--font-size-xs);

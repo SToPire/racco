@@ -206,7 +206,6 @@
   padding: 3px 5px 12px;
   resize: none;
   border: 0;
-  outline: 0;
   background: transparent;
   color: var(--text);
   font-size: var(--font-size-body);
