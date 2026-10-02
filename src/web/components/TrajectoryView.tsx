@@ -206,9 +206,9 @@ export function TrajectoryView({
     (entry) => entry.kind === "tool" || entry.kind === "context",
   ).length;
   const agents = new Set(
-    entries
-      .filter((entry) => entry.actor !== "Main Agent")
-      .map((entry) => entry.actor),
+    entries.flatMap((entry) =>
+      entry.agentId === undefined ? [] : [entry.agentId],
+    ),
   ).size;
 
   return (

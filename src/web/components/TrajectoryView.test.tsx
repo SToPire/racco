@@ -25,6 +25,31 @@ const entry: TrajectoryEntry = {
   raw: { type: "commandExecution" },
 };
 
+for (const name of ["reviewer", "Main Agent", undefined]) {
+  test(`counts distinct subagents with shared display name ${String(name)}`, () => {
+    const children: TimelineRow[] = ["one", "two"].map((agentId) => ({
+      type: "subagent",
+      id: agentId,
+      agentId,
+      name,
+      state: "running",
+      activities: [{ id: `${agentId}-started`, state: "running" }],
+      timeline: [
+        { type: "assistant.message", id: `${agentId}-answer`, text: "working" },
+      ],
+    }));
+    const html = renderToStaticMarkup(
+      <TrajectoryView
+        rows={[
+          { type: "assistant.message", id: "main", text: "Main message" },
+          ...children,
+        ]}
+      />,
+    );
+    assert.match(html, /2 Subagents/);
+  });
+}
+
 test("renders a searchable trajectory containing every normalized row", () => {
   const html = renderToStaticMarkup(
     <TrajectoryView
