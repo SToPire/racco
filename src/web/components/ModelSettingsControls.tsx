@@ -60,7 +60,7 @@ export function ModelSettingsStatus({
     : (selection.error ??
       selection.issue ??
       (selection.catalog?.models.length === 0
-        ? "Provider 未返回可用模型，请稍后重新加载页面"
+        ? "Provider 未返回可用模型"
         : selection.notice));
   return text ? (
     <small
@@ -70,6 +70,16 @@ export function ModelSettingsStatus({
       aria-atomic="true"
     >
       {text}
+      {!selection.loading &&
+        (selection.error || selection.catalog?.models.length === 0) && (
+          <button
+            type="button"
+            onClick={selection.retry}
+            disabled={!selection.canRetry}
+          >
+            重新读取模型
+          </button>
+        )}
     </small>
   ) : null;
 }

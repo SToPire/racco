@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import sharp from "sharp";
 import type { Page } from "@playwright/test";
 
 async function openEffort(page: Page) {
@@ -166,7 +167,7 @@ test("model menus fit a narrow screen and keyboard selection never submits the p
   expect(snapshot.session.selectedModelSettings).toBeNull();
 });
 
-test("catalog failures preserve the draft and loading the page again restores the catalog", async ({
+test("catalog retry preserves text and images without reloading", async ({
   page,
   racco,
 }) => {
@@ -183,20 +184,32 @@ test("catalog failures preserve the draft and loading the page again restores th
     .fill("preserved draft");
   await expect(
     page.getByRole("status", { name: "模型设置状态", exact: true }),
-  ).toHaveText("catalog unavailable");
+  ).toContainText("catalog unavailable");
   await expect(
     page.getByRole("button", { name: "发送", exact: true }),
   ).toBeDisabled();
   await expect(page.getByRole("textbox", { name: "发送给 Racco" })).toHaveValue(
     "preserved draft",
   );
+  await page.getByLabel("选择图片文件").setInputFiles({
+    name: "retry.png",
+    mimeType: "image/png",
+    buffer: await sharp({
+      create: { width: 16, height: 16, channels: 3, background: "red" },
+    })
+      .png()
+      .toBuffer(),
+  });
+  const image = page.getByRole("img", { name: "图片 1：retry.png" });
+  const source = await image.getAttribute("src");
   await page.unroute("**/api/providers/*/models?*");
-  await page.reload();
+  await page.getByRole("button", { name: "重新读取模型" }).click();
   await page.getByRole("button", { name: "模型", exact: true }).click();
   await page.getByRole("option", { name: /Fixture Primary/ }).click();
-  await page
-    .getByRole("textbox", { name: "发送给 Racco" })
-    .fill("recovered task");
+  await expect(page.getByRole("textbox", { name: "发送给 Racco" })).toHaveValue(
+    "preserved draft",
+  );
+  await expect(image).toHaveAttribute("src", source!);
   await expect(
     page.getByRole("button", { name: "发送", exact: true }),
   ).toBeEnabled();

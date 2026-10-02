@@ -11,6 +11,8 @@ import { Composer } from "./Composer";
 import type { ModelSelection } from "./ModelSettingsControls";
 
 const selection: ModelSelection = {
+  retry() {},
+  canRetry: true,
   catalog: {
     provider: "codex",
     path: "/work/project",

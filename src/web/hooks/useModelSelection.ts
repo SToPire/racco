@@ -24,6 +24,7 @@ export function useModelSelection(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [refresh, setRefresh] = useState(0);
   const previous = useRef({ provider, scope, saved });
   const savedRef = useRef(saved);
   savedRef.current = saved;
@@ -76,7 +77,7 @@ export function useModelSelection(
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [provider, path, scope, newSession, connected]);
+  }, [provider, path, scope, newSession, connected, refresh]);
 
   const currentCatalog =
     catalog?.provider === provider && catalog.path === path
@@ -93,6 +94,8 @@ export function useModelSelection(
     loading,
     error,
     notice,
+    retry: () => setRefresh((current) => current + 1),
+    canRetry: connected && Boolean(path) && !loading,
     issue,
     valid:
       currentCatalog !== undefined &&
