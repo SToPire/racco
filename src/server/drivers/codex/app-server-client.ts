@@ -70,7 +70,18 @@ export class CodexAppServerClient {
     });
     this.#readline = createInterface({ input: child.stdout });
 
-    this.#readline.on("line", (line) => this.#handleLine(line));
+    this.#readline.on("line", (line) => {
+      try {
+        this.#handleLine(line);
+      } catch (error) {
+        this.#handleExit(
+          new Error("Invalid Codex app-server message", { cause: error }),
+        );
+      }
+    });
+    this.#readline.on("error", (error) => this.#handleExit(error));
+    for (const stream of [child.stdin, child.stdout, child.stderr])
+      stream.on("error", (error) => this.#handleExit(error));
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       const message = chunk.trim();
@@ -182,6 +193,7 @@ export class CodexAppServerClient {
   }
 
   #handleLine(line: string): void {
+    if (this.#process === undefined) return;
     let message: unknown;
     try {
       message = JSON.parse(line);
@@ -208,7 +220,12 @@ export class CodexAppServerClient {
     }
 
     if (typeof envelope.method === "string" && envelope.id !== undefined) {
-      void this.#handleServerRequest(envelope as JsonRpcRequest);
+      void this.#handleServerRequest(envelope as JsonRpcRequest).catch(
+        (error: unknown) =>
+          this.#handleExit(
+            error instanceof Error ? error : new Error(String(error)),
+          ),
+      );
       return;
     }
     if (typeof envelope.method === "string") {
@@ -230,12 +247,20 @@ export class CodexAppServerClient {
   #handleResponse(response: JsonRpcResponse): void {
     const pending = this.#pending.get(response.id);
     if (pending === undefined) return;
-    this.#pending.delete(response.id);
     if (response.error !== undefined) {
+      if (
+        response.error === null ||
+        typeof response.error !== "object" ||
+        !Number.isInteger(response.error.code) ||
+        typeof response.error.message !== "string"
+      )
+        throw new Error("Invalid Codex app-server response error");
+      this.#pending.delete(response.id);
       pending.reject(
         new CodexRpcResponseError(response.error.code, response.error.message),
       );
     } else {
+      this.#pending.delete(response.id);
       pending.resolve(response.result);
     }
   }

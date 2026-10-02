@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import { temporaryImages } from "../../../../test/images.js";
 import { CodexAppServerClient } from "./app-server-client.js";
+import { CodexDriver } from "./codex-driver.js";
 
 test(
   "fails pending requests and stops the provider on invalid RPC output",
@@ -22,6 +24,7 @@ test(
       "not-json",
       "[]",
       '{"unexpected":true}',
+      '{"id":1,"error":null}',
       '{"id":"question","method":"item/tool/requestUserInput"}\nnot-json',
     ]) {
       await writeFile(
@@ -54,6 +57,103 @@ setInterval(() => {}, 1000);
       } finally {
         await client.close();
       }
+    }
+  },
+);
+
+async function fakeCodex(t: TestContext, source: string): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "racco-rpc-fault-"));
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${directory}:${previousPath}`;
+  t.after(async () => {
+    process.env.PATH = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  });
+  await writeFile(join(directory, "codex"), source, { mode: 0o700 });
+}
+
+test(
+  "a broken native input pipe fails the provider without crashing the host",
+  { timeout: 10_000 },
+  async (t) => {
+    await fakeCodex(
+      t,
+      String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const lines = require('node:readline').createInterface({ input: process.stdin });
+const send = message => process.stdout.write(JSON.stringify(message) + '\n');
+lines.on('line', line => {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') send({ id: message.id, result: {} });
+  if (message.method === 'break-input') {
+    lines.close();
+    fs.closeSync(0);
+    send({ method: 'input-closed' });
+  }
+});
+setInterval(() => {}, 1000);
+`,
+    );
+    const client = new CodexAppServerClient(
+      { info() {}, warn() {} },
+      async () => ({}),
+    );
+    const exits: Error[] = [];
+    client.onExit((error) => exits.push(error));
+    const inputClosed = new Promise<void>((resolve) =>
+      client.onNotification(() => resolve()),
+    );
+    const processClosed = new Promise<void>((resolve) =>
+      client.onProcessExit(resolve),
+    );
+    try {
+      await client.start();
+      const pending = assert.rejects(client.request("break-input"), /EPIPE/);
+      await inputClosed;
+      await assert.rejects(client.request("after-close"), /EPIPE/);
+      await pending;
+      await processClosed;
+      assert.equal(exits.length, 1);
+      await assert.rejects(client.request("thread/read"), /has not started/);
+    } finally {
+      await client.close();
+    }
+  },
+);
+
+test(
+  "a malformed native notification fails an actual driver and its pending RPC",
+  { timeout: 10_000 },
+  async (t) => {
+    await fakeCodex(
+      t,
+      String.raw`#!/usr/bin/env node
+const lines = require('node:readline').createInterface({ input: process.stdin });
+const send = message => process.stdout.write(JSON.stringify(message) + '\n');
+lines.on('line', line => {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') send({ id: message.id, result: {} });
+  if (message.method === 'thread/start') send({ method: 'thread/started', params: {} });
+});
+`,
+    );
+    const driver = new CodexDriver(
+      { info() {}, warn() {} },
+      await temporaryImages(),
+    );
+    try {
+      await driver.start();
+      await assert.rejects(
+        driver.createSession({
+          raccoSessionId: "malformed-notification",
+          cwd: process.cwd(),
+          modelSettings: { modelId: "test", reasoningEffort: null },
+        }),
+        /Invalid Codex app-server message/,
+      );
+      assert.equal(driver.ready, false);
+    } finally {
+      await driver.close();
     }
   },
 );
