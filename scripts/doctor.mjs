@@ -37,11 +37,14 @@ try {
 }
 // Worktree management reads `git worktree list`, so a missing git degrades the
 // project tree to primary-worktree-only rows with a visible error.
-try {
-  const { stdout } = await exec("git", ["--version"]);
-  add("git", true, stdout.trim());
-} catch (error) {
-  add("git", false, error.message);
+// The daemon's state ownership requires Linux flock, also used by build tools.
+for (const command of ["git", "flock"]) {
+  try {
+    const { stdout } = await exec(command, ["--version"]);
+    add(command, true, stdout.trim());
+  } catch (error) {
+    add(command, false, error.message);
+  }
 }
 let source;
 try {
