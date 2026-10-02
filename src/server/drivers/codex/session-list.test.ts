@@ -31,7 +31,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   const message = JSON.parse(line);
   if (message.id === undefined) return;
   const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/resume') return send({id:message.id,error:{code:-32600,message:'thread example already has an active writer'}});
+  if (message.method !== 'thread/list') return send({id:message.id,error:{code:-32601,message:'Undeclared fake RPC: '+message.method}});
   let result = {};
   if (message.method === 'thread/list') {
     const base = {id:'root',cwd:${JSON.stringify(cwd)},name:'Native title',preview:'Preview',updatedAt:1700000000,parentThreadId:null,source:'cli'};

@@ -42,9 +42,11 @@ const send = value => process.stdout.write(JSON.stringify(value)+'\\n');
 process.on('SIGTERM', () => setTimeout(() => process.exit(0), 150));
 lines.on('line', line => {
  const m = JSON.parse(line); if(m.id === undefined) return;
+ if(m.method === 'initialize') return send({id:m.id,result:{ userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' }});
  if(m.method === 'thread/start') return send({id:m.id,result:{thread:{id:'root',cwd:m.params.cwd}}});
  if(m.method === 'turn/interrupt' && ${JSON.stringify(outcome)} === 'interrupt-rejected') return send({id:m.id,error:{code:-32602,message:'interrupt rejected'}});
- if(m.method !== 'turn/start') return send({id:m.id,result:{}});
+ if(m.method === 'turn/interrupt') return send({id:m.id,result:{}});
+ if(m.method !== 'turn/start') return send({id:m.id,error:{code:-32601,message:'Undeclared fake RPC: '+m.method}});
  const turn = {id:'current',status:'inProgress',items:[],error:null};
  fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify(m.params.input));
  if(${JSON.stringify(outcome)} === 'rpc-rejected' || ${JSON.stringify(outcome)} === 'rpc-internal') return send({id:m.id,error:{code:${outcome === "rpc-rejected" ? -32600 : -32603},message:'start rejected'}});
@@ -190,7 +192,7 @@ test("a provider exit during image preparation cleans the unsubmitted batch", as
     `#!/usr/bin/env node
 const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));
 const lines=require('node:readline').createInterface({input:process.stdin});
-lines.on('line',line=>{const m=JSON.parse(line);if(m.id===undefined)return;const result=m.method==='thread/start'?{thread:{id:'root',cwd:m.params.cwd}}:{};process.stdout.write(JSON.stringify({id:m.id,result})+'\\n');});
+lines.on('line',line=>{const m=JSON.parse(line);if(m.id===undefined)return;if(!['initialize','thread/start'].includes(m.method))return process.stdout.write(JSON.stringify({id:m.id,error:{code:-32601,message:'undeclared RPC'}})+'\\n');const result=m.method==='thread/start'?{thread:{id:'root',cwd:m.params.cwd}}:{userAgent:'racco/0.160.0 test',codexHome:'/tmp/codex-test',platformFamily:'unix',platformOs:'linux'};process.stdout.write(JSON.stringify({id:m.id,result})+'\\n');});
 `,
     { mode: 0o700 },
   );

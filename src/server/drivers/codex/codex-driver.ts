@@ -30,6 +30,7 @@ import {
   CodexAppServerClient,
   CodexRpcResponseError,
 } from "./app-server-client.js";
+import { CODEX_HISTORY_MODE } from "./contract.js";
 import { CodexActivityMapper } from "./activity-mapper.js";
 import { CodexToolLifecycle } from "./tool-lifecycle.js";
 import { CodexModelListSchema, codexModelCatalog } from "../model-options.js";
@@ -404,6 +405,7 @@ export class CodexDriver implements AgentDriver {
     const response = await this.#client.request<ThreadStartResponse>(
       "thread/start",
       {
+        historyMode: CODEX_HISTORY_MODE,
         cwd: canonicalCwd,
         model: input.modelSettings.modelId,
         config: { model_reasoning_effort: input.modelSettings.reasoningEffort },

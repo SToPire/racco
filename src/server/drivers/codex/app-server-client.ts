@@ -1,3 +1,4 @@
+import { validateCodexHandshake } from "./contract.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type {
@@ -117,7 +118,7 @@ export class CodexAppServerClient {
       }
     });
 
-    await this.request("initialize", {
+    const initialized = await this.request("initialize", {
       clientInfo: {
         name: "racco",
         title: "Racco",
@@ -128,6 +129,12 @@ export class CodexAppServerClient {
         requestAttestation: false,
       },
     });
+    try {
+      validateCodexHandshake(initialized);
+    } catch (error) {
+      await this.fail(error as Error);
+      throw error;
+    }
     this.notify("initialized");
     this.log.info({}, "Codex app-server initialized");
   }

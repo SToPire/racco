@@ -85,7 +85,7 @@ const lines = require('node:readline').createInterface({ input: process.stdin })
 const send = message => process.stdout.write(JSON.stringify(message) + '\n');
 lines.on('line', line => {
   const message = JSON.parse(line);
-  if (message.method === 'initialize') send({ id: message.id, result: {} });
+  if (message.method === 'initialize') send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'break-input') {
     lines.close();
     fs.closeSync(0);
@@ -133,7 +133,7 @@ const lines = require('node:readline').createInterface({ input: process.stdin })
 const send = message => process.stdout.write(JSON.stringify(message) + '\n');
 lines.on('line', line => {
   const message = JSON.parse(line);
-  if (message.method === 'initialize') send({ id: message.id, result: {} });
+  if (message.method === 'initialize') send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/start') send({ method: 'thread/started', params: {} });
 });
 `,
@@ -169,7 +169,7 @@ test(
 const lines = require('node:readline').createInterface({ input: process.stdin });
 lines.on('line', line => {
   const message = JSON.parse(line);
-  if (message.method === 'initialize') process.stdout.write(JSON.stringify({id:message.id,result:{}})+'\n');
+  if (message.method === 'initialize') process.stdout.write(JSON.stringify({id:message.id,result:{ userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' }})+'\n');
 });
 `,
     );
@@ -202,7 +202,7 @@ test("strict Codex peer rejects undeclared RPCs and schedules notifications arou
   const peer = await installFakeCodex(t, {
     script: `
 export const handlers = {
-  initialize: () => ({}),
+  initialize: () => ({ userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' }),
   ordered: (_, { notify, afterReply }) => {
     notify('fixture/before', {});
     afterReply(() => notify('fixture/after', {}));

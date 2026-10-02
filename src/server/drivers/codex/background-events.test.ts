@@ -55,6 +55,7 @@ function finish(id, status) {
 lines.on('line', line => {
   const message = JSON.parse(line);
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/start') return send({ id: message.id, result: { thread: root } });
   if (message.method === 'thread/read') return send({ id: message.id, result: { thread: message.params.threadId === 'root' ? root : children.get(message.params.threadId) } });
   if (message.method === 'thread/list') return send({ id: message.id, result: { data: [...children.values()], nextCursor: null } });
@@ -65,7 +66,8 @@ lines.on('line', line => {
     if (probes === 2 && ${JSON.stringify(exitMode)} === 'exit') setTimeout(() => process.exit(2), 5);
     return;
   }
-  if (message.method !== 'turn/start') return send({ id: message.id, result: {} });
+  if (message.method === 'thread/resume') return send({ id: message.id, result: {} });
+  if (message.method !== 'turn/start') return send({ id: message.id, error: { code: -32601, message: 'Undeclared fake RPC: ' + message.method } });
   const turn = { id: 'main-' + (++turns), items: [], status: 'inProgress', error: null };
   send({ id: message.id, result: { turn } });
   setTimeout(() => {

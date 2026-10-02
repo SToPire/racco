@@ -43,6 +43,7 @@ lines.on('line', line => {
   const message = JSON.parse(line);
   fs.appendFileSync(${JSON.stringify(transcript)}, line + '\n');
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/start') return send({ id: message.id, result: { thread: { id: 'root' } } });
   if (message.method === 'turn/start') {
     startRequest = message;
@@ -69,7 +70,7 @@ lines.on('line', line => {
     } else send({ id: message.id, result: {} });
     return;
   }
-  send({ id: message.id, result: {} });
+  send({ id: message.id, error: {code: -32601, message: "Undeclared fake RPC: " + message.method} });
 });
 `,
         { mode: 0o700 },
@@ -220,6 +221,7 @@ process.on('SIGTERM', () => {
 lines.on('line', line => {
   const message = JSON.parse(line);
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/start') return send({ id: message.id, result: { thread: { id: message.params.threadSource } } });
   if (message.method === 'turn/start') {
     const threadId = message.params.threadId;
@@ -230,7 +232,7 @@ lines.on('line', line => {
     send({ method: 'item/started', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: threadId + '-partial', text: 'Running', phase: 'commentary' } } });
     return;
   }
-  send({ id: message.id, result: {} });
+  send({ id: message.id, error: {code: -32601, message: "Undeclared fake RPC: " + message.method} });
 });
 `,
       { mode: 0o700 },

@@ -29,8 +29,10 @@ const send = message => process.stdout.write(JSON.stringify(message) + '\\n');
 lines.on('line', line => {
   const message = JSON.parse(line);
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/start') return send({ id: message.id, result: { thread: { id: 'root', cwd: message.params.cwd } } });
-  if (message.method !== 'turn/start') return send({ id: message.id, result: {} });
+  if (message.method === 'thread/resume') return send({ id: message.id, result: {} });
+  if (message.method !== 'turn/start') return send({ id: message.id, error: { code: -32601, message: 'Undeclared fake RPC: ' + message.method } });
   const scenario = message.params.input[0].text;
   const turn = { id: 'turn', status: 'inProgress', items: [], error: null };
   send({ id: message.id, result: { turn } });
@@ -136,7 +138,7 @@ test(
       script: `
 let turns = 0;
 export const handlers = {
-  initialize: () => ({}),
+  initialize: () => ({ userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' }),
   'thread/start': params => ({ thread: { id: 'native-test', cwd: params.cwd } }),
   'thread/resume': () => ({}),
   'turn/start': (params, { notify, afterReply }) => {
@@ -242,9 +244,11 @@ const thread = { id: 'root', cwd: ${JSON.stringify(process.cwd())}, preview: 'Ac
 lines.on('line', line => {
   const message = JSON.parse(line);
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/start' || message.method === 'thread/read') return send({ id: message.id, result: { thread } });
   if (message.method === 'thread/list') return send({ id: message.id, result: { data: [], nextCursor: null } });
-  if (message.method !== 'turn/start') return send({ id: message.id, result: {} });
+  if (message.method === 'thread/resume') return send({ id: message.id, result: {} });
+  if (message.method !== 'turn/start') return send({ id: message.id, error: { code: -32601, message: 'Undeclared fake RPC: ' + message.method } });
   const turn = { id: 'turn', items, status: 'completed', error: null };
   send({ id: message.id, result: { turn: { ...turn, items: [], status: 'inProgress' } } });
   setTimeout(() => {
@@ -370,6 +374,7 @@ lines.on('line', line => {
   const message = JSON.parse(line);
   fs.appendFileSync(${JSON.stringify(transcript)}, line + '\\n');
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   const threadId = message.params?.threadId;
   if (message.method === 'thread/compact/start') {
     const completed = (id = threadId) => send({ method: 'turn/completed', params: { threadId: id, turn: { id: 'compact', status: 'completed', items: [], error: null } } });
@@ -401,7 +406,8 @@ lines.on('line', line => {
       }
     }, 100);
   }
-  send({ id: message.id, result: {} });
+  if (['thread/resume', 'thread/compact/start'].includes(message.method)) send({ id: message.id, result: {} });
+  else send({id:message.id,error:{code:-32601,message:'Undeclared fake RPC: '+message.method}});
 });
 `,
       { mode: 0o700 },
@@ -512,6 +518,8 @@ lines.on('line', line => {
   const message = JSON.parse(line);
   fs.appendFileSync(${JSON.stringify(transcript)}, line + '\\n');
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
+  if (!['thread/read', 'thread/delete'].includes(message.method)) return send({id:message.id,error:{code:-32601,message:'Undeclared fake RPC: '+message.method}});
   let result = {};
   if (message.method === 'thread/read') {
     const cwd = message.params.threadId === 'thread-foreign' ? process.env.HOME : process.env.RACCO_TEST_THREAD_CWD;
@@ -602,13 +610,15 @@ lines.on('line', line => {
     return;
   }
   if (message.id === undefined) return;
+  if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'turn/start') {
     send({ id: message.id, result: { turn } });
     for (const [id, method] of [['command', 'item/commandExecution/requestApproval'], ['file', 'item/fileChange/requestApproval']]) {
       send({ id, method, params: { threadId: 'thread', turnId: 'turn', itemId: id } });
     }
     send({ id: 'question', method: 'item/tool/requestUserInput', params: { threadId: 'thread', turnId: 'turn', itemId: 'question', questions: [{ id: 'target', header: 'Target', question: 'Which target?', isOther: true, isSecret: false, options: null }] } });
-  } else send({ id: message.id, result: {} });
+  } else if(message.method === 'thread/resume') send({ id: message.id, result: {} });
+  else send({id:message.id,error:{code:-32601,message:'Undeclared fake RPC: '+message.method}});
 });
 `,
       { mode: 0o700 },
