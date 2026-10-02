@@ -223,6 +223,10 @@ const RequestIdSchema = z.string().min(1);
 
 export const ClientCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({
+    type: z.literal("connection.ping"),
+    requestId: RequestIdSchema,
+  }),
+  z.strictObject({
     type: z.literal("session.create"),
     requestId: RequestIdSchema,
     provider: ProviderSchema,

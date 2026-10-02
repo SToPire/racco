@@ -14,6 +14,8 @@ Status: implemented
 
 会话或项目删除使进行中的历史读取失效。Provider 随后成功或失败都不能再写入已删除记录、返回旧会话快照或重新建立订阅；读取错误仅能附在仍存在的会话上。删除后的缺失结果优先于缓存中的旧实体，避免客户端因迟到响应恢复已移除的条目。
 
+连接活性和命令结果期限由[WebSocket 活性](2026-10-02-websocket-liveness.md)补充；超时结果不确定，仍不自动重放命令。
+
 完整历史的传输压缩与暂不采用分页的取舍由[WebSocket 压缩决策](../simplification/2026-09-27-full-history-with-websocket-compression.md)持有。
 
 本记录补充[Worktree 管理](../architecture/2026-09-20-git-worktree-management.md)的导航行为，以及[首页输入页](../simplification/2026-09-18-home-composer.md)的页面内草稿保留；两者继续持有工作目录归属和浏览器历史语义。[无逐轮记录](../simplification/2026-09-17-session-state-without-turn-ledger.md)继续有效：显示缓存不是执行账本，Provider 仍是历史的事实来源，不新增自动命令重放。同范围没有需要完整替代或归档的记录。

@@ -730,11 +730,13 @@ export function useRacco({
 
   function interruptTurn() {
     if (activeRef === undefined) return;
-    socket.send({
-      type: "turn.interrupt",
-      requestId: crypto.randomUUID(),
-      ...activeRef,
-    });
+    void socket
+      .request({
+        type: "turn.interrupt",
+        requestId: crypto.randomUUID(),
+        ...activeRef,
+      })
+      .catch((error) => setSessionError(String(error.message)));
   }
 
   async function compactSession(): Promise<boolean> {
@@ -761,12 +763,14 @@ export function useRacco({
   }
 
   function resolveInteraction(id: string, response: InteractionResponse) {
-    socket.send({
-      type: "interaction.resolve",
-      requestId: crypto.randomUUID(),
-      interactionId: id,
-      response,
-    });
+    void socket
+      .request({
+        type: "interaction.resolve",
+        requestId: crypto.randomUUID(),
+        interactionId: id,
+        response,
+      })
+      .catch((error) => setSessionError(String(error.message)));
   }
 
   const session =

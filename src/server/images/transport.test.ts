@@ -74,6 +74,7 @@ test("the WebSocket enforces image model capability, emits only placeholders, an
     socket.send(JSON.stringify({ ...command, requestId }));
     return reply;
   }
+  assert.equal((await request({ type: "connection.ping" })).type, "ack");
   const sessionId = fixture.sessions[0].sessionId;
   await request({ type: "session.subscribe", sessionId });
   const data = (

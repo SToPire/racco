@@ -1,5 +1,14 @@
 import type { ClientCommand, ServerMessage } from "../shared/protocol";
 
+export const SOCKET_REQUEST_TIMEOUT_MS = 30_000;
+export const SOCKET_HEARTBEAT_INTERVAL_MS = 15_000;
+export const SOCKET_HEARTBEAT_TIMEOUT_MS = 10_000;
+
+const unknownOutcome = () =>
+  new Error(
+    "连接中断或响应超时，请求结果未确认；重连后请查看会话再决定是否重试。",
+  );
+
 export type SocketStatus = "connecting" | "open" | "closed";
 
 type MessageListener = (message: ServerMessage) => void;
@@ -14,9 +23,10 @@ export class RaccoSocket {
   #reconnectAttempt = 0;
   #reconnectTimer?: number;
   #destroyed = false;
+  #heartbeatTimer?: number;
   readonly #requests = new Map<
     string,
-    { resolve(data: unknown): void; reject(error: Error): void }
+    { resolve(data: unknown): void; reject(error: Error): void; timer: number }
   >();
 
   connect(): void {
@@ -38,6 +48,7 @@ export class RaccoSocket {
       if (this.#socket !== socket) return;
       this.#reconnectAttempt = 0;
       this.#setStatus("open");
+      this.#scheduleHeartbeat(socket);
     });
 
     socket.addEventListener("message", (event) => {
@@ -46,7 +57,7 @@ export class RaccoSocket {
       try {
         message = JSON.parse(event.data) as ServerMessage;
       } catch {
-        socket.close(1002, "Invalid Racco message");
+        this.#disconnect(socket, new Error("服务器消息无效，请刷新后重试"));
         return;
       }
       if (message.type === "ack" || message.type === "error") {
@@ -56,6 +67,7 @@ export class RaccoSocket {
             : this.#requests.get(message.requestId);
         if (pending) {
           this.#requests.delete(message.requestId!);
+          window.clearTimeout(pending.timer);
           if (message.type === "ack") pending.resolve(message.data);
           else pending.reject(new Error(message.message));
         }
@@ -63,48 +75,63 @@ export class RaccoSocket {
       for (const listener of this.#messageListeners) listener(message);
     });
 
-    socket.addEventListener("close", () => {
-      if (this.#socket !== socket) return;
-      this.#socket = undefined;
-      for (const pending of this.#requests.values())
-        pending.reject(
-          new Error(
-            "连接中断，请求结果未确认；重连后请查看会话再决定是否重试。",
-          ),
-        );
-      this.#requests.clear();
-      this.#setStatus("closed");
-      this.#scheduleReconnect();
-    });
-
-    socket.addEventListener("error", () => {
-      socket.close();
-    });
-  }
-
-  send(command: ClientCommand): boolean {
-    if (this.#socket?.readyState !== WebSocket.OPEN) return false;
-    try {
-      this.#socket.send(JSON.stringify(command));
-      return true;
-    } catch {
-      return false;
-    }
+    socket.addEventListener("close", () => this.#disconnect(socket));
+    socket.addEventListener("error", () => this.#disconnect(socket));
   }
 
   request(command: ClientCommand): Promise<unknown> {
+    return this.#request(command, SOCKET_REQUEST_TIMEOUT_MS);
+  }
+
+  #request(command: ClientCommand, timeout: number): Promise<unknown> {
+    const socket = this.#socket;
+    if (socket?.readyState !== WebSocket.OPEN)
+      return Promise.reject(new Error("WebSocket 尚未连接"));
     if (this.#requests.has(command.requestId))
       return Promise.reject(new Error("Duplicate pending request ID"));
     return new Promise<unknown>((resolve, reject) => {
-      this.#requests.set(command.requestId, {
-        resolve,
-        reject,
-      });
-      if (!this.send(command)) {
-        this.#requests.delete(command.requestId);
-        reject(new Error("WebSocket 尚未连接"));
+      const timer = window.setTimeout(() => this.#disconnect(socket), timeout);
+      this.#requests.set(command.requestId, { resolve, reject, timer });
+      try {
+        socket.send(JSON.stringify(command));
+      } catch {
+        this.#disconnect(socket);
       }
     });
+  }
+
+  #scheduleHeartbeat(socket: WebSocket): void {
+    this.#heartbeatTimer = window.setTimeout(() => {
+      if (this.#socket !== socket) return;
+      void this.#request(
+        { type: "connection.ping", requestId: crypto.randomUUID() },
+        SOCKET_HEARTBEAT_TIMEOUT_MS,
+      ).then(
+        () => {
+          if (this.#socket === socket) this.#scheduleHeartbeat(socket);
+        },
+        () => {},
+      );
+    }, SOCKET_HEARTBEAT_INTERVAL_MS);
+  }
+
+  #rejectRequests(error: Error): void {
+    for (const pending of this.#requests.values()) {
+      window.clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#requests.clear();
+  }
+
+  #disconnect(socket: WebSocket, error = unknownOutcome()): void {
+    if (this.#socket !== socket) return;
+    // Do not wait for the browser's close handshake on a half-open network.
+    this.#socket = undefined;
+    window.clearTimeout(this.#heartbeatTimer);
+    this.#rejectRequests(error);
+    this.#setStatus("closed");
+    this.#scheduleReconnect();
+    socket.close();
   }
 
   onMessage(listener: MessageListener): () => void {
@@ -120,12 +147,12 @@ export class RaccoSocket {
 
   destroy(): void {
     this.#destroyed = true;
-    for (const request of this.#requests.values())
-      request.reject(new Error("Racco connection closed"));
-    this.#requests.clear();
+    this.#rejectRequests(new Error("Racco connection closed"));
     window.clearTimeout(this.#reconnectTimer);
-    this.#socket?.close();
+    window.clearTimeout(this.#heartbeatTimer);
+    const socket = this.#socket;
     this.#socket = undefined;
+    socket?.close();
     this.#setStatus("closed");
   }
 

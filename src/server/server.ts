@@ -555,6 +555,11 @@ export async function buildServer(
 
           const command = parsed.data;
           try {
+            if (command.type === "connection.ping") {
+              send(socket, { type: "ack", requestId: command.requestId });
+              return;
+            }
+
             if (command.type === "session.subscribe") {
               const snapshot = await hub.subscribe(socket, command);
               if (snapshot === undefined) throw new Error("Session not found");
