@@ -1,5 +1,5 @@
 import type { UserInput } from "../../shared/user-input";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useReducer } from "react";
 import { SessionRefSchema } from "../../shared/protocol";
 import type {
   HealthResponse,
@@ -29,15 +29,10 @@ import {
   refreshWorktrees,
 } from "../api";
 import {
-  removeProject,
-  removeProjectWorktrees,
-  removeSession,
-  removeWorktree,
-  replaceProjectWorktrees,
-  upsertProject,
-  upsertSession,
-  upsertWorktree,
-} from "../catalog";
+  catalogReducer,
+  initialCatalogState,
+  type CatalogChange,
+} from "../catalog-state";
 import { RaccoSocket, type SocketStatus } from "../socket";
 import { applyTimelineEvent, buildTimeline, type TimelineRow } from "../store";
 import {
@@ -101,19 +96,23 @@ export function useRacco({
   const [sessionCache, setSessionCache] = useState<SessionCache>(
     () => new Map(),
   );
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [catalog, dispatchCatalog] = useReducer(
+    catalogReducer,
+    initialCatalogState,
+  );
+  const { sessions, projects, worktrees, worktreeErrors } = catalog;
+  const homeGeneration = useRef(0);
+  const worktreeGeneration = useRef(0);
+  const changeCatalog = useCallback(
+    (change: CatalogChange) => dispatchCatalog({ type: "change", change }),
+    [],
+  );
   const [health, setHealth] = useState<HealthResponse>();
-  const [projects, setProjects] = useState<ProjectEntry[]>([]);
-  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [homeError, setHomeError] = useState<string>();
   const [sessionError, setSessionError] = useState<string>();
   /** Project whose worktree list is being re-read, or being created in. */
   const [busyWorktreeProjectId, setBusyWorktreeProjectId] = useState<string>();
-  /** Per-project failure of the manual worktree refresh, keyed by projectId. */
-  const [worktreeErrors, setWorktreeErrors] = useState<Record<string, string>>(
-    {},
-  );
   const [connection, setConnection] = useState<SocketStatus>("closed");
   const [sending, setSending] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -127,6 +126,8 @@ export function useRacco({
   const navigatingFromDelete = useRef(false);
 
   const loadHome = useCallback(async () => {
+    const generation = ++homeGeneration.current;
+    dispatchCatalog({ type: "begin", generation });
     setLoading(true);
     setHomeError(undefined);
     try {
@@ -135,53 +136,50 @@ export function useRacco({
         listSessions(),
         listProjects(),
       ]);
-      setHealth(nextHealth);
-      setSessions(nextSessions);
-      setSessionCache(
-        (current) =>
-          new Map(
-            [...current].flatMap(([id, content]) => {
-              const session = nextSessions.find(
-                (entry) => entry.sessionId === id,
-              );
-              return session === undefined
-                ? []
-                : [[id, { ...content, session }] as const];
-            }),
-          ),
-      );
-      setProjects(nextProjects);
       const results = await loadAllWorktrees(nextProjects);
-      setWorktrees((current) => {
-        let next = current.filter((entry) =>
-          nextProjects.some((project) => project.projectId === entry.projectId),
-        );
-        for (const result of results) {
-          if (result.catalog !== undefined) {
-            next = replaceProjectWorktrees(
-              next,
-              result.projectId,
-              result.catalog.worktrees,
-            );
-          }
-        }
-        return next;
-      });
-      setWorktreeErrors(
-        Object.fromEntries(
-          results.flatMap((result) =>
-            result.error === undefined
-              ? []
-              : [[result.projectId, result.error]],
+      if (generation !== homeGeneration.current) return;
+      setHealth(nextHealth);
+      dispatchCatalog({
+        type: "loaded",
+        generation,
+        data: {
+          projects: nextProjects,
+          sessions: nextSessions,
+          worktrees: results.flatMap(
+            (result) => result.catalog?.worktrees ?? [],
           ),
-        ),
-      );
+          worktreeErrors: Object.fromEntries(
+            results.flatMap((result) =>
+              result.error === undefined
+                ? []
+                : [[result.projectId, result.error]],
+            ),
+          ),
+        },
+      });
     } catch (error) {
+      if (generation !== homeGeneration.current) return;
+      dispatchCatalog({ type: "failed", generation });
       setHomeError(error instanceof Error ? error.message : String(error));
     } finally {
-      setLoading(false);
+      if (generation === homeGeneration.current) setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (catalog.loadedGeneration === 0) return;
+    setSessionCache(
+      (current) =>
+        new Map(
+          [...current].flatMap(([id, content]) => {
+            const session = sessions.find((entry) => entry.sessionId === id);
+            return session === undefined
+              ? []
+              : [[id, { ...content, session }] as const];
+          }),
+        ),
+    );
+  }, [sessions, catalog.loadedGeneration]);
 
   useEffect(() => {
     void loadHome();
@@ -250,7 +248,7 @@ export function useRacco({
         }
 
         if (message.type === "project.upserted") {
-          setProjects((current) => upsertProject(current, message.project));
+          changeCatalog(message);
           return;
         }
 
@@ -261,27 +259,18 @@ export function useRacco({
               (content) => content.session.projectId === message.projectId,
             ),
           );
-          setProjects((current) => removeProject(current, message.projectId));
-          setSessions((current) =>
-            current.filter(
-              (session) => session.projectId !== message.projectId,
-            ),
-          );
-          setWorktrees((current) =>
-            removeProjectWorktrees(current, message.projectId),
-          );
-          clearWorktreeError(message.projectId);
+          changeCatalog(message);
           maybeNavigateAwayForProjectId(message.projectId);
           return;
         }
 
         if (message.type === "worktree.upserted") {
-          setWorktrees((current) => upsertWorktree(current, message.worktree));
+          changeCatalog(message);
           return;
         }
 
         if (message.type === "worktree.deleted") {
-          setWorktrees((current) => removeWorktree(current, message.path));
+          changeCatalog(message);
           return;
         }
 
@@ -292,7 +281,7 @@ export function useRacco({
               (content) => content.session.sessionId === message.sessionId,
             ),
           );
-          setSessions((current) => removeSession(current, message.sessionId));
+          changeCatalog(message);
           if (
             !navigatingFromDelete.current &&
             activeRef !== undefined &&
@@ -305,7 +294,7 @@ export function useRacco({
         }
 
         if (message.type === "session.upserted") {
-          setSessions((current) => upsertSession(current, message.session));
+          changeCatalog({ type: "session.upserted", session: message.session });
           setSessionCache((current) =>
             updateSessionContent(
               current,
@@ -317,7 +306,7 @@ export function useRacco({
         }
 
         if (message.type === "session.snapshot") {
-          setSessions((current) => upsertSession(current, message.session));
+          changeCatalog({ type: "session.upserted", session: message.session });
           setSessionCache((current) =>
             updateSessionContent(
               matchesRef(activeRef, message.session)
@@ -406,7 +395,7 @@ export function useRacco({
   }
 
   function rememberProject(project: ProjectEntry): ProjectEntry {
-    setProjects((current) => upsertProject(current, project));
+    changeCatalog({ type: "project.upserted", project });
     return project;
   }
 
@@ -414,15 +403,18 @@ export function useRacco({
     const project = rememberProject(await importProject(path));
     // A fresh import has no worktrees in local state yet; the catalog read
     // synthesizes the primary row, so the project is never rendered empty.
+    const generation = beginWorktreeRead(project.projectId);
     try {
       const catalog = await listWorktrees(project.projectId);
-      rememberWorktreeCatalog(catalog);
+      rememberWorktreeCatalog(catalog, generation);
     } catch (error) {
-      setWorktreeErrors((current) => ({
-        ...current,
-        [project.projectId]:
-          error instanceof Error ? error.message : String(error),
-      }));
+      changeCatalog({
+        type: "worktree.error",
+        projectId: project.projectId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      endWorktreeRead(project.projectId, generation);
     }
     return project;
   }
@@ -431,16 +423,19 @@ export function useRacco({
   async function refreshProjectWorktrees(projectId: string): Promise<void> {
     setBusyWorktreeProjectId(projectId);
     clearWorktreeError(projectId);
+    const generation = beginWorktreeRead(projectId);
     try {
       const catalog = await refreshWorktrees(projectId);
-      rememberWorktreeCatalog(catalog);
+      rememberWorktreeCatalog(catalog, generation);
     } catch (error) {
       // The previous list stays on screen; only the error is added.
-      setWorktreeErrors((current) => ({
-        ...current,
-        [projectId]: error instanceof Error ? error.message : String(error),
-      }));
+      changeCatalog({
+        type: "worktree.error",
+        projectId: projectId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
+      endWorktreeRead(projectId, generation);
       setBusyWorktreeProjectId(undefined);
     }
   }
@@ -451,19 +446,22 @@ export function useRacco({
   ): Promise<WorktreeEntry | undefined> {
     setBusyWorktreeProjectId(projectId);
     clearWorktreeError(projectId);
+    const generation = beginWorktreeRead(projectId);
     try {
       const catalog = await requestCreateWorktree(projectId, name);
-      rememberWorktreeCatalog(catalog);
+      rememberWorktreeCatalog(catalog, generation);
       return catalog.worktrees.find(
         (worktree) => worktree.kind === "linked" && worktree.branch === name,
       );
     } catch (error) {
-      setWorktreeErrors((current) => ({
-        ...current,
-        [projectId]: error instanceof Error ? error.message : String(error),
-      }));
+      changeCatalog({
+        type: "worktree.error",
+        projectId: projectId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return undefined;
     } finally {
+      endWorktreeRead(projectId, generation);
       setBusyWorktreeProjectId(undefined);
     }
   }
@@ -476,6 +474,7 @@ export function useRacco({
   ): Promise<void> {
     setBusyWorktreeProjectId(projectId);
     clearWorktreeError(projectId);
+    const generation = beginWorktreeRead(projectId);
     try {
       const result = await requestDeleteWorktree(
         projectId,
@@ -483,7 +482,7 @@ export function useRacco({
         force,
         deleteBranch,
       );
-      rememberWorktreeCatalog(result.catalog);
+      rememberWorktreeCatalog(result.catalog, generation);
       // The sessions that lived in that directory are gone with it; removing
       // them locally keeps the tree from showing rows the server no longer has.
       if (result.removedSessionIds.length > 0) {
@@ -493,16 +492,16 @@ export function useRacco({
             removed.has(content.session.sessionId),
           ),
         );
-        setSessions((current) =>
-          current.filter((session) => !removed.has(session.sessionId)),
-        );
+        for (const sessionId of removed)
+          changeCatalog({ type: "session.removed", sessionId });
       }
       const branchDeletion = result.branchDeletion;
       if (branchDeletion?.deleted === false) {
-        setWorktreeErrors((current) => ({
-          ...current,
-          [projectId]: `Worktree 已删除，但本地分支 ${branchDeletion.branch} 删除失败：${branchDeletion.reason}`,
-        }));
+        changeCatalog({
+          type: "worktree.error",
+          projectId: projectId,
+          error: `Worktree 已删除，但本地分支 ${branchDeletion.branch} 删除失败：${branchDeletion.reason}`,
+        });
       }
     } catch (error) {
       // A dirty directory is a decision the caller must make (re-confirm and
@@ -510,35 +509,39 @@ export function useRacco({
       // are shown in place.
       const status = (error as { status?: number } | null)?.status;
       if (status === 409) throw error;
-      setWorktreeErrors((current) => ({
-        ...current,
-        [projectId]: error instanceof Error ? error.message : String(error),
-      }));
+      changeCatalog({
+        type: "worktree.error",
+        projectId: projectId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
+      endWorktreeRead(projectId, generation);
       setBusyWorktreeProjectId(undefined);
     }
   }
 
-  function rememberWorktreeCatalog(catalog: WorktreeCatalog) {
-    setWorktrees((current) =>
-      replaceProjectWorktrees(current, catalog.projectId, catalog.worktrees),
-    );
-    clearWorktreeError(catalog.projectId);
-    if (catalog.degradedReason !== null) {
-      setWorktreeErrors((current) => ({
-        ...current,
-        [catalog.projectId]: catalog.degradedReason!,
-      }));
-    }
+  function beginWorktreeRead(projectId: string) {
+    const generation = ++worktreeGeneration.current;
+    dispatchCatalog({ type: "worktree.begin", projectId, generation });
+    return generation;
+  }
+  function endWorktreeRead(projectId: string, generation: number) {
+    dispatchCatalog({ type: "worktree.end", projectId, generation });
+  }
+  function rememberWorktreeCatalog(
+    catalog: WorktreeCatalog,
+    generation: number,
+  ) {
+    dispatchCatalog({
+      type: "worktree.end",
+      projectId: catalog.projectId,
+      catalog,
+      generation,
+    });
   }
 
   function clearWorktreeError(projectId: string) {
-    setWorktreeErrors((current) => {
-      if (current[projectId] === undefined) return current;
-      const next = { ...current };
-      delete next[projectId];
-      return next;
-    });
+    changeCatalog({ type: "worktree.error", projectId });
   }
 
   async function importSession(
@@ -553,7 +556,7 @@ export function useRacco({
       projectId,
       path,
     );
-    setSessions((current) => upsertSession(current, imported));
+    changeCatalog({ type: "session.upserted", session: imported });
     return imported;
   }
 
@@ -579,7 +582,10 @@ export function useRacco({
       );
       // Optimistic local removal; the server's session.removed broadcast is the
       // idempotent backstop when the WebSocket is connected.
-      setSessions((current) => removeSession(current, removedManagedSessionId));
+      changeCatalog({
+        type: "session.removed",
+        sessionId: removedManagedSessionId,
+      });
     }
   }
 
@@ -610,18 +616,13 @@ export function useRacco({
     // in the onMessage handler stays idempotent. When the worktrees stay on
     // disk, their local rows go away with the project; re-importing the same
     // directory re-derives them.
-    setProjects((current) => removeProject(current, projectId));
+    changeCatalog({ type: "project.deleted", projectId });
     setSessionCache((current) =>
       forgetSessionContent(
         current,
         (content) => content.session.projectId === projectId,
       ),
     );
-    setSessions((current) =>
-      current.filter((session) => session.projectId !== projectId),
-    );
-    setWorktrees((current) => removeProjectWorktrees(current, projectId));
-    clearWorktreeError(projectId);
     maybeNavigateAwayForProjectId(projectId);
     try {
       await requestDeleteProject(projectId, removeWorktrees);
@@ -642,7 +643,7 @@ export function useRacco({
       ),
     );
     setSessionError(undefined);
-    setSessions((current) => removeSession(current, sessionId));
+    changeCatalog({ type: "session.removed", sessionId });
     if (!navigatingFromDelete.current && activeRef !== undefined) {
       maybeNavigateAwayForSessionId(sessionId);
     }
