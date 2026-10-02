@@ -6,6 +6,8 @@ import type {
 } from "../../src/shared/protocol";
 import { test, expect } from "./fixtures";
 
+test.use({ fixtureProfile: "visual" });
+
 async function textContrast(locator: Locator) {
   const colors = await locator.evaluate((element) => {
     const canvas = document.createElement("canvas");

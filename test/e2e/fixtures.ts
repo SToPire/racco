@@ -2,6 +2,7 @@ import { test as base, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ProjectEntry, SessionSummary } from "../../src/shared/protocol";
@@ -12,9 +13,16 @@ type Racco = {
   sessions: SessionSummary[];
   directory: string;
 };
-export const test = base.extend<{ racco: Racco }>({
-  racco: async ({ browserName }, use, testInfo) => {
-    const parent = resolve(".tmp/e2e");
+export const test = base.extend<{
+  racco: Racco;
+  fixtureProfile: "git" | "visual";
+}>({
+  fixtureProfile: ["git", { option: true }],
+  racco: async ({ browserName, fixtureProfile }, use, testInfo) => {
+    const parent =
+      fixtureProfile === "visual"
+        ? join(tmpdir(), "racco-e2e")
+        : resolve(".tmp/e2e");
     await mkdir(parent, { recursive: true });
     const directory = await mkdtemp(join(parent, "run-"));
     const ready = join(directory, "ready.json");
@@ -25,6 +33,8 @@ export const test = base.extend<{ racco: Racco }>({
         "--import",
         "tsx",
         "test/fixtures/server.ts",
+        "--profile",
+        fixtureProfile,
         "--directory",
         directory,
         "--build-info",

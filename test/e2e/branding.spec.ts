@@ -1,5 +1,7 @@
 import { test, expect } from "./fixtures";
 
+test.use({ fixtureProfile: "visual" });
+
 test("Racco identity and the composer appear directly on the home screen in both themes", async ({
   page,
 }) => {

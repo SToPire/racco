@@ -13,6 +13,7 @@ export async function startFixture(options: {
   build: BuildInfo;
   webRoot?: string;
   port?: number;
+  profile?: "git" | "visual";
 }) {
   const directory = resolve(options.directory);
   const alpha = join(directory, "projects", "alpha");
@@ -37,18 +38,19 @@ export async function startFixture(options: {
   ]);
   // Each project is a separate repository even when fixtures live under the
   // source checkout. This also exercises real Git worktrees in browser tests.
-  await Promise.all(
-    [alpha, beta].map(async (cwd) => {
-      await runGit(["init", "-q"], { cwd });
-      await runGit(["config", "user.email", "fixture@example.com"], { cwd });
-      await runGit(["config", "user.name", "Fixture"], { cwd });
-      await runGit(["add", "-A"], { cwd });
-      await runGit(
-        ["-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture"],
-        { cwd },
-      );
-    }),
-  );
+  if (options.profile !== "visual")
+    await Promise.all(
+      [alpha, beta].map(async (cwd) => {
+        await runGit(["init", "-q"], { cwd });
+        await runGit(["config", "user.email", "fixture@example.com"], { cwd });
+        await runGit(["config", "user.name", "Fixture"], { cwd });
+        await runGit(["add", "-A"], { cwd });
+        await runGit(
+          ["-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture"],
+          { cwd },
+        );
+      }),
+    );
   const drivers = [
     new FixtureDriver("codex", join(directory, "providers", "codex")),
     new FixtureDriver("claude", join(directory, "providers", "claude")),
@@ -135,6 +137,7 @@ if (
       "ready-file": { type: "string" },
       port: { type: "string", default: "0" },
       token: { type: "string" },
+      profile: { type: "string", default: "git" },
     },
   });
   if (
@@ -146,8 +149,11 @@ if (
     throw new Error(
       "Fixture server requires explicit directory, build-info, ready-file and token",
     );
+  if (!["git", "visual"].includes(values.profile))
+    throw new Error("Unknown fixture profile");
   const fixture = await startFixture({
     directory: values.directory,
+    profile: values.profile as "git" | "visual",
     build: await readBuildInfo(values["build-info"]),
     webRoot: values["web-root"],
     port: Number(values.port),

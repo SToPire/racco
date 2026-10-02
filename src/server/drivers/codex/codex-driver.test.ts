@@ -1,3 +1,4 @@
+import { installFakeCodex } from "../../../../test/fixtures/codex-peer.js";
 import { temporaryImages } from "../../../../test/images.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -131,41 +132,22 @@ test(
   "Codex sends explicit model and effort on every turn including after thread resume",
   { timeout: 10_000 },
   async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), "racco-model-wire-"));
-    const transcript = join(directory, "requests.jsonl");
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${directory}:${previousPath}`;
-    t.after(async () => {
-      process.env.PATH = previousPath;
-      await rm(directory, { recursive: true, force: true });
-    });
-    await writeFile(
-      join(directory, "codex"),
-      `#!/usr/bin/env node
-const fs = require('node:fs');
-const lines = require('node:readline').createInterface({ input: process.stdin });
+    const peer = await installFakeCodex(t, {
+      script: `
 let turns = 0;
-const send = message => process.stdout.write(JSON.stringify(message) + '\\n');
-lines.on('line', line => {
-  const message = JSON.parse(line);
-  fs.appendFileSync(${JSON.stringify(transcript)}, line + '\\n');
-  if (message.id === undefined) return;
-  let result = {};
-  if (message.method === 'thread/start') result = { thread: { id: 'native-test', cwd: message.params.cwd } };
-  if (message.method === 'turn/start') {
+export const handlers = {
+  initialize: () => ({}),
+  'thread/start': params => ({ thread: { id: 'native-test', cwd: params.cwd } }),
+  'thread/resume': () => ({}),
+  'turn/start': (params, { notify, afterReply }) => {
     const turn = { id: 'turn-' + (++turns), status: 'completed', items: [], error: null };
-    // A previous native compaction ends before turn/start acknowledges this message.
-    send({ method: 'turn/completed', params: { threadId: message.params.threadId, turn: { ...turn, id: 'previous-compact', status: 'failed', error: { message: 'old failure' } } } });
-    result = { turn };
-    // Exercise both orders of the real completion and the RPC response.
-    const completed = () => send({ method: 'turn/completed', params: { threadId: message.params.threadId, turn } });
-    if (message.params.effort === 'low') completed(); else setTimeout(completed, 15);
-  }
-  send({ id: message.id, result });
-});
-`,
-      { mode: 0o700 },
-    );
+    notify('turn/completed', { threadId: params.threadId, turn: { ...turn, id: 'previous-compact', status: 'failed', error: { message: 'old failure' } } });
+    const completed = () => notify('turn/completed', { threadId: params.threadId, turn });
+    if (params.effort === 'low') completed(); else afterReply(completed);
+    return { turn };
+  },
+};`,
+    });
     const log = { info() {}, warn() {} };
     const context: DriverContext = {
       emit() {},
@@ -203,10 +185,7 @@ lines.on('line', line => {
         context,
         signal: new AbortController().signal,
       });
-      const requests = (await readFile(transcript, "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
+      const requests = await peer.requests();
       assert.deepEqual(
         requests
           .filter((request) => request.method === "turn/start")
@@ -216,9 +195,11 @@ lines.on('line', line => {
           ["native-model-b", "low"],
         ],
       );
-      const resume = requests.find(
+      const resumeRequest = requests.find(
         (request) => request.method === "thread/resume",
-      ).params;
+      );
+      assert(resumeRequest);
+      const resume = resumeRequest.params;
       for (const request of requests.filter((request) =>
         ["thread/start", "thread/resume"].includes(request.method),
       )) {

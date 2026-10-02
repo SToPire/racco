@@ -1,3 +1,4 @@
+import { installFakeCodex } from "../../../../test/fixtures/codex-peer.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -197,3 +198,47 @@ lines.on('line', line => {
     await assert.rejects(client.request("thread/start"), /has not started/);
   },
 );
+test("strict Codex peer rejects undeclared RPCs and schedules notifications around replies", async (t) => {
+  const peer = await installFakeCodex(t, {
+    script: `
+export const handlers = {
+  initialize: () => ({}),
+  ordered: (_, { notify, afterReply }) => {
+    notify('fixture/before', {});
+    afterReply(() => notify('fixture/after', {}));
+    return { accepted: true };
+  },
+};`,
+  });
+  const client = new CodexAppServerClient(
+    { info() {}, warn() {} },
+    async () => ({}),
+  );
+  const notifications: string[] = [];
+  let after!: () => void;
+  const completed = new Promise<void>((resolve) => {
+    after = resolve;
+  });
+  client.onNotification((message) => {
+    notifications.push(message.method);
+    if (message.method === "fixture/after") after();
+  });
+  try {
+    await client.start();
+    await assert.rejects(
+      client.request("typo/method"),
+      /Unexpected fixture RPC: typo\/method/,
+    );
+    assert.deepEqual(await client.request("ordered"), { accepted: true });
+    await completed;
+    assert.deepEqual(notifications, ["fixture/before", "fixture/after"]);
+    assert.deepEqual(
+      (await peer.requests())
+        .filter((request) => request.method !== "initialized")
+        .map((request) => request.method),
+      ["initialize", "typo/method", "ordered"],
+    );
+  } finally {
+    await client.close();
+  }
+});
