@@ -4,6 +4,7 @@ import type { TimelineEvent } from "../shared/protocol.js";
 export class SessionTimeline {
   readonly #events: TimelineEvent[] = [];
   readonly #contentSlots = new Map<string, { type: string; index: number }>();
+  readonly #activeDescendants = new Set<string>();
 
   constructor(events: readonly TimelineEvent[] = []) {
     for (const event of events) this.append(event);
@@ -11,6 +12,13 @@ export class SessionTimeline {
 
   append(event: TimelineEvent): void {
     if (event.type === "subagent.started" || event.type === "subagent.state") {
+      if (
+        event.type === "subagent.started" ||
+        event.state === "starting" ||
+        event.state === "running"
+      )
+        this.#activeDescendants.add(event.agentId);
+      else this.#activeDescendants.delete(event.agentId);
       this.#events.push(event);
       return;
     }
@@ -48,5 +56,9 @@ export class SessionTimeline {
 
   snapshot(): TimelineEvent[] {
     return [...this.#events];
+  }
+
+  get hasActiveDescendants(): boolean {
+    return this.#activeDescendants.size > 0;
   }
 }

@@ -84,6 +84,8 @@ export interface AgentDriver {
     signal: AbortSignal;
   }): Promise<ProviderModelCatalog>;
   readSession(handle: ProviderSessionHandle): Promise<SessionSnapshot>;
+  /** Includes descendants still registering before their first timeline event. */
+  hasActiveDescendants?(handle: ProviderSessionHandle): boolean;
   deleteSession(handle: ProviderSessionHandle): Promise<void>;
   createSession(input: {
     raccoSessionId: string;

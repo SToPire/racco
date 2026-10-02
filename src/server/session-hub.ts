@@ -63,11 +63,14 @@ type RuntimeSession = {
   events: SessionTimeline;
   subscribers: Set<WebSocket>;
   revision: number;
+  readers: number;
   activeTurn?: {
     abortController: AbortController;
     terminalState?: "idle" | "interrupted" | "error";
   };
 };
+
+export const IDLE_SESSION_CACHE_LIMIT = 16;
 
 type PendingInteraction = {
   sessionId: string;
@@ -125,7 +128,10 @@ export class SessionHub {
   readonly #sessions = new Map<string, RuntimeSession>();
   readonly #clients = new Set<WebSocket>();
   readonly #socketSubscriptions = new Map<WebSocket, string>();
-  readonly #pendingSubscriptions = new Map<WebSocket, symbol>();
+  readonly #pendingSubscriptions = new Map<
+    WebSocket,
+    { request: symbol; sessionId: string }
+  >();
   readonly #interactions = new Map<string, PendingInteraction>();
   readonly #models = new ModelCatalogCache();
   readonly #imageInputs = new ImageInputs();
@@ -139,6 +145,7 @@ export class SessionHub {
     { hash: string; task: Promise<ManagedSession> }
   >();
   #closed = false;
+  #runtimeTrimQueued = false;
 
   constructor(
     drivers: AgentDriver[],
@@ -481,9 +488,12 @@ export class SessionHub {
   }
 
   listSessions(): SessionSummary[] {
-    return this.repository
-      .list()
-      .map((managed) => ({ ...this.#runtimeFor(managed).summary }));
+    return this.repository.list().map((managed) => {
+      const runtime = this.#sessions.get(managed.sessionId);
+      if (runtime === undefined) return toSessionSummary(managed);
+      this.#refreshRuntime(runtime, managed);
+      return { ...runtime.summary };
+    });
   }
 
   async snapshot(ref: SessionRef): Promise<SessionSnapshotMessage | undefined> {
@@ -491,74 +501,80 @@ export class SessionHub {
     let managed = this.repository.get(ref.sessionId);
     if (managed === undefined) return undefined;
     const runtime = this.#runtimeFor(managed);
-    const isCurrent = () =>
-      !this.#closed &&
-      this.#sessions.get(ref.sessionId) === runtime &&
-      this.repository.get(ref.sessionId) !== undefined;
-
-    if (runtime.activeTurn !== undefined || runtime.summary.compacting) {
-      return this.#snapshotMessage(ref.sessionId, runtime);
-    }
-    if (!projectDirectoryIsAvailable(managed.cwd)) {
-      return this.#snapshotWithNotice(
-        ref.sessionId,
-        runtime,
-        "Managed session working directory is unavailable",
-      );
-    }
-    if (
-      managed.lifecycle !== "active" ||
-      managed.providerState === "allocated"
-    ) {
-      return this.#snapshotMessage(ref.sessionId, runtime);
-    }
-
-    const driver = this.#drivers.get(managed.provider);
-    if (driver === undefined || !driver.ready) {
-      return this.#snapshotWithNotice(
-        ref.sessionId,
-        runtime,
-        `${managed.provider} provider is unavailable`,
-      );
-    }
-
-    const revisionBeforeRead = runtime.revision;
+    runtime.readers++;
     try {
-      const snapshot = await driver.readSession(providerHandle(managed));
-      if (!isCurrent()) return undefined;
-      managed = this.repository.updateMetadata(managed.sessionId, {
-        title: snapshot.metadata.title,
-        providerUpdatedAt: snapshot.metadata.updatedAt,
-      });
-      if (
-        runtime.revision === revisionBeforeRead &&
-        runtime.activeTurn === undefined
-      ) {
-        this.#refreshRuntime(runtime, managed);
-        runtime.events = new SessionTimeline(snapshot.events);
-        runtime.revision += 1;
-      } else {
-        this.#refreshRuntime(runtime, managed);
+      const isCurrent = () =>
+        !this.#closed &&
+        this.#sessions.get(ref.sessionId) === runtime &&
+        this.repository.get(ref.sessionId) !== undefined;
+
+      if (runtime.activeTurn !== undefined || runtime.summary.compacting) {
+        return this.#snapshotMessage(ref.sessionId, runtime);
+      }
+      if (!projectDirectoryIsAvailable(managed.cwd)) {
         return this.#snapshotWithNotice(
           ref.sessionId,
           runtime,
-          "读取期间收到实时更新，本次未更新完整历史，请重试",
-          "warning",
+          "Managed session working directory is unavailable",
         );
       }
-    } catch (error) {
-      // Removal wins over both successful and failed asynchronous reads. An
-      // obsolete runtime must not return a snapshot or update deleted metadata.
-      if (!isCurrent()) return undefined;
-      const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof ProviderSessionNotFoundError) {
-        managed = this.repository.markProviderMissing(managed.sessionId);
+      if (
+        managed.lifecycle !== "active" ||
+        managed.providerState === "allocated"
+      ) {
+        return this.#snapshotMessage(ref.sessionId, runtime);
       }
-      this.#refreshRuntime(runtime, managed);
-      return this.#snapshotWithNotice(ref.sessionId, runtime, message);
-    }
 
-    return this.#snapshotMessage(ref.sessionId, runtime);
+      const driver = this.#drivers.get(managed.provider);
+      if (driver === undefined || !driver.ready) {
+        return this.#snapshotWithNotice(
+          ref.sessionId,
+          runtime,
+          `${managed.provider} provider is unavailable`,
+        );
+      }
+
+      const revisionBeforeRead = runtime.revision;
+      try {
+        const snapshot = await driver.readSession(providerHandle(managed));
+        if (!isCurrent()) return undefined;
+        managed = this.repository.updateMetadata(managed.sessionId, {
+          title: snapshot.metadata.title,
+          providerUpdatedAt: snapshot.metadata.updatedAt,
+        });
+        if (
+          runtime.revision === revisionBeforeRead &&
+          runtime.activeTurn === undefined
+        ) {
+          this.#refreshRuntime(runtime, managed);
+          runtime.events = new SessionTimeline(snapshot.events);
+          runtime.revision += 1;
+        } else {
+          this.#refreshRuntime(runtime, managed);
+          return this.#snapshotWithNotice(
+            ref.sessionId,
+            runtime,
+            "读取期间收到实时更新，本次未更新完整历史，请重试",
+            "warning",
+          );
+        }
+      } catch (error) {
+        // Removal wins over both successful and failed asynchronous reads. An
+        // obsolete runtime must not return a snapshot or update deleted metadata.
+        if (!isCurrent()) return undefined;
+        const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof ProviderSessionNotFoundError) {
+          managed = this.repository.markProviderMissing(managed.sessionId);
+        }
+        this.#refreshRuntime(runtime, managed);
+        return this.#snapshotWithNotice(ref.sessionId, runtime, message);
+      }
+
+      return this.#snapshotMessage(ref.sessionId, runtime);
+    } finally {
+      runtime.readers--;
+      this.#trimRuntimes();
+    }
   }
 
   async subscribe(
@@ -567,7 +583,10 @@ export class SessionHub {
   ): Promise<SessionSnapshotMessage | undefined> {
     this.#unsubscribe(socket);
     const request = Symbol();
-    this.#pendingSubscriptions.set(socket, request);
+    this.#pendingSubscriptions.set(socket, {
+      request,
+      sessionId: ref.sessionId,
+    });
     try {
       const snapshot = await this.snapshot(ref);
       if (
@@ -580,7 +599,7 @@ export class SessionHub {
       // Provider reads can finish out of order. Only the last navigation may
       // own the socket; older snapshots can still refresh the client's cache.
       if (
-        this.#pendingSubscriptions.get(socket) === request &&
+        this.#pendingSubscriptions.get(socket)?.request === request &&
         socket.readyState === WebSocket.OPEN
       ) {
         this.#sessions.get(ref.sessionId)?.subscribers.add(socket);
@@ -588,8 +607,9 @@ export class SessionHub {
       }
       return snapshot;
     } finally {
-      if (this.#pendingSubscriptions.get(socket) === request)
+      if (this.#pendingSubscriptions.get(socket)?.request === request)
         this.#pendingSubscriptions.delete(socket);
+      this.#trimRuntimes();
     }
   }
 
@@ -1161,6 +1181,7 @@ export class SessionHub {
         );
         this.#refreshRuntime(runtime, persisted);
         this.#broadcastSessionSummary(runtime);
+        this.#trimRuntimes();
       });
     this.#turnTasks.add(task);
   }
@@ -1197,6 +1218,7 @@ export class SessionHub {
     if (sessionId !== undefined) {
       this.#sessions.get(sessionId)?.subscribers.delete(socket);
       this.#socketSubscriptions.delete(socket);
+      this.#trimRuntimes();
     }
   }
 
@@ -1250,12 +1272,51 @@ export class SessionHub {
         events: new SessionTimeline(),
         subscribers: new Set(),
         revision: 0,
+        readers: 0,
       };
       this.#sessions.set(managed.sessionId, runtime);
     } else {
       this.#refreshRuntime(runtime, managed);
+      // Map insertion order is the content LRU, independent of list browsing.
+      this.#sessions.delete(managed.sessionId);
+      this.#sessions.set(managed.sessionId, runtime);
+    }
+    if (!this.#runtimeTrimQueued) {
+      this.#runtimeTrimQueued = true;
+      queueMicrotask(() => {
+        this.#runtimeTrimQueued = false;
+        this.#trimRuntimes();
+      });
     }
     return runtime;
+  }
+
+  #trimRuntimes(): void {
+    if (this.#closed) return;
+    const subscribing = new Set(
+      [...this.#pendingSubscriptions.values()].map((value) => value.sessionId),
+    );
+    let idle = 0;
+    for (const [sessionId, runtime] of [...this.#sessions].reverse()) {
+      if (
+        runtime.activeTurn !== undefined ||
+        runtime.summary.compacting ||
+        runtime.readers > 0 ||
+        runtime.subscribers.size > 0 ||
+        subscribing.has(sessionId) ||
+        runtime.events.hasActiveDescendants
+      )
+        continue;
+      const managed = this.repository.get(sessionId);
+      if (
+        managed?.providerSessionId !== undefined &&
+        this.#drivers
+          .get(managed.provider)
+          ?.hasActiveDescendants?.(providerHandle(managed))
+      )
+        continue;
+      if (++idle > IDLE_SESSION_CACHE_LIMIT) this.#sessions.delete(sessionId);
+    }
   }
 
   #refreshRuntime(runtime: RuntimeSession, managed: ManagedSession): void {
