@@ -72,13 +72,13 @@ for (const command of ["git", "flock"]) {
 let source;
 try {
   source = await buildInfo();
-  add("source", true, {
+  add("artifact-inputs", true, {
     revision: source.sourceRevision,
     digest: source.sourceDigest,
     dirty: source.dirty,
   });
 } catch (error) {
-  add("source", false, error.message);
+  add("artifact-inputs", false, error.message);
 }
 if (!values.url) {
   try {
@@ -112,7 +112,7 @@ if (url) {
         running: runtime.storage?.stateDir,
       });
     add(
-      "running-source",
+      "running-artifact-inputs",
       runtime.build?.sourceDigest === source?.sourceDigest,
       { built: runtime.build?.sourceDigest, current: source?.sourceDigest },
     );

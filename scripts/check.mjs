@@ -1,4 +1,4 @@
-import { buildInfo } from "./lib/build-info.mjs";
+import { verificationInfo } from "./lib/build-info.mjs";
 import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { run, root } from "./lib/process.mjs";
@@ -13,7 +13,7 @@ const checks = [
   "test:compiled",
   "test:ui",
 ];
-const source = await buildInfo();
+const source = await verificationInfo();
 const results = [];
 let failed = false;
 await mkdir(join(root, ".tmp/check"), { recursive: true });
@@ -74,16 +74,13 @@ for (const check of checks) {
     break;
   }
 }
-const finishedSource = await buildInfo();
-if (
-  finishedSource.sourceDigest !== source.sourceDigest ||
-  finishedSource.sourceRevision !== source.sourceRevision
-) {
+const finishedSource = await verificationInfo();
+if (finishedSource.verificationDigest !== source.verificationDigest) {
   failed = true;
   results.push({
     check: "source-stability",
     result: "failed",
-    error: "Source changed during verification",
+    error: "Verification inputs changed during verification",
   });
 }
 const report = {

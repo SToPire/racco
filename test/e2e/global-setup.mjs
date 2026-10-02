@@ -11,11 +11,7 @@ export default async function setup() {
       access(".tmp/check-build/web/index.html"),
       access(".tmp/check-build/server/server.js"),
     ]);
-    if (
-      current.schema === 1 &&
-      current.sourceDigest === source.sourceDigest &&
-      current.sourceRevision === source.sourceRevision
-    )
+    if (current.schema === 1 && current.sourceDigest === source.sourceDigest)
       return;
   } catch (error) {
     if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;

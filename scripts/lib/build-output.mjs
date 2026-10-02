@@ -49,10 +49,7 @@ export async function buildOutput({
         { signal },
       );
     const info = await buildInfo();
-    if (
-      sourceBefore.sourceDigest !== info.sourceDigest ||
-      sourceBefore.sourceRevision !== info.sourceRevision
-    ) {
+    if (sourceBefore.sourceDigest !== info.sourceDigest) {
       throw new Error(
         "Source changed during the build; output was not published. Re-run after edits finish.",
       );

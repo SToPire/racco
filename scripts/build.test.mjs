@@ -1,17 +1,74 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildInfo } from "./lib/build-info.mjs";
+import { execFileSync } from "node:child_process";
+import { buildInfo, verificationInfo } from "./lib/build-info.mjs";
 import { run } from "./lib/process.mjs";
 
-test("build metadata identifies actual source inputs", async () => {
-  const first = await buildInfo();
-  const second = await buildInfo();
-  assert.equal(first.sourceDigest, second.sourceDigest);
-  assert.notEqual(first.id, second.id);
+test("artifact and verification digests track actual edits, additions and deletions", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "racco-digest-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: directory, stdio: "pipe" });
+  git("init", "-q");
+  await mkdir(join(directory, "src"));
+  await mkdir(join(directory, "scripts"));
+  await writeFile(
+    join(directory, ".gitignore"),
+    "dist/\nnode_modules/\n.tmp/\n",
+  );
+  await writeFile(join(directory, "src/app.ts"), "export const value = 1;\n");
+  await writeFile(join(directory, "src/app.test.ts"), "first test\n");
+  git("add", ".");
+  git(
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.com",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "commit",
+    "-qm",
+    "fixture",
+  );
+  const first = await buildInfo(directory);
   assert.match(first.sourceRevision, /^[a-f0-9]{40}$/);
+  assert.equal("verificationDigest" in first, false);
+  assert.notEqual(first.id, (await buildInfo(directory)).id);
+  let previous = await verificationInfo(directory);
+  for (const [path, content] of [
+    ["src/app.test.ts", "changed test"],
+    ["scripts/doctor.mjs", "diagnostics only"],
+  ]) {
+    await writeFile(join(directory, path), content);
+    const next = await verificationInfo(directory);
+    assert.equal(next.sourceDigest, previous.sourceDigest, path);
+    assert.notEqual(next.verificationDigest, previous.verificationDigest, path);
+    previous = next;
+  }
+  for (const [path, content] of [
+    ["src/app.ts", "export const value = 2;"],
+    ["src/new.ts", "export const added = true;"],
+  ]) {
+    await writeFile(join(directory, path), content);
+    const next = await verificationInfo(directory);
+    assert.notEqual(next.sourceDigest, previous.sourceDigest, path);
+    assert.notEqual(next.verificationDigest, previous.verificationDigest, path);
+    previous = next;
+  }
+  await rm(join(directory, "src/app.ts"));
+  const deleted = await verificationInfo(directory);
+  assert.notEqual(deleted.sourceDigest, previous.sourceDigest);
+  assert.notEqual(deleted.verificationDigest, previous.verificationDigest);
+  for (const path of ["dist", "node_modules", ".tmp"]) {
+    await mkdir(join(directory, path));
+    await writeFile(join(directory, path, "generated.js"), "output");
+  }
+  const generated = await verificationInfo(directory);
+  assert.equal(generated.sourceDigest, deleted.sourceDigest);
+  assert.equal(generated.verificationDigest, deleted.verificationDigest);
 });
 
 test("command runner rejects failed commands and preserves literal arguments", async (t) => {
