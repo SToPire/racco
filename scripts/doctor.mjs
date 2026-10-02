@@ -5,6 +5,10 @@ import { resolve, join } from "node:path";
 import { promisify, parseArgs } from "node:util";
 import { buildInfo } from "./lib/build-info.mjs";
 import { root } from "./lib/process.mjs";
+import {
+  checkServiceEnvironment,
+  parseService,
+} from "./lib/service-environment.mjs";
 const exec = promisify(execFile);
 const { values } = parseArgs({
   options: {
@@ -28,12 +32,31 @@ if (!values.url || values.config) {
 }
 const url =
   values.url ?? (config ? `http://${config.host}:${config.port}` : undefined);
-add("node", Number(process.versions.node.split(".")[0]) >= 26, process.version);
+add("shell-node", Number(process.versions.node.split(".")[0]) >= 26, {
+  version: process.version,
+  binary: process.execPath,
+});
 try {
   await exec("systemctl", ["--user", "show-environment"]);
   add("systemd-user", true, "available");
 } catch (error) {
   add("systemd-user", false, error.message);
+}
+if (!values.url) {
+  try {
+    const { stdout } = await exec("systemctl", [
+      "--user",
+      "show",
+      "raccod.service",
+      "--property=LoadState",
+      "--property=ExecStart",
+      "--property=Environment",
+      "--property=MainPID",
+    ]);
+    checks.push(...(await checkServiceEnvironment(parseService(stdout))));
+  } catch (error) {
+    add("service-environment", false, error.message);
+  }
 }
 // Worktree management reads `git worktree list`, so a missing git degrades the
 // project tree to primary-worktree-only rows with a visible error.
@@ -41,9 +64,9 @@ try {
 for (const command of ["git", "flock"]) {
   try {
     const { stdout } = await exec(command, ["--version"]);
-    add(command, true, stdout.trim());
+    add(`shell-${command}`, true, stdout.trim());
   } catch (error) {
-    add(command, false, error.message);
+    add(`shell-${command}`, false, error.message);
   }
 }
 let source;

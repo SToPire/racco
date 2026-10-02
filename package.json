@@ -14,6 +14,7 @@
     "build:server": "node scripts/build.mjs --target check --part server",
     "daemon:restart": "systemctl --user restart raccod.service",
     "daemon:status": "systemctl --user status --no-pager raccod.service",
+    "install:service": "node scripts/install-service.mjs",
     "test": "node --import tsx --test 'src/**/*.test.ts' 'src/**/*.test.tsx'",
     "smoke": "node scripts/smoke.mjs",
     "smoke:codex": "node scripts/smoke-codex.mjs",
