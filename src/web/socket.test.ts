@@ -89,5 +89,20 @@ test("unacknowledged actions fail on disconnect and are never replayed after rec
     message: "invalid effort",
   });
   await assert.rejects(rejected, /invalid effort/);
+  const created = socket.request({
+    type: "session.create",
+    requestId: "created",
+    provider: "codex",
+    projectId: "project",
+    path: "/project",
+    content: [{ type: "text", text: "task" }],
+    modelSettings: fixtureModelSettings,
+  });
+  clients[1].reply({
+    type: "ack",
+    requestId: "created",
+    data: { sessionId: "new-session" },
+  });
+  assert.deepEqual(await created, { sessionId: "new-session" });
   socket.destroy();
 });

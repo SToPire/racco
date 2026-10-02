@@ -677,16 +677,8 @@ export function useRacco({
     pendingCreate.current = requestId;
     setCreating(true);
     setHomeError(undefined);
-    // Keep the returned session ref separately while request() waits for ACK.
-    let createdRef: SessionRef | undefined;
-    const off = socket.onMessage((message) => {
-      if (message.type === "ack" && message.requestId === requestId) {
-        const result = SessionRefSchema.safeParse(message.data);
-        if (result.success) createdRef = result.data;
-      }
-    });
     try {
-      await socket.request({
+      const data = await socket.request({
         type: "session.create",
         requestId,
         provider,
@@ -695,14 +687,14 @@ export function useRacco({
         content,
         modelSettings,
       });
-      if (!createdRef) throw new Error("Racco 返回了无效的 session ref");
-      navigateToRef(createdRef);
+      const result = SessionRefSchema.safeParse(data);
+      if (!result.success) throw new Error("Racco 返回了无效的 session ref");
+      navigateToRef(result.data);
       return true;
     } catch (error) {
       setHomeError(error instanceof Error ? error.message : String(error));
       return false;
     } finally {
-      off();
       pendingCreate.current = undefined;
       setCreating(false);
     }

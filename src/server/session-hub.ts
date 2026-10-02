@@ -604,7 +604,7 @@ export class SessionHub {
     requestId: string,
     inputContent: UserInput,
     inputSettings: ModelSettings,
-  ): Promise<{ ref: SessionRef; snapshot: SessionSnapshotMessage }> {
+  ): Promise<{ ref: SessionRef }> {
     if (this.#closed) throw new Error("Racco closed");
     const lease = await this.#imageInputs.prepare(inputContent);
     let delegated = false;
@@ -661,10 +661,7 @@ export class SessionHub {
           `create:${requestId}`,
           modelSettings,
         );
-        return {
-          ref,
-          snapshot: this.#snapshotMessage(managed.sessionId, runtime),
-        };
+        return { ref };
       });
     } finally {
       if (!delegated) lease.release();

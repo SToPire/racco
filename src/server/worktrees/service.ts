@@ -8,7 +8,6 @@ import type {
   ManagedSession,
 } from "../state/session-repository.js";
 import { WorktreeCatalogCache } from "./cache.js";
-import { isMainWorkingTree } from "./derive.js";
 import type { DerivedCatalog, DerivedWorktree } from "./derive.js";
 import {
   createWorktree,
@@ -133,11 +132,6 @@ export class WorktreeService {
     // entry costs nothing once settled (a resolved promise's `.then` is a
     // microtask), so it stays as the serialization tail.
     return report;
-  }
-
-  /** Whether a directory is a main working tree Git can create worktrees in. */
-  isCreatable(projectPath: string): Promise<boolean> {
-    return isMainWorkingTree(projectPath);
   }
 
   isDirty(path: string): Promise<boolean> {

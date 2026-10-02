@@ -16,7 +16,7 @@ export class RaccoSocket {
   #destroyed = false;
   readonly #requests = new Map<
     string,
-    { resolve(): void; reject(error: Error): void }
+    { resolve(data: unknown): void; reject(error: Error): void }
   >();
 
   connect(): void {
@@ -56,7 +56,7 @@ export class RaccoSocket {
             : this.#requests.get(message.requestId);
         if (pending) {
           this.#requests.delete(message.requestId!);
-          if (message.type === "ack") pending.resolve();
+          if (message.type === "ack") pending.resolve(message.data);
           else pending.reject(new Error(message.message));
         }
       }
@@ -92,10 +92,10 @@ export class RaccoSocket {
     }
   }
 
-  request(command: ClientCommand): Promise<void> {
+  request(command: ClientCommand): Promise<unknown> {
     if (this.#requests.has(command.requestId))
       return Promise.reject(new Error("Duplicate pending request ID"));
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       this.#requests.set(command.requestId, {
         resolve,
         reject,

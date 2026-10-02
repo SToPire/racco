@@ -154,14 +154,13 @@ export async function isMainWorkingTree(path: string): Promise<boolean> {
 export async function primaryOnlyCatalog(
   projectPath: string,
   reason: string | null,
-  displayPath?: string,
 ): Promise<DerivedCatalog> {
   return {
     worktrees: [
       {
         path: projectPath,
         kind: "primary",
-        name: displayName(displayPath ?? projectPath),
+        name: displayName(projectPath),
         branch: null,
         head: null,
         available: await directoryIsAvailable(projectPath),
@@ -184,19 +183,13 @@ export async function primaryOnlyCatalog(
  */
 export async function deriveWorktrees(options: {
   projectPath: string;
-  /** Anchor for the primary entry; defaults to `projectPath`. */
-  displayPath?: string;
 }): Promise<DerivedCatalog> {
   const { projectPath } = options;
 
   if (!(await directoryIsAvailable(projectPath))) {
     // The project directory is gone. That is a degraded view, not a failure to
     // read: only the primary entry can be reported.
-    return primaryOnlyCatalog(
-      projectPath,
-      `项目目录不可用：${projectPath}`,
-      options.displayPath,
-    );
+    return primaryOnlyCatalog(projectPath, `项目目录不可用：${projectPath}`);
   }
 
   let entries: ParsedWorktree[];
@@ -205,11 +198,7 @@ export async function deriveWorktrees(options: {
   } catch (error) {
     if (error instanceof WorktreeCatalogUnavailableError) throw error;
     if (error instanceof GitUnavailableError) {
-      return primaryOnlyCatalog(
-        projectPath,
-        error.message,
-        options.displayPath,
-      );
+      return primaryOnlyCatalog(projectPath, error.message);
     }
     if (error instanceof GitCommandError) {
       // `not a git repository` is a normal answer: a plain directory imports
@@ -217,13 +206,11 @@ export async function deriveWorktrees(options: {
       return primaryOnlyCatalog(
         projectPath,
         isNotRepository(error) ? null : error.message,
-        options.displayPath,
       );
     }
     return primaryOnlyCatalog(
       projectPath,
       error instanceof Error ? error.message : String(error),
-      options.displayPath,
     );
   }
 
@@ -258,8 +245,7 @@ export async function deriveWorktrees(options: {
 
   return {
     worktrees: [
-      ...(await primaryOnlyCatalog(projectPath, null, options.displayPath))
-        .worktrees,
+      ...(await primaryOnlyCatalog(projectPath, null)).worktrees,
       ...linked.filter((entry) => entry !== undefined),
     ],
     degradedReason: null,

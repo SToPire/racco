@@ -70,6 +70,3 @@ export function inputImageBytes(content: UserInput): number {
     0,
   );
 }
-export function textInput(text: string): UserInput {
-  return [{ type: "text", text }];
-}
