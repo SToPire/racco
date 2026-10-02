@@ -480,9 +480,14 @@ export class SessionHub {
   }
 
   async snapshot(ref: SessionRef): Promise<SessionSnapshotMessage | undefined> {
+    if (this.#closed) return undefined;
     let managed = this.repository.get(ref.sessionId);
     if (managed === undefined) return undefined;
     const runtime = this.#runtimeFor(managed);
+    const isCurrent = () =>
+      !this.#closed &&
+      this.#sessions.get(ref.sessionId) === runtime &&
+      this.repository.get(ref.sessionId) !== undefined;
 
     if (runtime.activeTurn !== undefined || runtime.summary.compacting) {
       return this.#snapshotMessage(ref.sessionId, runtime);
@@ -513,6 +518,7 @@ export class SessionHub {
     const revisionBeforeRead = runtime.revision;
     try {
       const snapshot = await driver.readSession(providerHandle(managed));
+      if (!isCurrent()) return undefined;
       managed = this.repository.updateMetadata(managed.sessionId, {
         title: snapshot.metadata.title,
         providerUpdatedAt: snapshot.metadata.updatedAt,
@@ -534,6 +540,9 @@ export class SessionHub {
         );
       }
     } catch (error) {
+      // Removal wins over both successful and failed asynchronous reads. An
+      // obsolete runtime must not return a snapshot or update deleted metadata.
+      if (!isCurrent()) return undefined;
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof ProviderSessionNotFoundError) {
         managed = this.repository.markProviderMissing(managed.sessionId);
@@ -554,10 +563,16 @@ export class SessionHub {
     this.#pendingSubscriptions.set(socket, request);
     try {
       const snapshot = await this.snapshot(ref);
+      if (
+        snapshot === undefined ||
+        this.#closed ||
+        !this.#sessions.has(ref.sessionId) ||
+        this.repository.get(ref.sessionId) === undefined
+      )
+        return undefined;
       // Provider reads can finish out of order. Only the last navigation may
       // own the socket; older snapshots can still refresh the client's cache.
       if (
-        snapshot !== undefined &&
         this.#pendingSubscriptions.get(socket) === request &&
         socket.readyState === WebSocket.OPEN
       ) {

@@ -15,6 +15,7 @@ import { WebSocket } from "ws";
 import type { ServerMessage, TimelineEvent } from "../shared/protocol.js";
 import { buildTimeline } from "../web/store.js";
 import type { AgentDriver, SessionSnapshot } from "./drivers/driver.js";
+import { ProviderSessionNotFoundError } from "./drivers/driver.js";
 import { SessionHub } from "./session-hub.js";
 import type { SessionRepository } from "./state/session-repository.js";
 
@@ -702,6 +703,57 @@ test("does not overwrite live events when a targeted provider read races with a 
   await new Promise<void>((resolve) => setImmediate(resolve));
   await hub.close();
 });
+
+for (const readOutcome of ["success", "missing", "error"] as const) {
+  test(`deleting a session discards its pending ${readOutcome} history read`, async () => {
+    const f = await modelTestHub();
+    let resolveRead!: (snapshot: SessionSnapshot) => void;
+    let rejectRead!: (error: Error) => void;
+    const read = new Promise<SessionSnapshot>((resolve, reject) => {
+      resolveRead = resolve;
+      rejectRead = reject;
+    });
+    let reads = 0;
+    f.driver.readSession = async () => {
+      reads += 1;
+      return read;
+    };
+    const managed = f.repository.importSession({
+      provider: "codex",
+      providerSessionId: "deletion-race",
+      projectId: f.projectId,
+      cwd: f.cwd,
+      updatedAt: "2026-09-03T00:00:00.000Z",
+    });
+    try {
+      const pending = f.hub.subscribe(recordingSocket(), managed);
+      assert.equal(reads, 1);
+      assert(f.hub.deleteSession(managed.sessionId));
+      if (readOutcome === "success") {
+        resolveRead({
+          metadata: {
+            title: "Obsolete",
+            updatedAt: "2026-09-04T00:00:00.000Z",
+          },
+          events: [
+            { type: "assistant.message", id: "obsolete", text: "old history" },
+          ],
+        });
+      } else {
+        rejectRead(
+          readOutcome === "missing"
+            ? new ProviderSessionNotFoundError("Provider session deleted")
+            : new Error("Provider read failed"),
+        );
+      }
+      assert.equal(await pending, undefined);
+      assert.deepEqual(f.hub.listSessions(), []);
+      assert.equal(f.repository.get(managed.sessionId), undefined);
+    } finally {
+      await f.hub.close();
+    }
+  });
+}
 
 test("keeps an allocated session readable without scanning provider history", async () => {
   const socket = recordingSocket();
