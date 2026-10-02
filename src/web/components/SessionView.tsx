@@ -1,3 +1,4 @@
+import { BackgroundAgentNotice } from "./BackgroundAgentNotice";
 import type { UserInput } from "../../shared/user-input";
 import { UiIcon } from "./UiIcon";
 import {
@@ -366,6 +367,7 @@ export function SessionView({
         className={`session-footer${viewMode === "trajectory" ? " session-footer-trajectory" : ""}`}
       >
         <div className="composer-stack">
+          <BackgroundAgentNotice session={session} subagents={subagents} />
           {viewMode === "trajectory" && error && (
             <p className="error-banner">{error}</p>
           )}

@@ -52,15 +52,25 @@ function finish(id, status) {
   turn.status = status; child.status = { type: 'idle' };
   emit(id, 'turn/completed', { turn });
 }
+let pendingQuestionProbe;
 lines.on('line', line => {
   const message = JSON.parse(line);
+  if (message.method === undefined && message.id === 'background-question') {
+    if (!message.result?.answers || Object.keys(message.result.answers).length !== 0) return send({id:pendingQuestionProbe,error:{code:-32603,message:'background question was not declined'}});
+    return send({id:pendingQuestionProbe,result:{data:[],nextCursor:null}});
+  }
   if (message.id === undefined) return;
   if (message.method === 'initialize') return send({ id: message.id, result: { userAgent: 'racco/0.160.0 test', codexHome: '/tmp/codex-test', platformFamily: 'unix', platformOs: 'linux' } });
   if (message.method === 'thread/start') return send({ id: message.id, result: { thread: root } });
   if (message.method === 'thread/read') return send({ id: message.id, result: { thread: message.params.threadId === 'root' ? root : children.get(message.params.threadId) } });
   if (message.method === 'thread/list') return send({ id: message.id, result: { data: [...children.values()], nextCursor: null } });
   if (message.method === 'model/list') {
-    if (++probes === 1) { output('child', 'idle output\\n'); spawn('nested', 'child'); spawn('state-only'); }
+    if (++probes === 1) {
+      output('child', 'idle output\\n'); spawn('nested', 'child'); spawn('state-only');
+      pendingQuestionProbe=message.id;
+      send({id:'background-question',method:'item/tool/requestUserInput',params:{threadId:'child',turnId:'child-turn',itemId:'question',questions:[{id:'choice',header:'Choice',question:'Continue?',isOther:true,isSecret:false,options:null}]}});
+      return;
+    }
     else spawn('pending-at-exit');
     send({ id: message.id, result: { data: [], nextCursor: null } });
     if (probes === 2 && ${JSON.stringify(exitMode)} === 'exit') setTimeout(() => process.exit(2), 5);
