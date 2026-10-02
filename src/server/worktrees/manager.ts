@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { WorktreeBranchDeletion } from "../../shared/protocol.js";
 import { deriveWorktrees, isMainWorkingTree } from "./derive.js";
@@ -136,15 +136,10 @@ export async function createWorktree(
 
   const args = ["worktree", "add", "-b", name, target];
   if (input.baseRef !== undefined) args.push(input.baseRef);
-  try {
-    await runGit(args, { cwd: projectPath, timeoutMs: 120_000 });
-  } catch (error) {
-    // A failed `worktree add` can leave a partial checkout behind (an
-    // interrupted checkout, a failing hook). The directory is one Racco just
-    // created and no one has worked in, so removing it is not destructive.
-    await rm(target, { force: true, recursive: true }).catch(() => undefined);
-    throw error;
-  }
+  // A failed add does not establish ownership of the target: another process
+  // may have created it after our check, or a hook may have left useful work.
+  // Let Git report failure and retain any remaining files for explicit cleanup.
+  await runGit(args, { cwd: projectPath, timeoutMs: 120_000 });
 
   return deriveWorktrees({ projectPath });
 }
