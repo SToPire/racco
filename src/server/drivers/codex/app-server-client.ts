@@ -33,6 +33,25 @@ export class CodexRpcResponseError extends Error {
   }
 }
 
+export type RpcDeadlines = { initializeMs: number; requestMs: number };
+const DEFAULT_DEADLINES: RpcDeadlines = {
+  initializeMs: 15_000,
+  requestMs: 30_000,
+};
+const READ_METHODS = new Set(["thread/read", "thread/list", "model/list"]);
+
+export class CodexRpcDeadlineError extends Error {
+  constructor(
+    readonly method: string,
+    readonly resultUnconfirmed: boolean,
+  ) {
+    super(
+      `Codex ${method} timed out${resultUnconfirmed ? "; result unconfirmed; the request was not replayed" : ""}`,
+    );
+    this.name = "CodexRpcDeadlineError";
+  }
+}
+
 export class CodexAppServerClient {
   readonly #pending = new Map<RequestId, PendingRequest>();
   readonly #notificationListeners = new Set<NotificationListener>();
@@ -51,6 +70,7 @@ export class CodexAppServerClient {
       warn(data: unknown, message: string): void;
     },
     private readonly serverRequestHandler: ServerRequestHandler,
+    private readonly deadlines: RpcDeadlines = DEFAULT_DEADLINES,
   ) {}
 
   async start(): Promise<void> {
@@ -143,6 +163,26 @@ export class CodexAppServerClient {
         reject(error);
       }
     });
+    let timedOut = false;
+    const deadline = setTimeout(
+      () => {
+        timedOut = true;
+        const error = new CodexRpcDeadlineError(
+          method,
+          !READ_METHODS.has(method) && method !== "initialize",
+        );
+        if (READ_METHODS.has(method)) {
+          this.#pending.get(id)?.reject(error);
+          this.#pending.delete(id);
+        } else {
+          this.#handleExit(error);
+        }
+      },
+      method === "initialize"
+        ? this.deadlines.initializeMs
+        : this.deadlines.requestMs,
+    );
+    deadline.unref();
     const onAbort = () => {
       this.#pending.get(id)?.reject(signal?.reason as Error);
       this.#pending.delete(id);
@@ -151,7 +191,9 @@ export class CodexAppServerClient {
     try {
       return (await promise) as T;
     } finally {
+      clearTimeout(deadline);
       signal?.removeEventListener("abort", onAbort);
+      if (timedOut && !READ_METHODS.has(method)) await this.#stopProcess();
     }
   }
 

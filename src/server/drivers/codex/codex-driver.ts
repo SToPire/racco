@@ -175,9 +175,12 @@ export class CodexDriver implements AgentDriver {
   constructor(
     log: ConstructorParameters<typeof CodexAppServerClient>[0],
     private readonly images: TemporaryImages,
+    deadlines?: ConstructorParameters<typeof CodexAppServerClient>[2],
   ) {
-    this.#client = new CodexAppServerClient(log, (request) =>
-      this.#handleServerRequest(request),
+    this.#client = new CodexAppServerClient(
+      log,
+      (request) => this.#handleServerRequest(request),
+      deadlines,
     );
     this.#client.onNotification((notification) =>
       this.#handleNotification(notification),

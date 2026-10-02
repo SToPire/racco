@@ -157,3 +157,43 @@ lines.on('line', line => {
     }
   },
 );
+
+test(
+  "RPC deadlines keep reads local and close uncertain mutations without replay",
+  { timeout: 10_000 },
+  async (t) => {
+    await fakeCodex(
+      t,
+      String.raw`#!/usr/bin/env node
+const lines = require('node:readline').createInterface({ input: process.stdin });
+lines.on('line', line => {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') process.stdout.write(JSON.stringify({id:message.id,result:{}})+'\n');
+});
+`,
+    );
+    const client = new CodexAppServerClient(
+      { info() {}, warn() {} },
+      async () => ({}),
+      { initializeMs: 1000, requestMs: 40 },
+    );
+    t.after(() => client.close());
+    await client.start();
+    let closed = false;
+    client.onProcessExit(() => {
+      closed = true;
+    });
+    await assert.rejects(client.request("thread/read"), /timed out$/);
+    assert.equal(closed, false);
+    const controller = new AbortController();
+    const read = client.request("thread/read", {}, controller.signal);
+    controller.abort(new Error("Read cancelled"));
+    await assert.rejects(read, /Read cancelled/);
+    await assert.rejects(
+      client.request("thread/start"),
+      /result unconfirmed; the request was not replayed/,
+    );
+    assert.equal(closed, true);
+    await assert.rejects(client.request("thread/start"), /has not started/);
+  },
+);
