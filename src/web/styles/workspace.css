@@ -332,3 +332,21 @@
   overflow-wrap: anywhere;
   margin: 4px 0;
 }
+
+.provider-recovery {
+  align-self: center;
+  width: min(720px, calc(100% - 32px));
+  margin: 8px 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.provider-recovery summary {
+  cursor: pointer;
+}
+
+.provider-recovery button {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

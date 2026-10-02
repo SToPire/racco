@@ -34,6 +34,13 @@ test(
       join(webRoot, "index.html"),
       "<title>Racco available</title>",
     );
+    const claude = new FixtureDriver("claude", join(directory, "claude"));
+    let claudeCloses = 0;
+    const closeClaude = claude.close.bind(claude);
+    claude.close = async () => {
+      claudeCloses++;
+      await closeClaude();
+    };
     const app = await buildServer(
       {
         host: "127.0.0.1",
@@ -45,7 +52,7 @@ test(
       {
         createDrivers: (log, images) => [
           new CodexDriver(log, images, { initializeMs: 500, requestMs: 500 }),
-          new FixtureDriver("claude", join(directory, "claude")),
+          claude,
         ],
         build: {
           schema: 1,
@@ -67,5 +74,25 @@ test(
     assert.match((await app.inject("/")).body, /Racco available/);
     const pid = Number(await readFile(pidFile, "utf8"));
     assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+    await writeFile(
+      join(directory, "codex"),
+      `#!/usr/bin/env node
+require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')process.stdout.write(JSON.stringify({id:m.id,result:{userAgent:'racco/0.160.0 test',codexHome:'/tmp/test',platformFamily:'unix',platformOs:'linux'}})+'\\n');});`,
+      { mode: 0o700 },
+    );
+    const recovered = await app.inject({
+      method: "POST",
+      url: "/api/providers/codex/restart",
+    });
+    assert.equal(recovered.statusCode, 200, recovered.body);
+    assert.deepEqual(recovered.json().providers, {
+      codex: "ready",
+      claude: "ready",
+    });
+    assert.equal(claudeCloses, 0);
+    assert.equal(
+      (await app.inject("/api/diagnostics")).json().providers.codex.reason,
+      undefined,
+    );
   },
 );

@@ -66,6 +66,13 @@ export class ModelCatalogCache {
     this.#entries.delete(key);
   }
 
+  invalidateProvider(provider: Provider): void {
+    for (const key of this.#entries.keys()) {
+      const [owner, cwd] = JSON.parse(key) as [Provider, string];
+      if (owner === provider) this.invalidate(provider, cwd);
+    }
+  }
+
   close(): void {
     for (const entry of this.#entries.values())
       entry.controller.abort(new Error("Racco closed"));

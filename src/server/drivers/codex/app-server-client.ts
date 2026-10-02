@@ -61,6 +61,7 @@ export class CodexAppServerClient {
   #readline?: Interface;
   #nextId = 1;
   #closing = false;
+  #lifecycle = 0;
   #child?: ChildProcessWithoutNullStreams;
   #processClosed?: Promise<void>;
   readonly #processExitListeners = new Set<() => void>();
@@ -74,7 +75,18 @@ export class CodexAppServerClient {
     private readonly deadlines: RpcDeadlines = DEFAULT_DEADLINES,
   ) {}
 
+  get busy(): boolean {
+    return this.#pending.size > 0;
+  }
+
   async start(): Promise<void> {
+    if (this.#process !== undefined)
+      throw new Error("Codex app-server already started");
+    const lifecycle = ++this.#lifecycle;
+    await this.#stopProcess();
+    if (lifecycle !== this.#lifecycle)
+      throw new Error("Codex app-server closed during startup");
+    this.#closing = false;
     const child = spawn("codex", ["app-server", "--listen", "stdio://"], {
       cwd: process.cwd(),
       env: process.env,
@@ -209,6 +221,7 @@ export class CodexAppServerClient {
   }
 
   async close(): Promise<void> {
+    this.#lifecycle++;
     this.#closing = true;
     this.#readline?.close();
     this.#process = undefined;

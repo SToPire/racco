@@ -287,3 +287,11 @@ function parseResponse<T>(schema: z.ZodType<T>, value: unknown): T {
     throw new Error("服务器响应不符合当前协议，请刷新后重试。");
   return result.data;
 }
+
+export function restartProvider(provider: Provider): Promise<HealthResponse> {
+  return postJson(
+    `/api/providers/${provider}/restart`,
+    ApiResponseSchemas.health,
+    undefined,
+  );
+}

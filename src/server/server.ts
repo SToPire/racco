@@ -1,3 +1,4 @@
+import { ProviderBusyError } from "./drivers/driver.js";
 import type { AgentDriver } from "./drivers/driver.js";
 import type { BuildInfo } from "./runtime/build-info.js";
 import { CURRENT_SCHEMA_VERSION } from "./state/schema.js";
@@ -130,6 +131,30 @@ export async function buildServer(
       claude: hub.providerStatus("claude"),
     },
   }));
+
+  app.post<{ Params: { provider: string } }>(
+    "/api/providers/:provider/restart",
+    async (request, reply) => {
+      const provider = ProviderSchema.safeParse(request.params.provider);
+      if (!provider.success)
+        return reply.code(400).send({ message: "Invalid provider" });
+      try {
+        await hub.restartProvider(provider.data);
+        providerFailures.delete(provider.data);
+        return {
+          ok: true,
+          providers: {
+            codex: hub.providerStatus("codex"),
+            claude: hub.providerStatus("claude"),
+          },
+        };
+      } catch (error) {
+        return reply.code(error instanceof ProviderBusyError ? 409 : 503).send({
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
 
   const ModelsQuerySchema = z.strictObject({
     path: z.string().min(1),

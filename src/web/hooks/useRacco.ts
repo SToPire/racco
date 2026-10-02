@@ -21,6 +21,7 @@ import {
   deleteSession as requestDeleteSession,
   deleteWorktree as requestDeleteWorktree,
   getHealth,
+  restartProvider,
   importProject,
   importSession as requestImportSession,
   listProjects,
@@ -854,6 +855,7 @@ export function useRacco({
     compactSession,
     interruptTurn,
     resolveInteraction,
+    restartProvider: async () => setHealth(await restartProvider("codex")),
     clearHomeError: () => setHomeError(undefined),
   };
 }

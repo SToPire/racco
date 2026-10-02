@@ -28,7 +28,11 @@ import type {
   ProviderSessionUpdate,
   ProviderSessionPage,
 } from "../driver.js";
-import { ProviderSessionNotFoundError, SESSION_PAGE_SIZE } from "../driver.js";
+import {
+  ProviderBusyError,
+  ProviderSessionNotFoundError,
+  SESSION_PAGE_SIZE,
+} from "../driver.js";
 import { resolveProjectDirectory } from "../../project-path.js";
 import {
   CodexAppServerClient,
@@ -146,6 +150,9 @@ export class CodexDriver implements AgentDriver {
     this.#toolOutput,
   );
   #ready = false;
+  #restarting = false;
+  #lifecycle = 0;
+  #operations = 0;
   #sessionUpdate?: (
     providerSessionId: string,
     update: ProviderSessionUpdate,
@@ -179,43 +186,44 @@ export class CodexDriver implements AgentDriver {
     cursor,
     signal,
   }: Parameters<AgentDriver["listSessions"]>[0]): Promise<ProviderSessionPage> {
-    this.#assertReady();
-    const page = SessionListSchema.parse(
-      await this.#client.request(
-        "thread/list",
-        {
-          cwd,
-          cursor,
-          limit: SESSION_PAGE_SIZE,
-          sortKey: "updated_at",
-          sortDirection: "desc",
-          archived: false,
-          sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
-          useStateDbOnly: true,
-        },
-        signal,
-      ),
-    );
-    if (page.nextCursor !== null && page.nextCursor === cursor)
-      throw new Error("Codex returned a repeated session cursor");
-    const sessions: ProviderSessionPage["sessions"] = [];
-    for (const thread of page.data) {
-      signal.throwIfAborted();
-      if (
-        thread.parentThreadId ||
-        (typeof thread.source === "object" &&
-          thread.source !== null &&
-          "subAgent" in thread.source)
-      )
-        continue;
-      if ((await resolveProjectDirectory(thread.cwd)) !== cwd) continue;
-      sessions.push({
-        providerSessionId: thread.id,
-        title: thread.name || thread.preview || undefined,
-        updatedAt: new Date(thread.updatedAt * 1000).toISOString(),
-      });
-    }
-    return { sessions, nextCursor: page.nextCursor };
+    return this.#operation(async () => {
+      const page = SessionListSchema.parse(
+        await this.#client.request(
+          "thread/list",
+          {
+            cwd,
+            cursor,
+            limit: SESSION_PAGE_SIZE,
+            sortKey: "updated_at",
+            sortDirection: "desc",
+            archived: false,
+            sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
+            useStateDbOnly: true,
+          },
+          signal,
+        ),
+      );
+      if (page.nextCursor !== null && page.nextCursor === cursor)
+        throw new Error("Codex returned a repeated session cursor");
+      const sessions: ProviderSessionPage["sessions"] = [];
+      for (const thread of page.data) {
+        signal.throwIfAborted();
+        if (
+          thread.parentThreadId ||
+          (typeof thread.source === "object" &&
+            thread.source !== null &&
+            "subAgent" in thread.source)
+        )
+          continue;
+        if ((await resolveProjectDirectory(thread.cwd)) !== cwd) continue;
+        sessions.push({
+          providerSessionId: thread.id,
+          title: thread.name || thread.preview || undefined,
+          updatedAt: new Date(thread.updatedAt * 1000).toISOString(),
+        });
+      }
+      return { sessions, nextCursor: page.nextCursor };
+    });
   }
 
   async listModels({
@@ -224,39 +232,87 @@ export class CodexDriver implements AgentDriver {
     cwd: string;
     signal: AbortSignal;
   }): Promise<ProviderModelCatalog> {
-    this.#assertReady();
-    const rows: Parameters<typeof codexModelCatalog>[0] = [];
-    const cursors = new Set<string>();
-    let cursor: string | null = null;
-    do {
-      const page = CodexModelListSchema.parse(
-        await this.#client.request(
-          "model/list",
-          {
-            limit: 100,
-            includeHidden: false,
-            cursor,
-          },
-          signal,
-        ),
-      );
-      rows.push(...page.data);
-      cursor = page.nextCursor;
-      if (cursor !== null) {
-        if (cursors.has(cursor))
-          throw new Error("Codex returned a repeated model cursor");
-        cursors.add(cursor);
-      }
-    } while (cursor !== null);
-    return codexModelCatalog(rows);
+    return this.#operation(async () => {
+      const rows: Parameters<typeof codexModelCatalog>[0] = [];
+      const cursors = new Set<string>();
+      let cursor: string | null = null;
+      do {
+        const page = CodexModelListSchema.parse(
+          await this.#client.request(
+            "model/list",
+            {
+              limit: 100,
+              includeHidden: false,
+              cursor,
+            },
+            signal,
+          ),
+        );
+        rows.push(...page.data);
+        cursor = page.nextCursor;
+        if (cursor !== null) {
+          if (cursors.has(cursor))
+            throw new Error("Codex returned a repeated model cursor");
+          cursors.add(cursor);
+        }
+      } while (cursor !== null);
+      return codexModelCatalog(rows);
+    });
   }
 
   async start(): Promise<void> {
+    const lifecycle = ++this.#lifecycle;
     await this.#client.start();
+    if (lifecycle !== this.#lifecycle)
+      throw new Error("Codex provider closed during startup");
     this.#ready = true;
   }
 
+  hasActiveDescendants(handle: ProviderSessionHandle): boolean {
+    return [...this.#snapshots.entries()].some(
+      ([, child]) =>
+        child.rootThreadId === handle.providerSessionId &&
+        (child.state === undefined ||
+          child.state === "starting" ||
+          child.state === "running"),
+    );
+  }
+
+  async restart(): Promise<void> {
+    if (
+      this.#restarting ||
+      this.#operations > 0 ||
+      this.#contexts.size > 0 ||
+      this.#compactions.size > 0 ||
+      this.#client.busy ||
+      [...this.#snapshots.entries()].some(
+        ([, child]) =>
+          child.state === undefined ||
+          child.state === "starting" ||
+          child.state === "running",
+      )
+    )
+      throw new ProviderBusyError(
+        "Codex 仍有任务、子 Agent 或请求进行中；结束后才能恢复或释放会话。",
+      );
+    this.#restarting = true;
+    const listener = this.#sessionUpdate;
+    try {
+      const closing = this.close();
+      const lifecycle = this.#lifecycle;
+      await closing;
+      if (lifecycle !== this.#lifecycle)
+        throw new Error("Codex provider closed during recovery");
+      this.#sessionUpdate = listener;
+      await this.start();
+    } finally {
+      this.#sessionUpdate = listener;
+      this.#restarting = false;
+    }
+  }
+
   async close(): Promise<void> {
+    this.#lifecycle++;
     this.#ready = false;
     this.#snapshots.clearReads();
     const error = new Error("Codex provider closed");
@@ -281,92 +337,100 @@ export class CodexDriver implements AgentDriver {
   }
 
   async readSession(handle: ProviderSessionHandle): Promise<SessionSnapshot> {
-    this.#assertReady();
-    let response: ThreadReadResponse;
-    try {
-      response = await this.#client.request<ThreadReadResponse>("thread/read", {
-        threadId: handle.providerSessionId,
-        includeTurns: true,
-      });
-    } catch (error) {
-      if (error instanceof Error && /not found/i.test(error.message)) {
-        throw new ProviderSessionNotFoundError("Codex thread not found");
+    return this.#operation(async () => {
+      let response: ThreadReadResponse;
+      try {
+        response = await this.#client.request<ThreadReadResponse>(
+          "thread/read",
+          {
+            threadId: handle.providerSessionId,
+            includeTurns: true,
+          },
+        );
+      } catch (error) {
+        if (error instanceof Error && /not found/i.test(error.message)) {
+          throw new ProviderSessionNotFoundError("Codex thread not found");
+        }
+        throw error;
       }
-      throw error;
-    }
-    const cwd = await resolveProjectDirectory(response.thread.cwd);
-    if (cwd === undefined) {
-      throw new Error("Codex thread working directory is unavailable");
-    }
-    if (cwd !== handle.cwd) {
-      throw new Error(
-        "Codex thread working directory does not match the managed session",
-      );
-    }
-    const thread = { ...response.thread, cwd };
-    this.#observedRoots.add(thread.id);
-    // Recognize recorded launches before any asynchronous discovery so live
-    // child deltas remain subject to the snapshot alignment checks.
-    this.#snapshots.registerThreadSpawns(thread, thread.id);
-    const { threads: subagentThreads, notices } =
-      await this.#readSubagentThreads(thread.id);
-    const subagents = this.#snapshots.resolver(thread.id);
-    const events: TimelineEvent[] = [
-      ...mapThreadEvents(thread, subagents),
-      ...notices,
-    ];
-    for (const subagentThread of subagentThreads) {
-      const parentThreadId = subagentThread.parentThreadId!;
-      const link = this.#snapshots.remember(subagentThread.id, thread.id);
-      link.name = subagentThread.agentNickname ?? link.name;
-      const parentAgentId =
-        parentThreadId === thread.id
-          ? undefined
-          : this.#snapshots.remember(parentThreadId, thread.id).agentId;
-      const childEvents = mapSubagentThread(
-        subagentThread,
-        link.agentId,
-        subagents,
-        parentAgentId,
-      );
-      events.push(...childEvents);
-      if (link.state === undefined) {
-        const state = childEvents.at(-1);
-        if (state?.type === "subagent.state") link.state = state.state;
+      const cwd = await resolveProjectDirectory(response.thread.cwd);
+      if (cwd === undefined) {
+        throw new Error("Codex thread working directory is unavailable");
       }
-    }
-    return {
-      metadata: mapThreadSummary(thread),
-      events,
-    };
+      if (cwd !== handle.cwd) {
+        throw new Error(
+          "Codex thread working directory does not match the managed session",
+        );
+      }
+      const thread = { ...response.thread, cwd };
+      this.#observedRoots.add(thread.id);
+      // Recognize recorded launches before any asynchronous discovery so live
+      // child deltas remain subject to the snapshot alignment checks.
+      this.#snapshots.registerThreadSpawns(thread, thread.id);
+      const { threads: subagentThreads, notices } =
+        await this.#readSubagentThreads(thread.id);
+      const subagents = this.#snapshots.resolver(thread.id);
+      const events: TimelineEvent[] = [
+        ...mapThreadEvents(thread, subagents),
+        ...notices,
+      ];
+      for (const subagentThread of subagentThreads) {
+        const parentThreadId = subagentThread.parentThreadId!;
+        const link = this.#snapshots.remember(subagentThread.id, thread.id);
+        link.name = subagentThread.agentNickname ?? link.name;
+        const parentAgentId =
+          parentThreadId === thread.id
+            ? undefined
+            : this.#snapshots.remember(parentThreadId, thread.id).agentId;
+        const childEvents = mapSubagentThread(
+          subagentThread,
+          link.agentId,
+          subagents,
+          parentAgentId,
+        );
+        events.push(...childEvents);
+        if (link.state === undefined) {
+          const state = childEvents.at(-1);
+          if (state?.type === "subagent.state") link.state = state.state;
+        }
+      }
+      return {
+        metadata: mapThreadSummary(thread),
+        events,
+      };
+    });
   }
 
   async deleteSession(handle: ProviderSessionHandle): Promise<void> {
-    this.#assertReady();
-    // Validate ownership through the thread's own cwd before destroying the
-    // rollout file, so a stale native ID from another project cannot be deleted.
-    let response: ThreadReadResponse;
-    try {
-      response = await this.#client.request<ThreadReadResponse>("thread/read", {
+    return this.#operation(async () => {
+      // Validate ownership through the thread's own cwd before destroying the
+      // rollout file, so a stale native ID from another project cannot be deleted.
+      let response: ThreadReadResponse;
+      try {
+        response = await this.#client.request<ThreadReadResponse>(
+          "thread/read",
+          {
+            threadId: handle.providerSessionId,
+          },
+        );
+      } catch (error) {
+        if (error instanceof Error && /not found/i.test(error.message)) {
+          throw new ProviderSessionNotFoundError("Codex thread not found");
+        }
+        throw error;
+      }
+      const cwd = await resolveProjectDirectory(response.thread.cwd);
+      if (cwd === undefined) {
+        throw new Error("Codex thread working directory is unavailable");
+      }
+      if (cwd !== handle.cwd) {
+        throw new Error(
+          "Codex thread working directory does not match the managed session",
+        );
+      }
+      await this.#client.request("thread/delete", {
         threadId: handle.providerSessionId,
       });
-    } catch (error) {
-      if (error instanceof Error && /not found/i.test(error.message)) {
-        throw new ProviderSessionNotFoundError("Codex thread not found");
-      }
-      throw error;
-    }
-    const cwd = await resolveProjectDirectory(response.thread.cwd);
-    if (cwd === undefined) {
-      throw new Error("Codex thread working directory is unavailable");
-    }
-    if (cwd !== handle.cwd) {
-      throw new Error(
-        "Codex thread working directory does not match the managed session",
-      );
-    }
-    await this.#client.request("thread/delete", {
-      threadId: handle.providerSessionId,
     });
   }
 
@@ -375,30 +439,33 @@ export class CodexDriver implements AgentDriver {
     cwd: string;
     modelSettings: ModelSettings;
   }): Promise<ProviderSessionCreation> {
-    this.#assertReady();
-    const canonicalCwd = await resolveProjectDirectory(input.cwd);
-    if (canonicalCwd === undefined) {
-      throw new Error("Project directory is unavailable");
-    }
-    const response = await this.#client.request<ThreadStartResponse>(
-      "thread/start",
-      {
-        historyMode: CODEX_HISTORY_MODE,
+    return this.#operation(async () => {
+      const canonicalCwd = await resolveProjectDirectory(input.cwd);
+      if (canonicalCwd === undefined) {
+        throw new Error("Project directory is unavailable");
+      }
+      const response = await this.#client.request<ThreadStartResponse>(
+        "thread/start",
+        {
+          historyMode: CODEX_HISTORY_MODE,
+          cwd: canonicalCwd,
+          model: input.modelSettings.modelId,
+          config: {
+            model_reasoning_effort: input.modelSettings.reasoningEffort,
+          },
+          approvalPolicy: "never",
+          sandbox: "danger-full-access",
+          threadSource: `racco:${input.raccoSessionId}`,
+        },
+      );
+      this.#observedRoots.add(response.thread.id);
+      this.#loadedThreads.add(response.thread.id);
+      return {
+        providerSessionId: response.thread.id,
         cwd: canonicalCwd,
-        model: input.modelSettings.modelId,
-        config: { model_reasoning_effort: input.modelSettings.reasoningEffort },
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
-        threadSource: `racco:${input.raccoSessionId}`,
-      },
-    );
-    this.#observedRoots.add(response.thread.id);
-    this.#loadedThreads.add(response.thread.id);
-    return {
-      providerSessionId: response.thread.id,
-      cwd: canonicalCwd,
-      materialized: true,
-    };
+        materialized: true,
+      };
+    });
   }
 
   async runTurn(input: {
@@ -428,7 +495,7 @@ export class CodexDriver implements AgentDriver {
         type: "system.notice",
         id: randomUUID(),
         level: "error",
-        text: "Codex 未确认停止，正在关闭该 Provider；其他 Codex 会话也会中断，请重启服务后继续。",
+        text: "Codex 未确认停止，正在关闭该 Provider；其他 Codex 会话也会中断，请在新建对话页恢复 Codex 后继续。",
       });
       providerShutdown = this.#client.fail(error);
     };
@@ -604,19 +671,20 @@ export class CodexDriver implements AgentDriver {
   async compact({
     handle,
   }: Parameters<NonNullable<AgentDriver["compact"]>>[0]): Promise<void> {
-    this.#assertReady();
-    await this.#ensureLoaded(handle.providerSessionId);
-    const threadId = handle.providerSessionId;
-    if (this.#contexts.has(threadId) || this.#compactions.has(threadId))
-      throw new Error("Codex thread is already busy");
-    // Install before the RPC: native start/completion events can precede its ACK.
-    this.#compactions.set(threadId, undefined);
-    try {
-      await this.#client.request("thread/compact/start", { threadId });
-    } catch (error) {
-      this.#finishCompaction(threadId);
-      throw error;
-    }
+    return this.#operation(async () => {
+      await this.#ensureLoaded(handle.providerSessionId);
+      const threadId = handle.providerSessionId;
+      if (this.#contexts.has(threadId) || this.#compactions.has(threadId))
+        throw new Error("Codex thread is already busy");
+      // Install before the RPC: native start/completion events can precede its ACK.
+      this.#compactions.set(threadId, undefined);
+      try {
+        await this.#client.request("thread/compact/start", { threadId });
+      } catch (error) {
+        this.#finishCompaction(threadId);
+        throw error;
+      }
+    });
   }
 
   #finishCompaction(threadId: string): void {
@@ -871,7 +939,7 @@ export class CodexDriver implements AgentDriver {
         maxTokens: tokenUsage?.modelContextWindow,
       });
       if (!usage.success) {
-        this.#handleExit(new Error("Invalid Codex context usage"));
+        void this.#client.fail(new Error("Invalid Codex context usage"));
         return;
       }
       this.#sessionUpdate?.(threadId, {
@@ -1270,6 +1338,20 @@ export class CodexDriver implements AgentDriver {
     this.#loadedThreads.clear();
     for (const waiter of this.#turnWaiters.values()) waiter.reject(error);
     this.#turnWaiters.clear();
+  }
+
+  async #operation<T>(run: () => Promise<T>): Promise<T> {
+    this.#assertReady();
+    this.#operations++;
+    const lifecycle = this.#lifecycle;
+    try {
+      const result = await run();
+      if (lifecycle !== this.#lifecycle)
+        throw new Error("Codex provider changed during operation");
+      return result;
+    } finally {
+      this.#operations--;
+    }
   }
 
   #assertReady(): void {

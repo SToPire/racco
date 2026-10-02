@@ -74,6 +74,9 @@ export interface AgentDriver {
 
   start(): Promise<void>;
   close(): Promise<void>;
+  restart?(): Promise<void>;
+  /** Includes descendants still registering before their first timeline event. */
+  hasActiveDescendants?(handle: ProviderSessionHandle): boolean;
   listSessions(input: {
     cwd: string;
     cursor?: string;
@@ -84,8 +87,6 @@ export interface AgentDriver {
     signal: AbortSignal;
   }): Promise<ProviderModelCatalog>;
   readSession(handle: ProviderSessionHandle): Promise<SessionSnapshot>;
-  /** Includes descendants still registering before their first timeline event. */
-  hasActiveDescendants?(handle: ProviderSessionHandle): boolean;
   deleteSession(handle: ProviderSessionHandle): Promise<void>;
   createSession(input: {
     raccoSessionId: string;
@@ -109,3 +110,5 @@ export class ProviderSessionNotFoundError extends Error {
     this.name = "ProviderSessionNotFoundError";
   }
 }
+
+export class ProviderBusyError extends Error {}

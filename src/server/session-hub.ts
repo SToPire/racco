@@ -215,6 +215,14 @@ export class SessionHub {
     }
   }
 
+  async restartProvider(provider: Provider): Promise<void> {
+    if (this.#closed) throw new Error("Racco closed");
+    const driver = this.#drivers.get(provider);
+    if (!driver?.restart) throw new Error("该 Provider 不支持单独恢复");
+    await driver.restart();
+    this.#models.invalidateProvider(provider);
+  }
+
   providerStatus(provider: Provider): ProviderStatus {
     return this.#drivers.get(provider)?.ready ? "ready" : "unavailable";
   }

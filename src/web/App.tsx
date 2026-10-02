@@ -326,6 +326,7 @@ export function App() {
               creating={creating}
               error={homeError}
               health={health}
+              onRestartProvider={racco.restartProvider}
               onBack={showHistory}
               onCreate={createSession}
               onImportProject={() => openProjectPicker(true)}

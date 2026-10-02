@@ -1,3 +1,4 @@
+import { ProviderRecovery } from "./ProviderRecovery";
 import { useImageDraft } from "../hooks/useImageDraft";
 import { useDraftText } from "../hooks/useComposerDraft";
 import { useAutosizeTextarea } from "../hooks/useAutosizeTextarea";
@@ -44,6 +45,7 @@ type NewSessionViewProps = {
   worktreeError?: string;
   busyWorktree: boolean;
   onBack: () => void;
+  onRestartProvider?: () => Promise<void>;
   onCreate: (
     provider: Provider,
     projectId: string,
@@ -63,6 +65,7 @@ type NewSessionViewProps = {
 export function NewSessionView({
   active,
   health,
+  onRestartProvider,
   projects,
   worktrees,
   projectId,
@@ -191,6 +194,13 @@ export function NewSessionView({
       </header>
 
       <div className="new-session-content">
+        {onRestartProvider && (
+          <ProviderRecovery
+            available={health?.providers.codex === "ready"}
+            connected={connected}
+            onRestart={onRestartProvider}
+          />
+        )}
         <div className="new-session-brand">
           <h1>
             <RaccoLogo />
