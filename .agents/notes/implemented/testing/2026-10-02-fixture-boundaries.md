@@ -16,4 +16,4 @@ Status: implemented
 
 ## Consequences
 
-轻量夹具不可用于声称验证 Git 行为的测试，协议新增方法必须显式更新受影响的 handler。呈现测试仍验证真实 HTTP、WebSocket 和浏览器渲染，夹具选择与行为覆盖由用例共同表达。
+触摸设备配置仅运行四条关键流程，完整桌面套件不机械翻倍；[真机验收](../../../../docs/testing/mobile-device-checks.md)单独持有软键盘与真实浏览器验证边界。轻量夹具不可用于声称验证 Git 行为的测试，协议新增方法必须显式更新受影响的 handler。呈现测试仍验证真实 HTTP、WebSocket 和浏览器渲染，夹具选择与行为覆盖由用例共同表达。

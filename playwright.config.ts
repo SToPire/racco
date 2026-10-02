@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./test/e2e",
   globalSetup: "./test/e2e/global-setup.mjs",
@@ -10,6 +10,14 @@ export default defineConfig({
     ["list"],
     ["json", { outputFile: ".tmp/check/playwright.json" }],
     ["html", { outputFolder: ".tmp/playwright-report", open: "never" }],
+  ],
+  projects: [
+    { name: "desktop", testIgnore: /touch-workflows\.spec\.ts/ },
+    {
+      name: "touch",
+      testMatch: /touch-workflows\.spec\.ts/,
+      use: { ...devices["Pixel 7"] },
+    },
   ],
   outputDir: ".tmp/playwright-results",
   use: {
