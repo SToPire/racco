@@ -83,6 +83,8 @@ Node/CLI 的安装路径变化时，执行 `systemctl --user stop raccod.service
 
 ## 开发与验证
 
+运行 `npm run dev:fixture` 启动隔离的临时项目、假 Provider 与 Vite；直接运行源码，不预先构建。要使用真实服务，显式运行 `npm run dev -- --backend http://127.0.0.1:7331`；退出开发服务器不会停止该服务。两种模式均支持前端热更新，fixture 后端改动后重启开发命令，真实服务后端改动后运行 `npm run build` 发布。`npm run preview` 则用于构建后的隔离预览。
+
 `npm run check` 手动执行 Notes、lint、格式、类型、单元测试、构建和浏览器验收。首次运行浏览器测试前执行 `npx playwright install chromium`，并按提示准备浏览器系统依赖。报告位于 `.tmp/check/` 与 `.tmp/playwright-report/`。真实 Provider smoke 会调用模型，独立于默认检查；执行前阅读相应脚本的目标与清理说明。
 
 ## Worktree
