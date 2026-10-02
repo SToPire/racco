@@ -56,8 +56,8 @@ test("follows live output until the reader scrolls away and restores reading acr
   await expect
     .poll(() => conversation.evaluate((element) => element.scrollTop))
     .toBe(top);
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
+  await page.getByRole("button", { name: "对话", exact: true }).click();
   await expect
     .poll(() => conversation.evaluate((element) => element.scrollTop))
     .toBe(top);
@@ -74,8 +74,8 @@ test("follows live output until the reader scrolls away and restores reading acr
     input: { command: "npm test" },
   });
   await page.locator('[data-timeline-row="last-tool"]').click();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
-  await page.getByRole("button", { name: "在 Chat 中查看" }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
+  await page.getByRole("button", { name: "在对话中查看" }).click();
   await expect(
     page.getByRole("button", { name: "回到最新内容 ↓" }),
   ).toBeVisible();

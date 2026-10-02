@@ -256,9 +256,7 @@ for (const viewport of [
         page.locator(`[data-timeline-row="${prefix}-plan"]`),
       ).toHaveCount(0);
       await expect(row(2)).toContainText("失败");
-      await page
-        .getByRole("button", { name: "Trajectory", exact: true })
-        .click();
+      await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
       const details = page.getByRole(
         viewport.width <= 760 ? "dialog" : "complementary",
         { name: "交互详情" },
@@ -275,13 +273,15 @@ for (const viewport of [
           })
           .click();
         await expect(
-          details.getByRole("button", { name: "在 Chat 中查看" }),
+          details.getByRole("button", { name: "在对话中查看" }),
         ).toHaveCount(0);
-        await details.getByRole("button", { name: "Raw", exact: true }).click();
+        await details
+          .getByRole("button", { name: "原始数据", exact: true })
+          .click();
         await expect(details).toContainText(id);
         await details.getByRole("button", { name: "关闭交互详情" }).click();
       }
-      await page.getByRole("button", { name: "Chat", exact: true }).click();
+      await page.getByRole("button", { name: "对话", exact: true }).click();
     }
   });
 
@@ -398,7 +398,7 @@ for (const viewport of [
       { name: "工具详情" },
     );
     await expect(
-      inspector.getByRole("tab", { name: "Output", exact: true }),
+      inspector.getByRole("tab", { name: "输出", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await expect(inspector).toContainText("FAIL ToolGroup");
     await expect(inspector.locator("[data-tool-output]")).toHaveCount(1);

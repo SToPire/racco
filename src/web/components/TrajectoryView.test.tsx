@@ -46,7 +46,7 @@ for (const name of ["reviewer", "Main Agent", undefined]) {
         ]}
       />,
     );
-    assert.match(html, /2 Subagents/);
+    assert.match(html, /2 子 Agent/);
   });
 }
 
@@ -68,12 +68,12 @@ test("renders a searchable trajectory containing every normalized row", () => {
     />,
   );
 
-  assert.match(html, /1 Turns/);
-  assert.match(html, /1 Calls/);
-  assert.match(html, /USER/);
+  assert.match(html, /1 轮/);
+  assert.match(html, /1 次调用/);
+  assert.match(html, /用户/);
   assert.match(html, /command/);
-  assert.match(html, /ASSISTANT/);
-  assert.match(html, /Search/);
+  assert.match(html, /助手/);
+  assert.match(html, /搜索交互/);
 });
 
 test("renders clickable interaction details with actor and working directory", () => {
@@ -81,7 +81,7 @@ test("renders clickable interaction details with actor and working directory", (
     <TrajectoryInspector entry={entry} onClose={() => undefined} />,
   );
 
-  assert.match(html, /Turn 2 · Step 3/);
+  assert.match(html, /第 2 轮 · 步骤 3/);
   assert.match(html, /Turing/);
   assert.match(html, /root › reviewer/);
   assert.match(html, /\/work\/project/);
@@ -144,7 +144,7 @@ test("hidden main and child activity stays inspectable without a Chat reveal act
         );
         // Synthetic child task/state entries still navigate to the child Chat.
         assert.equal(
-          html.includes("在 Chat 中查看"),
+          html.includes("在对话中查看"),
           entry.kind === "assistant" ? visible : true,
         );
       }

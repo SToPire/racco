@@ -189,10 +189,10 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
   if (activeTab === "raw" && !hasRaw) activeTab = hasInput ? "input" : "output";
   const inputLabel =
     row.facts?.command !== undefined
-      ? "Details"
+      ? "详情"
       : row.facts?.fileChanges !== undefined
-        ? "Changes"
-        : "Input";
+        ? "文件变更"
+        : "输入";
 
   return (
     <ResponsivePanel
@@ -203,7 +203,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
     >
       <header className="inspector-header">
         <div>
-          <small>Tool</small>
+          <small>工具</small>
           <h2>{row.tool}</h2>
         </div>
         <span className={`tool-status tool-status-${row.status}`}>
@@ -272,7 +272,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
             role="tab"
             type="button"
           >
-            Output
+            输出
           </button>
         )}
         {hasRaw && (
@@ -285,7 +285,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
             role="tab"
             type="button"
           >
-            Raw
+            原始数据
           </button>
         )}
       </div>

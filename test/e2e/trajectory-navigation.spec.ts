@@ -46,9 +46,7 @@ for (const width of [1440, 390]) {
     await expect(page.locator('[data-timeline-row="recent-2"]')).toBeVisible();
     for (const id of ids.slice(0, 2)) {
       await expect(page.locator(`[data-timeline-row="${id}"]`)).toBeHidden();
-      await page
-        .getByRole("button", { name: "Trajectory", exact: true })
-        .click();
+      await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
       await page
         .getByRole("listitem")
         .filter({ hasText: `${id}.txt` })
@@ -57,7 +55,7 @@ for (const width of [1440, 390]) {
         .getByRole(width <= 760 ? "dialog" : "complementary", {
           name: "交互详情",
         })
-        .getByRole("button", { name: "在 Chat 中查看" })
+        .getByRole("button", { name: "在对话中查看" })
         .click();
       const history = page.locator(".tool-history");
       const selected = history.locator(`[data-timeline-row="${id}"]`);
@@ -103,10 +101,10 @@ test("links selected Chat tools to trajectory and returns to the correct agent",
     );
   await page.goto(`/session/${session.sessionId}`);
   await page.locator(".tool-card").click();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   const details = page.getByRole("complementary", { name: "交互详情" });
   await expect(details).toContainText("README.md");
-  await details.getByRole("button", { name: "在 Chat 中查看" }).click();
+  await details.getByRole("button", { name: "在对话中查看" }).click();
   await expect(page.locator(".tool-card")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -133,10 +131,10 @@ test("links selected Chat tools to trajectory and returns to the correct agent",
   await page.locator(".agent-switcher-trigger").click();
   await page.getByRole("option").filter({ hasText: "Reviewer" }).click();
   await page.locator(".trajectory-tool-row").click();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
-  await expect(details).toContainText("子任务 · Step");
-  await expect(details).not.toContainText("Turn 1 · Step");
-  await details.getByRole("button", { name: "在 Chat 中查看" }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
+  await expect(details).toContainText("子任务 · 步骤");
+  await expect(details).not.toContainText("第 1 轮 · 步骤");
+  await details.getByRole("button", { name: "在对话中查看" }).click();
   await expect(page.locator(".agent-switcher-trigger")).toContainText(
     "Reviewer",
   );

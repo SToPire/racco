@@ -40,7 +40,7 @@ test("running tasks allow drafts across views and can be stopped from the trajec
   await input.press("Enter");
   await expect(input).toHaveValue("next task draft");
   expect(prompts).toEqual(["wait"]);
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await expect(input).toHaveValue("next task draft");
   await expect(input).toBeEnabled();
   const search = page.getByRole("searchbox", { name: "搜索交互" });
@@ -63,7 +63,7 @@ test("running tasks allow drafts across views and can be stopped from the trajec
   await expect(input).toHaveValue("");
   await expect(page.locator(".run-state")).toHaveText("空闲");
   expect(prompts).toEqual(["wait", "next task from trajectory"]);
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("button", { name: "对话", exact: true }).click();
   await expect(page.locator(".message-user").last()).toHaveText(
     "next task from trajectory",
   );
@@ -86,7 +86,7 @@ test("unsubmitted answers and next-task drafts survive switching to trajectory",
   await expect(send).toBeDisabled();
   await page.getByRole("radio", { name: "Alpha", exact: true }).check();
 
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await expect(
     page.getByRole("radio", { name: "Alpha", exact: true }),
   ).toBeChecked();
@@ -140,7 +140,7 @@ test("an unconfirmed send locks the draft even after the task starts and the vie
   await expect.poll(() => releaseAcknowledgement !== undefined).toBe(true);
   await expect(input).toBeDisabled();
   await expect(input).toHaveValue("wait");
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await expect(input).toBeDisabled();
   await expect(input).toHaveValue("wait");
   releaseAcknowledgement!();
@@ -166,13 +166,13 @@ test("mobile trajectory details return to pending questions and navigation after
   await expect(
     page.getByText("Fixture question", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await page.locator(".trajectory-entry").first().click();
   await expect(page.getByRole("dialog", { name: "交互详情" })).toBeVisible();
   await page.getByRole("button", { name: "关闭交互详情" }).click();
   await page.getByRole("radio", { name: "Alpha", exact: true }).check();
   await page.getByRole("button", { name: "提交回答" }).click();
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("button", { name: "对话", exact: true }).click();
   await expect(
     page.getByText("Fixture: question (answer)", { exact: true }),
   ).toBeVisible();

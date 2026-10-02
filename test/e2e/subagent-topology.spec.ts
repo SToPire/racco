@@ -244,7 +244,7 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
     "Main Agent",
   );
 
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   const tabsBox = (await page.locator(".session-view-tabs").boundingBox())!;
   const trajectoryToggleBox = (await panel.boundingBox())!;
@@ -259,12 +259,12 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
       position: { x: 20, y: 4 },
     });
   await expect(
-    page.getByRole("button", { name: "Trajectory", exact: true }),
+    page.getByRole("button", { name: "执行轨迹", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await expect(
     page.getByRole("complementary", { name: "交互详情" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("button", { name: "对话", exact: true }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 
   await page.setViewportSize({ width: 1600, height: 900 });
@@ -335,7 +335,7 @@ test("topology stays bounded, connects nested tasks, and remains usable on narro
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
 
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   const narrowTabsBox = (await page
     .locator(".session-view-tabs")

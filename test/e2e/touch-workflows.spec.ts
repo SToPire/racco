@@ -62,7 +62,7 @@ test("touch question choices and Other survive view changes", async ({
   await other.tap();
   await other.fill("其他选择");
   await page.getByRole("radio", { name: "Gamma", exact: true }).tap();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).tap();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).tap();
   await expect(alpha).toBeChecked();
   await expect(other).toHaveValue("其他选择");
   await page.getByRole("button", { name: "提交回答", exact: true }).tap();
@@ -78,7 +78,7 @@ test("touch trajectory can interrupt without losing the next draft", async ({
   await page.getByRole("button", { name: "发送", exact: true }).tap();
   await expect(page.locator(".run-state")).toHaveText("运行中");
   await input.fill("下一条草稿");
-  await page.getByRole("button", { name: "Trajectory", exact: true }).tap();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).tap();
   await page.getByRole("button", { name: "停止生成", exact: true }).tap();
   await expect(page.locator(".run-state")).toHaveText("已中断");
   await expect(input).toHaveValue("下一条草稿");

@@ -49,7 +49,7 @@ for (const finalSingle of ["option", "other"] as const) {
       await singleText.fill("visible other");
       await expect(gamma).not.toBeChecked();
     }
-    await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+    await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
     await expect(multipleText).toHaveValue("custom final");
     await expect(alpha).toBeChecked();
     await page.getByRole("button", { name: "提交回答", exact: true }).click();

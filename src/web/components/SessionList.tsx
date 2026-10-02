@@ -58,6 +58,42 @@ export function SessionList({
   onRefreshWorktrees,
   onDeleteWorktree,
 }: SessionListProps) {
+  const [filter, setFilter] = useState("");
+  const query = filter.trim().toLocaleLowerCase();
+  const projectMatches = (project: ProjectEntry) =>
+    `${project.name} ${project.path}`.toLocaleLowerCase().includes(query);
+  const matchingSessions = useMemo(
+    () =>
+      sessions.filter((session) => {
+        const project = projects.find(
+          (entry) => entry.projectId === session.projectId,
+        );
+        return (
+          query === "" ||
+          (session.title ?? session.sessionId)
+            .toLocaleLowerCase()
+            .includes(query) ||
+          (project !== undefined &&
+            `${project.name} ${project.path}`
+              .toLocaleLowerCase()
+              .includes(query))
+        );
+      }),
+    [sessions, projects, query],
+  );
+  const progressing = (session: SessionSummary) =>
+    session.compacting ||
+    session.state === "running" ||
+    session.state === "waiting_interaction";
+  const ongoing = matchingSessions.filter(progressing);
+  const visibleProjects = projects.filter(
+    (project) =>
+      query === "" ||
+      projectMatches(project) ||
+      matchingSessions.some(
+        (session) => session.projectId === project.projectId,
+      ),
+  );
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
     () => new Set(),
   );
@@ -142,7 +178,7 @@ export function SessionList({
           aria-current={isActive(activeRef, session) ? "page" : undefined}
           className={`history-row${isActive(activeRef, session) ? " active" : ""}`}
           onClick={() => onOpen(session)}
-          title={session.title ?? session.sessionId}
+          title={`${session.title ?? session.sessionId} · ${session.cwd}`}
           type="button"
         >
           <span className={`history-avatar history-avatar-${session.provider}`}>
@@ -154,6 +190,12 @@ export function SessionList({
               {session.provider === "codex" ? "Codex" : "Claude"}
               {" · "}
               {sessionStateLabel(session.state, session.compacting)}
+              {" · "}
+              {
+                projects.find(
+                  (project) => project.projectId === session.projectId,
+                )?.name
+              }
             </small>
           </span>
           <StateDot state={session.compacting ? "running" : session.state} />
@@ -214,6 +256,15 @@ export function SessionList({
         </div>
       </header>
 
+      <div className="sidebar-filter">
+        <input
+          aria-label="筛选对话或项目"
+          type="search"
+          placeholder="筛选对话或项目"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+        />
+      </div>
       <nav className="project-tree" aria-label="项目、Worktree 与对话">
         {loading && <p className="sidebar-empty">正在读取项目…</p>}
         {error && <p className="sidebar-error">{error}</p>}
@@ -221,13 +272,25 @@ export function SessionList({
           <p className="sidebar-empty">还没有项目</p>
         )}
 
-        {projects.map((project) => {
+        {ongoing.length > 0 && (
+          <section aria-label="进行中的对话" className="ongoing-sessions">
+            <h2>进行中</h2>
+            {ongoing.map(renderSession)}
+          </section>
+        )}
+        {query !== "" && visibleProjects.length === 0 && (
+          <p className="sidebar-empty" role="status">
+            没有匹配的对话或项目
+          </p>
+        )}
+        {visibleProjects.map((project) => {
           const projectWorktrees =
             worktreesByProject.get(project.projectId) ?? [];
           const primary = projectWorktrees.find(
             (entry) => entry.kind === "primary",
           );
-          const expanded = !collapsedProjects.has(project.projectId);
+          const expanded =
+            query !== "" || !collapsedProjects.has(project.projectId);
           const projectSessionCount = projectWorktrees.reduce(
             (total, worktree) =>
               total + (sessionsByPath.get(worktree.path)?.length ?? 0),
@@ -239,7 +302,7 @@ export function SessionList({
           // that cannot be regenerated, and the reason is usually that the
           // worktree was removed outside Racco.
           const known = new Set(projectWorktrees.map((entry) => entry.path));
-          const orphans = sessions.filter(
+          const orphans = matchingSessions.filter(
             (session) =>
               session.projectId === project.projectId &&
               !known.has(session.cwd),
@@ -353,11 +416,17 @@ export function SessionList({
                     <p className="project-tree-empty">暂无 Worktree</p>
                   )}
                   {projectWorktrees.map((worktree) => {
-                    const worktreeSessions =
-                      sessionsByPath.get(worktree.path) ?? [];
-                    const worktreeCollapsed = collapsedWorktrees.has(
-                      worktree.path,
-                    );
+                    const worktreeSessions = (
+                      sessionsByPath.get(worktree.path) ?? []
+                    ).filter((session) => matchingSessions.includes(session));
+                    if (
+                      query !== "" &&
+                      !projectMatches(project) &&
+                      worktreeSessions.length === 0
+                    )
+                      return null;
+                    const worktreeCollapsed =
+                      query === "" && collapsedWorktrees.has(worktree.path);
                     const unavailable = !worktree.available;
                     return (
                       <div className="worktree-group" key={worktree.path}>
@@ -465,7 +534,15 @@ export function SessionList({
                             {worktreeSessions.length === 0 && (
                               <p className="project-tree-empty">暂无对话</p>
                             )}
-                            {worktreeSessions.map(renderSession)}
+                            {worktreeSessions
+                              .filter((session) => !progressing(session))
+                              .map(renderSession)}
+                            {worktreeSessions.length > 0 &&
+                              worktreeSessions.every(progressing) && (
+                                <p className="project-tree-empty">
+                                  进行中的对话见上方
+                                </p>
+                              )}
                           </div>
                         )}
                       </div>
@@ -489,7 +566,9 @@ export function SessionList({
                         </span>
                       </div>
                       <div className="project-session-list" role="group">
-                        {orphans.map(renderSession)}
+                        {orphans
+                          .filter((session) => !progressing(session))
+                          .map(renderSession)}
                       </div>
                     </div>
                   )}

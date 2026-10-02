@@ -2,7 +2,7 @@
 
 .sidebar {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-width: 0;
   height: 100dvh;
   padding: 6px 8px 8px;
@@ -623,4 +623,27 @@
 }
 .project-tree-header.selected {
   background: var(--surface-active);
+}
+
+.sidebar-filter {
+  padding: 4px 4px 8px;
+}
+.sidebar-filter input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+.ongoing-sessions {
+  margin-bottom: 8px;
+}
+.ongoing-sessions h2 {
+  margin: 6px 8px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
 }

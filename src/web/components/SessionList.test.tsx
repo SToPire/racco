@@ -105,7 +105,7 @@ function render(props: Partial<Parameters<typeof SessionList>[0]> = {}) {
   );
 }
 
-test("renders the fixed project → worktree → session tree", () => {
+test("keeps project history grouped and shows ongoing sessions once", () => {
   const html = render();
 
   assert.match(html, /alt="Racco"/);
@@ -113,11 +113,15 @@ test("renders the fixed project → worktree → session tree", () => {
   // only worktree is its own directory.
   assert.match(
     html,
-    /aria-label="项目 alpha"[\s\S]*aria-label="alpha 的 Worktree"[\s\S]*aria-label="alpha 的对话"[\s\S]*First task[\s\S]*Codex · 运行中/,
+    /aria-label="项目 alpha"[\s\S]*aria-label="alpha 的 Worktree"[\s\S]*aria-label="alpha 的对话"[\s\S]*进行中的对话见上方/,
   );
   assert.match(
     html,
     /aria-label="项目 empty"[\s\S]*aria-label="empty 的 Worktree"[\s\S]*aria-label="empty 的对话"[\s\S]*暂无对话/,
+  );
+  assert.match(
+    html,
+    /aria-label="进行中的对话"[\s\S]*First task[\s\S]*Codex · 运行中/,
   );
   assert.match(html, /aria-current="page"/);
 });

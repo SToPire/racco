@@ -72,7 +72,7 @@ test("agent selection, request navigation and inspector tabs support their keybo
   await expect(tabs.getByRole("tab").last()).toBeFocused();
   expect(await tabs.locator('[tabindex="0"]').count()).toBe(1);
   await page.getByRole("button", { name: "关闭工具详情" }).click();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await expect(
     page.getByRole("listitem").first().getByRole("button"),
   ).toBeVisible();

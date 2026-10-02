@@ -40,7 +40,7 @@ for (const theme of ["light", "dark"] as const) {
       page,
       page.getByRole("textbox", { name: "发送给 Racco" }),
     );
-    await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+    await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
     await expectKeyboardOutline(
       page,
       page.getByRole("searchbox", { name: "搜索交互" }),

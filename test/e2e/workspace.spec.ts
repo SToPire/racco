@@ -193,7 +193,7 @@ test("Files tabs remain separate from conversation and inspector state", async (
     "true",
   );
   await page.getByRole("button", { name: "关闭工具详情" }).click();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await expect(dock.getByRole("tab", { name: "index.ts" })).toBeVisible();
   await dock.getByRole("tab", { name: "Files", exact: true }).click();
   await expect(

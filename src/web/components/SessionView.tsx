@@ -272,7 +272,7 @@ export function SessionView({
             onClick={() => setViewMode("chat")}
             type="button"
           >
-            Chat
+            对话
           </button>
           <button
             aria-current={viewMode === "trajectory" ? "page" : undefined}
@@ -283,7 +283,7 @@ export function SessionView({
             }}
             type="button"
           >
-            Trajectory
+            执行轨迹
           </button>
         </div>
       </nav>

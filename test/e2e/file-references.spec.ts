@@ -260,13 +260,13 @@ test("child Markdown, trajectory results and tool changes resolve against the ac
   await expect(
     page.getByRole("tab", { name: "README.md", exact: true }),
   ).toHaveCount(1);
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await page
     .locator(".trajectory-entry")
     .filter({ hasText: "Child readme" })
     .click();
   const trajectory = page.getByRole("complementary", { name: "交互详情" });
-  await trajectory.getByRole("button", { name: "Result", exact: true }).click();
+  await trajectory.getByRole("button", { name: "输出", exact: true }).click();
   await trajectory
     .getByRole("button", { name: "Child readme", exact: true })
     .click();

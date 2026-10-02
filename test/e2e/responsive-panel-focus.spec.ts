@@ -53,7 +53,7 @@ for (const width of [390, 1440]) {
     await dock.getByRole("button", { name: "折叠文件侧栏" }).focus();
     await page.keyboard.press("Escape");
     await expect(launcher).toBeFocused();
-    await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+    await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
     const row = page.locator(".trajectory-entry").first();
     await row.focus();
     await page.keyboard.press("Enter");
@@ -80,7 +80,7 @@ test("browser back closes cached trajectory dialogs and project overlays", async
     .locator(".history-row")
     .filter({ hasText: racco.sessions[0]!.title! });
   await session.click();
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   await page.locator(".trajectory-entry").first().click();
   await expect(page.getByRole("dialog", { name: "交互详情" })).toBeVisible();
   await page.goBack();

@@ -13,6 +13,12 @@ import { MarkdownContent } from "./MarkdownContent";
 import { FileReferenceScope } from "../FileNavigationContext";
 
 type InspectorTab = "summary" | "payload" | "result" | "raw";
+const inspectorLabels: Record<InspectorTab, string> = {
+  summary: "概览",
+  payload: "输入",
+  result: "输出",
+  raw: "原始数据",
+};
 
 function json(value: unknown): string {
   if (value === undefined) return "";
@@ -21,12 +27,27 @@ function json(value: unknown): string {
 }
 
 function kindLabel(kind: TrajectoryKind): string {
-  if (kind === "user") return "USER";
-  if (kind === "assistant") return "ASSISTANT";
-  if (kind === "context") return "CONTEXT";
-  if (kind === "tool") return "TOOL";
-  if (kind === "subagent") return "AGENT";
-  return "SYSTEM";
+  if (kind === "user") return "用户";
+  if (kind === "assistant") return "助手";
+  if (kind === "context") return "上下文";
+  if (kind === "tool") return "工具";
+  if (kind === "subagent") return "Agent";
+  return "系统";
+}
+
+function statusLabel(status: string | undefined): string {
+  switch (status) {
+    case "running":
+      return "运行中";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "interrupted":
+      return "已中断";
+    default:
+      return status ?? "—";
+  }
 }
 
 function isFileChangePayload(value: unknown): value is FileChange[] {
@@ -46,7 +67,7 @@ function isFileChangePayload(value: unknown): value is FileChange[] {
 
 export function TrajectoryResult({ entry }: { entry: TrajectoryEntry }) {
   if (entry.result === undefined || entry.result === "") {
-    return <p className="trajectory-empty">No result</p>;
+    return <p className="trajectory-empty">暂无输出</p>;
   }
   if (typeof entry.result !== "string") return <pre>{json(entry.result)}</pre>;
   if (entry.kind === "tool" || entry.kind === "context") {
@@ -88,7 +109,7 @@ export function TrajectoryInspector({
             {kindLabel(entry.kind)}
           </span>
           <small>
-            {entry.turn === undefined ? "子任务" : `Turn ${entry.turn}`} · Step{" "}
+            {entry.turn === undefined ? "子任务" : `第 ${entry.turn} 轮`} · 步骤{" "}
             {entry.step}
           </small>
         </div>
@@ -107,7 +128,7 @@ export function TrajectoryInspector({
           type="button"
           onClick={() => onReveal(entry)}
         >
-          在 Chat 中查看
+          在对话中查看
         </button>
       )}
       <nav
@@ -121,8 +142,7 @@ export function TrajectoryInspector({
             onClick={() => setTab(candidate)}
             type="button"
           >
-            {candidate[0]?.toUpperCase()}
-            {candidate.slice(1)}
+            {inspectorLabels[candidate]}
           </button>
         ))}
       </nav>
@@ -131,35 +151,35 @@ export function TrajectoryInspector({
           <>
             <dl>
               <div>
-                <dt>Actor</dt>
+                <dt>执行者</dt>
                 <dd>{entry.actor}</dd>
               </div>
               <div>
-                <dt>Type</dt>
+                <dt>类型</dt>
                 <dd>{entry.label}</dd>
               </div>
               <div>
-                <dt>Status</dt>
-                <dd>{entry.status ?? "—"}</dd>
+                <dt>状态</dt>
+                <dd>{statusLabel(entry.status)}</dd>
               </div>
               <div>
-                <dt>Hierarchy</dt>
+                <dt>层级</dt>
                 <dd>{entry.agentPath ?? "Main Agent"}</dd>
               </div>
               <div>
-                <dt>Working directory</dt>
+                <dt>工作目录</dt>
                 <dd>{entry.cwd ?? "—"}</dd>
               </div>
             </dl>
             <section>
-              <h3>Summary</h3>
+              <h3>概览</h3>
               <p>{entry.summary || "—"}</p>
             </section>
           </>
         )}
         {tab === "payload" &&
           (entry.payload === undefined ? (
-            <p className="trajectory-empty">No payload</p>
+            <p className="trajectory-empty">暂无输入</p>
           ) : isFileChangePayload(entry.payload) ? (
             <FileChanges changes={entry.payload} />
           ) : (
@@ -230,22 +250,22 @@ export function TrajectoryView({
         <div className="trajectory-metrics">
           <span>
             <UiIcon name="message" />
-            {turns} Turns
+            {turns} 轮
           </span>
           <span>
             <UiIcon name="wrench" />
-            {calls} Calls
+            {calls} 次调用
           </span>
           <span>
             <UiIcon name="agents" />
-            {agents} Subagents
+            {agents} 子 Agent
           </span>
         </div>
         <label className="trajectory-search">
           <span className="sr-only">搜索交互</span>
           <input
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search"
+            placeholder="搜索交互"
             type="search"
             value={search}
           />
@@ -255,7 +275,7 @@ export function TrajectoryView({
       <div className="trajectory-workspace">
         <div className="trajectory-entries" role="list">
           {visible.length === 0 && (
-            <p className="trajectory-empty">No interactions</p>
+            <p className="trajectory-empty">暂无交互记录</p>
           )}
           {visible.map((entry, index) => {
             const showTurn =
@@ -265,7 +285,7 @@ export function TrajectoryView({
             const turnLabel = showTurn
               ? entry.turn === undefined
                 ? "子任务"
-                : `Turn ${entry.turn}`
+                : `第 ${entry.turn} 轮`
               : "";
             return (
               <div
@@ -294,7 +314,9 @@ export function TrajectoryView({
                   </span>
                   <small>
                     {entry.actor}
-                    {entry.status === undefined ? "" : ` · ${entry.status}`}
+                    {entry.status === undefined
+                      ? ""
+                      : ` · ${statusLabel(entry.status)}`}
                   </small>
                 </button>
               </div>

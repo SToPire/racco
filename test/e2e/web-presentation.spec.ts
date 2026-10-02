@@ -210,14 +210,14 @@ test("trajectory labels fit narrow and scaled panels with readable category colo
       } satisfies ServerMessage),
     );
   }
-  await page.getByRole("button", { name: "Trajectory", exact: true }).click();
+  await page.getByRole("button", { name: "执行轨迹", exact: true }).click();
   const childLabel = page
     .locator(".trajectory-turn-label")
     .filter({ hasText: "子任务" })
     .first();
   await expect(childLabel).toBeVisible();
   await expect(
-    page.locator('.trajectory-turn-label[title="Turn 128"]'),
+    page.locator('.trajectory-turn-label[title="第 128 轮"]'),
   ).toBeVisible();
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
@@ -258,8 +258,8 @@ test("trajectory labels fit narrow and scaled panels with readable category colo
         }
         for (const label of [
           childLabel,
-          page.locator('.trajectory-turn-label[title="Turn 12"]'),
-          page.locator('.trajectory-turn-label[title="Turn 128"]'),
+          page.locator('.trajectory-turn-label[title="第 12 轮"]'),
+          page.locator('.trajectory-turn-label[title="第 128 轮"]'),
         ]) {
           const metrics = await label.evaluate((element) => {
             const range = document.createRange();

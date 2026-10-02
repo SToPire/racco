@@ -44,8 +44,8 @@ test("places the command before collapsed execution metadata when there is no ou
 
   assert.match(html, /aria-label="工具详情"/);
   assert.match(html, />Command</);
-  assert.match(html, />Output</);
-  assert.match(html, />Raw</);
+  assert.match(html, />输出</);
+  assert.match(html, />原始数据</);
   assert.match(html, />Execution</);
   assert.doesNotMatch(html, />Actions</);
   assert.match(html, />7 ms</);
@@ -84,7 +84,7 @@ for (const status of [
     const html = renderToStaticMarkup(
       <ToolInspector row={row} onClose={() => undefined} />,
     );
-    assert.match(html, /aria-selected="true"[^>]*>Output<\/button>/);
+    assert.match(html, /aria-selected="true"[^>]*>输出<\/button>/);
     assert.match(
       html,
       /data-tool-output="true">Test log\nFailure detail\n<\/pre>/,
@@ -125,7 +125,7 @@ test("shows the model-facing Edit output without a second structured result", ()
       }}
     />,
   );
-  assert.match(html, /aria-selected="true"[^>]*>Output<\/button>/);
+  assert.match(html, /aria-selected="true"[^>]*>输出<\/button>/);
   assert.match(html, /data-tool-output="true">File updated<\/pre>/);
   assert.doesNotMatch(html, /diff-line-|模型收到的输出/);
 });
@@ -179,7 +179,7 @@ test("shows an explicit empty result for a tool without input or output", () => 
   );
   assert.match(html, /工具未返回文本输出/);
   assert.match(html, /aria-label="复制输出"[^>]*disabled=""/);
-  assert.match(html, /aria-selected="true"[^>]*>Output<\/button>/);
+  assert.match(html, /aria-selected="true"[^>]*>输出<\/button>/);
 });
 
 test("renders current Codex file changes from the mapped timeline", () => {
@@ -216,7 +216,7 @@ test("renders current Codex file changes from the mapped timeline", () => {
     <ToolInspector onClose={() => undefined} row={row} />,
   );
 
-  assert.match(html, />Changes</);
+  assert.match(html, />文件变更</);
   assert.match(html, /\/work\/file\.ts/);
   assert.match(html, /diff-line-removed/);
   assert.match(html, /diff-line-added/);
