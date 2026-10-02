@@ -6,6 +6,7 @@ import type {
 import type { ProviderSessionMetadata } from "../driver.js";
 import { isAssistantItem, mapAssistantItem } from "./activity-mapper.js";
 import { CodexToolLifecycle } from "./tool-lifecycle.js";
+import { codexToolFacts } from "./tool-facts.js";
 import { mapFileChange } from "./file-change.js";
 import type {
   CodexThread,
@@ -151,6 +152,7 @@ export function mapItemEvents(
         tool: "Context injection",
         input: { fragments: item.fragments },
         details: item,
+        facts: codexToolFacts(item),
       },
       {
         type: "tool.completed",
@@ -158,6 +160,7 @@ export function mapItemEvents(
         status: "completed",
         output: text,
         details: item,
+        facts: codexToolFacts(item),
       },
     ];
   }
@@ -170,6 +173,7 @@ export function mapItemEvents(
         tool: "command",
         input: { command: item.command, cwd: item.cwd },
         details: item,
+        facts: codexToolFacts(item),
       },
     ];
     if (item.aggregatedOutput !== null) {
@@ -190,6 +194,7 @@ export function mapItemEvents(
             : "failed",
         output: item.aggregatedOutput ?? undefined,
         details: item,
+        facts: codexToolFacts(item),
       });
     }
     return events;
@@ -203,6 +208,7 @@ export function mapItemEvents(
         tool: "fileChange",
         input: item.changes.map(mapFileChange),
         details: item,
+        facts: codexToolFacts(item),
       },
     ];
     if (item.status !== "inProgress") {
@@ -211,6 +217,7 @@ export function mapItemEvents(
         id: item.id,
         status: item.status === "completed" ? "completed" : "failed",
         details: item,
+        facts: codexToolFacts(item),
       });
     }
     return events;
@@ -226,6 +233,7 @@ export function mapItemEvents(
         tool: `${item.server}/${item.tool}`,
         input: item.arguments,
         details: item,
+        facts: codexToolFacts(item),
       },
     ];
     if (item.status !== "inProgress") {
@@ -238,6 +246,7 @@ export function mapItemEvents(
             : "failed",
         output,
         details: item,
+        facts: codexToolFacts(item),
       });
     }
     return events;
@@ -251,6 +260,7 @@ export function mapItemEvents(
         tool: item.namespace ? `${item.namespace}/${item.tool}` : item.tool,
         input: item.arguments,
         details: item,
+        facts: codexToolFacts(item),
       },
     ];
     if (item.status !== "inProgress") {
@@ -263,6 +273,7 @@ export function mapItemEvents(
             : "failed",
         output: stringify(item.contentItems),
         details: item,
+        facts: codexToolFacts(item),
       });
     }
     return events;
@@ -276,6 +287,7 @@ export function mapItemEvents(
         tool: "webSearch",
         input: { query: item.query, action: item.action },
         details: item,
+        facts: codexToolFacts(item),
       },
     ];
     // Native history sets action on WebSearchEnd; results may still be null.
@@ -290,6 +302,7 @@ export function mapItemEvents(
         status: "completed",
         output: stringify(item.results),
         details: item,
+        facts: codexToolFacts(item),
       });
     }
     return events;

@@ -309,6 +309,7 @@ test("restores the selected message's current native toolUseResult by UUID", asy
       type: "tool.completed",
       id: "current-result",
       status: "completed",
+      facts: {},
       output: "Text shown to the model",
       details: {
         type: "claudeToolResult",
@@ -320,6 +321,7 @@ test("restores the selected message's current native toolUseResult by UUID", asy
       type: "tool.completed",
       id: "missing-result",
       status: "completed",
+      facts: {},
       output: "Text shown to the model",
       details: { type: "claudeToolResult", content: "Text shown to the model" },
     },

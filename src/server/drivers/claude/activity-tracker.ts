@@ -424,6 +424,7 @@ export class ClaudeActivityTracker {
         id: `claude-task:${taskId}`,
         tool: "backgroundTask",
         input: { taskId, description: task.description },
+        facts: { summary: task.description || taskId },
       });
       for (const update of updates)
         events.push(...this.#updateTask(task, update));
@@ -597,6 +598,7 @@ export class ClaudeActivityTracker {
           id: `claude-task:${taskId}`,
           tool: "backgroundTask",
           input: undefined,
+          facts: { summary: taskId },
         });
       events.push(
         ...this.#route(
@@ -706,6 +708,7 @@ export class ClaudeActivityTracker {
               type: "tool.started",
               id: `claude-task:${task.id}`,
               tool: "backgroundTask",
+              facts: { summary: task.description || task.id },
               input: {
                 taskId: task.id,
                 description: task.description,

@@ -96,6 +96,7 @@ export class FixtureDriver implements AgentDriver {
           id: "fixture-tool",
           tool: "read_file",
           input: { path: "README.md" },
+          facts: { summary: "README.md" },
         },
         {
           type: "tool.completed",

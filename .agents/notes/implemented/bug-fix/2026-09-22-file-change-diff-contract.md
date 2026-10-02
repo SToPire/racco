@@ -8,7 +8,7 @@ Codex 新增和删除文件提供文件原文，修改文件才提供 unified di
 
 ## Decision
 
-共享文件变更的展示契约只承载 unified diff。Codex 原文在驱动边界按新增或删除类型转换，原生完整项仍保留在详情中；Claude 继续从原生结构化片段生成差异。空文件、空行和末尾换行状态保持实际含义，不让原文中的符号改变变更方向。
+共享文件变更的展示契约只承载 unified diff。Codex 原文在驱动边界按新增或删除类型转换，原生完整项仍保留在详情中；Claude 在 Driver 边界从原生结构化片段生成差异；两者通过 [ToolFacts](../architecture/2026-10-02-tool-facts-boundary.md)供普通展示消费。空文件、空行和末尾换行状态保持实际含义，不让原文中的符号改变变更方向。
 
 摘要统计和差异着色共用按 hunk 范围识别行的规则，文件头只在片段外解释，片段内的递增、递减及类似文件头的代码仍是变更内容。本记录补充[工具活动摘要](../feature/2026-09-22-tool-activity-summaries.md)与[Claude 结构化结果](2026-09-22-claude-structured-tool-results.md)的同一事实来源要求；两项原有决定继续有效，没有完整替代记录。
 
@@ -20,4 +20,4 @@ Codex 新增和删除文件提供文件原文，修改文件才提供 unified di
 
 ## Consequences
 
-两家 Provider 的活动摘要与 Codex Changes 详情使用同一差异语义，原生数据可通过 Raw 核对；Claude Output 遵循[单一输出展示](../simplification/2026-09-22-single-tool-output.md)，不再额外展示原生差异。所有当前生产端和测试夹具采用统一展示契约，不保留同时猜测原文与 patch 的兼容分支。
+两家 Provider 的活动摘要与 Changes 详情使用同一差异语义，原生数据可通过 Raw 核对；Claude Output 遵循[单一输出展示](../simplification/2026-09-22-single-tool-output.md)，不再额外展示原生差异。所有当前生产端和测试夹具采用统一展示契约，不保留同时猜测原文与 patch 的兼容分支。

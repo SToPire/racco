@@ -4,6 +4,7 @@ import type {
   TimelineEvent,
   ToolCompletionStatus,
   ToolProgress,
+  ToolFacts,
 } from "../shared/protocol";
 import { isAssistantActivityVisible } from "./assistant-activity";
 
@@ -13,6 +14,7 @@ export type ToolTimelineRow = {
   tool: string;
   input?: unknown;
   details?: unknown;
+  facts?: ToolFacts;
   output: string;
   status: "running" | ToolCompletionStatus;
   progress?: ToolProgress;
@@ -135,6 +137,17 @@ function applyAgentTimelineEvent(
       event.type === "tool.started" ? event.tool : (previous?.tool ?? "tool"),
     input: event.type === "tool.started" ? event.input : previous?.input,
     ...(details === undefined ? {} : { details }),
+    ...((event.type === "tool.started" || event.type === "tool.completed") &&
+    event.facts !== undefined
+      ? {
+          facts:
+            event.type === "tool.started"
+              ? event.facts
+              : { ...previous?.facts, ...event.facts },
+        }
+      : previous?.facts === undefined
+        ? {}
+        : { facts: previous.facts }),
     ...(event.type === "tool.progress"
       ? {
           progress: {

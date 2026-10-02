@@ -50,6 +50,7 @@ for (const viewport of [
         id,
         tool: "command",
         input: { command: `run-${id}` },
+        facts: { command: `run-${id}`, cwd: session.cwd },
         details: {
           type: "commandExecution",
           id,

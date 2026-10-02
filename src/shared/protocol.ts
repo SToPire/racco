@@ -127,6 +127,17 @@ export type ToolProgress = {
   description?: string;
 };
 
+/** Small, provider-normalized facts for ordinary UI; details retain native data. */
+export type ToolFacts = {
+  summary?: string;
+  command?: string;
+  cwd?: string;
+  exitCode?: number;
+  durationMs?: number;
+  fileChanges?: FileChange[];
+  backgroundTaskId?: string;
+};
+
 export type AgentTimelineEvent =
   | { type: "user.message"; id: string; text: string; imageCount: number }
   | AssistantContentEvent
@@ -137,6 +148,7 @@ export type AgentTimelineEvent =
       id: string;
       tool: string;
       input: unknown;
+      facts?: ToolFacts;
       details?: unknown;
     }
   | { type: "tool.output"; id: string; output: string }
@@ -146,6 +158,7 @@ export type AgentTimelineEvent =
       id: string;
       status: ToolCompletionStatus;
       output?: string;
+      facts?: ToolFacts;
       details?: unknown;
     }
   | {

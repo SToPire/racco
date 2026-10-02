@@ -80,6 +80,7 @@ test("maps Claude history into the shared materialized timeline", () => {
       id: "tool-1",
       tool: "Read",
       input: { file_path: "package.json" },
+      facts: { summary: "package.json" },
       output: '{"name":"racco"}',
       status: "completed",
       details: { type: "claudeToolResult", content: '{"name":"racco"}' },
@@ -186,6 +187,7 @@ for (const content of ["Model-facing summary", undefined]) {
       id: "bash-1",
       status: "interrupted",
       output: content ?? "",
+      facts: { backgroundTaskId: "task-1" },
       details: {
         type: "claudeToolResult",
         result,
@@ -220,6 +222,7 @@ test("preserves attachment blocks without putting base64 data into display text"
     id: "image-1",
     status: "completed",
     output: "Screenshot",
+    facts: {},
     details: { type: "claudeToolResult", content },
   });
 });
@@ -687,6 +690,7 @@ test("keeps successive text blocks, tools, subagent output and API messages sepa
     id: "tool-1",
     tool: "Read",
     input: { path: "README.md" },
+    facts: {},
     output: "",
     status: "running",
   });

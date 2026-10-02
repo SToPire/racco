@@ -7,6 +7,7 @@ import type {
   AssistantMessageEvent,
   TimelineEvent,
 } from "../../../shared/protocol.js";
+import { claudeToolInputFacts, claudeToolResultFacts } from "./tool-facts.js";
 import { ClaudeActivityTracker } from "./activity-tracker.js";
 import { historicalTaskNotifications } from "./task-notification.js";
 
@@ -87,6 +88,10 @@ function mapAssistant(message: unknown, uuid: string): AgentTimelineEvent[] {
           id: requiredIdentifier(block, "id"),
           tool: requiredIdentifier(block, "name"),
           input: block.input,
+          facts: claudeToolInputFacts(
+            requiredIdentifier(block, "name"),
+            block.input,
+          ),
         },
       ];
     }
@@ -119,6 +124,7 @@ function mapToolResults(
               ? "failed"
               : "completed",
         output: stringify(block.content ?? ""),
+        facts: claudeToolResultFacts(structuredResult),
         details: {
           type: "claudeToolResult",
           ...(structuredResult === undefined

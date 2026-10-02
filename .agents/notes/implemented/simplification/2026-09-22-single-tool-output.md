@@ -10,7 +10,7 @@ Status: implemented
 
 Output 只呈现并复制模型收到的工具结果文本，不再额外展示 Claude 原生输出分栏、结构化差异或附件元数据。缺少模型文本时保持空输出，不以原生结果补造。这部分替代[Claude 结构化结果](../bug-fix/2026-09-22-claude-structured-tool-results.md)的详情展示决定；结构化数据继续用于工具状态、卡片统计和 Raw 检查，原生事实保留的决定仍有效。
 
-本决策保持[结果优先](../feature/2026-09-22-tool-inspector-results.md)和[普通滚动阅读](2026-09-22-tool-log-scrolling.md)。Codex 文件变更独立的 Changes 入口仍使用原生差异，不属于双份输出展示。
+本决策保持[结果优先](../feature/2026-09-22-tool-inspector-results.md)和[普通滚动阅读](2026-09-22-tool-log-scrolling.md)。[ToolFacts](../architecture/2026-10-02-tool-facts-boundary.md)供给的独立 Changes 入口使用已归一的原生差异，不属于双份输出展示。
 
 ## Alternatives considered
 

@@ -15,6 +15,12 @@ test("places the command before collapsed execution metadata when there is no ou
         id: "command-1",
         tool: "command",
         input: { command: "pwd", cwd: "/work/project" },
+        facts: {
+          command: "pwd",
+          cwd: "/work/project",
+          exitCode: 0,
+          durationMs: 7,
+        },
         details: {
           type: "commandExecution",
           id: "command-1",
@@ -41,9 +47,9 @@ test("places the command before collapsed execution metadata when there is no ou
   assert.match(html, />Output</);
   assert.match(html, />Raw</);
   assert.match(html, />Execution</);
-  assert.match(html, />Actions</);
+  assert.doesNotMatch(html, />Actions</);
   assert.match(html, />7 ms</);
-  assert.match(html, />agent</);
+  assert.doesNotMatch(html, />agent</);
   assert.match(html, />pwd</);
   assert.match(html, /\/work\/project/);
   assert(html.indexOf(">Command<") < html.indexOf(">Execution<"));
@@ -70,6 +76,7 @@ for (const status of [
       id: "tool-1",
       tool: "Bash",
       input: { command: "pnpm test" },
+      facts: { command: "pnpm test" },
       details: { source: "provider" },
       output: "Test log\nFailure detail\n",
       status,
@@ -132,6 +139,7 @@ test("shows only the model-facing Bash output, including interrupted calls", () 
         id: "bash-1",
         tool: "Bash",
         input: { command: "pnpm test" },
+        facts: { command: "pnpm test" },
         status: "interrupted",
         output: "Tool stopped",
         details: {

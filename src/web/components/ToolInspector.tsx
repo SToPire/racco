@@ -1,7 +1,6 @@
 import { ResponsivePanel } from "./ResponsivePanel";
 import { UiIcon } from "./UiIcon";
 import { useId, useState, type ReactNode } from "react";
-import type { FileChange } from "../../shared/protocol";
 import type { ToolTimelineRow } from "../store";
 import { FileChanges } from "./FileChanges";
 import { toolStatusLabel } from "../tool-presentation";
@@ -12,12 +11,6 @@ type ToolInspectorProps = {
 };
 
 type InspectorTab = "input" | "output" | "raw";
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
 
 function stringify(value: unknown): string {
   if (typeof value === "string") return value;
@@ -74,91 +67,41 @@ function PropertyList({
 }
 
 function CommandDetails({ row }: { row: ToolTimelineRow }) {
-  const details = asRecord(row.details);
-  if (details === undefined)
-    throw new Error("Missing command execution details");
-  const { command, cwd } = details;
-  const actions = details.commandActions as unknown[];
-  const duration =
-    typeof details.durationMs === "number"
-      ? `${details.durationMs} ms`
-      : details.durationMs;
-  const outputSummary =
-    row.output.length === 0
-      ? "empty"
-      : `${row.output.split("\n").length} lines · ${row.output.length} chars`;
-  const hasPlugin =
-    (details.pluginId !== null && details.pluginId !== undefined) ||
-    (details.scriptPath !== null && details.scriptPath !== undefined);
-
+  const facts = row.facts;
   return (
     <div className="inspector-groups">
-      <InspectorGroup
-        title="Command"
-        summary={typeof cwd === "string" ? cwd : undefined}
-        open
-      >
-        <pre>{stringify(command)}</pre>
-        <div className="inspector-subfield">
-          <span>Working directory</span>
-          <code className="inspector-path">{displayValue(cwd)}</code>
-        </div>
-      </InspectorGroup>
-
-      <InspectorGroup title="Execution" summary={displayValue(details.status)}>
-        <PropertyList
-          entries={[
-            ["Item ID", details.id],
-            ["Item type", details.type],
-            ["Status", details.status],
-            ["Exit code", details.exitCode],
-            ["Duration", duration],
-            ["Source", details.source],
-            ["Process ID", details.processId],
-            ["Output", outputSummary],
-          ]}
-        />
-      </InspectorGroup>
-
-      <InspectorGroup title="Actions" summary={`${actions.length}`}>
-        {actions.length === 0 ? (
-          <p className="inspector-empty">没有解析出的 command action</p>
-        ) : (
-          <div className="command-actions">
-            {actions.map((action, index) => {
-              const value = asRecord(action);
-              return (
-                <article key={index}>
-                  <header>
-                    <strong>{displayValue(value?.type)}</strong>
-                    <span>#{index + 1}</span>
-                  </header>
-                  <pre>{stringify(action)}</pre>
-                </article>
-              );
-            })}
+      <InspectorGroup title="Command" summary={facts?.cwd} open>
+        <pre>{facts?.command}</pre>
+        {facts?.cwd !== undefined && (
+          <div className="inspector-subfield">
+            <span>Working directory</span>
+            <code className="inspector-path">{facts.cwd}</code>
           </div>
         )}
       </InspectorGroup>
-
-      {hasPlugin && (
-        <InspectorGroup title="Plugin">
-          <PropertyList
-            entries={[
-              ["Plugin ID", details.pluginId],
-              ["Script path", details.scriptPath],
-            ]}
-          />
-        </InspectorGroup>
-      )}
+      <InspectorGroup title="Execution" summary={toolStatusLabel(row.status)}>
+        <PropertyList
+          entries={[
+            ["Status", toolStatusLabel(row.status)],
+            ["Exit code", facts?.exitCode],
+            [
+              "Duration",
+              facts?.durationMs === undefined
+                ? undefined
+                : `${facts.durationMs} ms`,
+            ],
+            ["Background task", facts?.backgroundTaskId],
+          ]}
+        />
+      </InspectorGroup>
     </div>
   );
 }
 
 function InputPanel({ row }: { row: ToolTimelineRow }) {
-  if (row.tool === "command") return <CommandDetails row={row} />;
-  if (row.tool === "fileChange")
-    return <FileChanges changes={row.input as FileChange[]} />;
+  if (row.facts?.command !== undefined) return <CommandDetails row={row} />;
+  if (row.facts?.fileChanges !== undefined)
+    return <FileChanges changes={row.facts.fileChanges} />;
   return <pre>{stringify(row.input)}</pre>;
 }
 
@@ -167,12 +110,7 @@ function OutputPanel({ row }: { row: ToolTimelineRow }) {
     output: string;
     message: string;
   }>();
-  const command =
-    row.tool === "command"
-      ? asRecord(row.details)?.command
-      : row.tool === "Bash"
-        ? asRecord(row.input)?.command
-        : undefined;
+  const command = row.facts?.command;
   const copyText = row.output;
 
   async function copyOutput() {
@@ -223,11 +161,16 @@ function OutputPanel({ row }: { row: ToolTimelineRow }) {
 
 export function ToolInspector({ row, onClose }: ToolInspectorProps) {
   const id = useId();
-  const hasInput = row.input !== undefined;
+  const hasInput =
+    row.input !== undefined ||
+    row.facts?.command !== undefined ||
+    row.facts?.fileChanges !== undefined;
   const hasRaw = row.details !== undefined;
   const hasReadableOutput = row.output.length > 0;
   const hasOutput =
-    hasReadableOutput || row.tool === "command" || (!hasInput && !hasRaw);
+    hasReadableOutput ||
+    row.facts?.command !== undefined ||
+    (!hasInput && !hasRaw);
   const defaultTab: InspectorTab = hasReadableOutput
     ? "output"
     : hasInput
@@ -245,9 +188,9 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         : selectedTab;
   if (activeTab === "raw" && !hasRaw) activeTab = hasInput ? "input" : "output";
   const inputLabel =
-    row.tool === "command"
+    row.facts?.command !== undefined
       ? "Details"
-      : row.tool === "fileChange"
+      : row.facts?.fileChanges !== undefined
         ? "Changes"
         : "Input";
 

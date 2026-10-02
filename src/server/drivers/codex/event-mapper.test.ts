@@ -83,6 +83,13 @@ test("maps Codex history into materialized timeline rows", () => {
     id: "command-1",
     tool: "command",
     input: { command: "pwd", cwd: "/work/project" },
+    facts: {
+      summary: "pwd",
+      command: "pwd",
+      cwd: "/work/project",
+      exitCode: 0,
+      durationMs: 7,
+    },
     details: {
       type: "commandExecution",
       id: "command-1",
