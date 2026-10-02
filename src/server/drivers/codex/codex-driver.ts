@@ -1,3 +1,8 @@
+import {
+  CodexSubagentSnapshots,
+  subagentTurnState,
+  type SubagentLink,
+} from "./subagent-snapshots.js";
 import { inputImageCount, type UserInput } from "../../../shared/user-input.js";
 import type {
   TemporaryImages,
@@ -8,7 +13,6 @@ import { z } from "zod";
 import { ContextUsageSchema } from "../../../shared/protocol.js";
 import type {
   AgentTimelineEvent,
-  ToolCompletionStatus,
   InteractionResponse,
   SubagentState,
   TimelineEvent,
@@ -50,8 +54,6 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   CodexThread,
-  CodexThreadItem,
-  CodexTurn,
   ThreadReadResponse,
   ThreadListResponse,
   ThreadStartResponse,
@@ -74,26 +76,6 @@ type TurnWaiter = {
 
 const CANCEL_CONFIRMATION_TIMEOUT_MS = 3000;
 
-type SubagentLink = {
-  agentId: string;
-  rootThreadId: string;
-  name?: string;
-  state?: SubagentState;
-  snapshotGeneration: number;
-  appliedSnapshotGeneration: number;
-  currentTurn?: { id: string; terminal: boolean; completedItems: Set<string> };
-};
-
-type SnapshotRead = {
-  generation: number;
-  changedItems: Set<string>;
-  endedTurns: Set<string>;
-  unalignedItems: Set<string>;
-  endedThread: boolean;
-  stateChanged: boolean;
-  invalid: boolean;
-};
-
 const SessionListSchema = z.object({
   data: z.array(
     z.object({
@@ -108,13 +90,6 @@ const SessionListSchema = z.object({
   ),
   nextCursor: z.string().min(1).nullable(),
 });
-
-function subagentTurnState(turn: CodexTurn): SubagentState {
-  if (turn.status === "inProgress") return "running";
-  if (turn.status === "interrupted") return "interrupted";
-  if (turn.status === "failed") return "error";
-  return "completed";
-}
 
 function subagentThreadState(status: CodexThread["status"]): SubagentState {
   if (status.type === "active") return "running";
@@ -164,9 +139,12 @@ export class CodexDriver implements AgentDriver {
     string,
     { output: string; live: boolean; generation: number }
   >();
-  readonly #subagents = new Map<string, SubagentLink>();
-  readonly #snapshotReads = new Map<string, Set<SnapshotRead>>();
-  readonly #unalignedItems = new Map<string, Map<string, string>>();
+  readonly #snapshots = new CodexSubagentSnapshots(
+    this.#observedRoots,
+    this.#activityMapper,
+    this.#toolLifecycle,
+    this.#toolOutput,
+  );
   #ready = false;
   #sessionUpdate?: (
     providerSessionId: string,
@@ -280,10 +258,10 @@ export class CodexDriver implements AgentDriver {
 
   async close(): Promise<void> {
     this.#ready = false;
-    this.#clearSnapshotReads();
+    this.#snapshots.clearReads();
     const error = new Error("Codex provider closed");
     for (const [threadId, context] of this.#contexts) {
-      emitAgentEvents(context, this.#finishTools(threadId, "failed"));
+      emitAgentEvents(context, this.#snapshots.finishTools(threadId, "failed"));
     }
     this.#finishSubagents(error);
     this.#sessionUpdate = undefined;
@@ -294,7 +272,7 @@ export class CodexDriver implements AgentDriver {
     this.#loadedThreads.clear();
     this.#observedRoots.clear();
     this.#contexts.clear();
-    this.#subagents.clear();
+    this.#snapshots.clear();
     this.#activityMapper.clear();
     this.#toolLifecycle.clear();
     this.#toolOutput.clear();
@@ -329,22 +307,22 @@ export class CodexDriver implements AgentDriver {
     this.#observedRoots.add(thread.id);
     // Recognize recorded launches before any asynchronous discovery so live
     // child deltas remain subject to the snapshot alignment checks.
-    this.#registerThreadSpawns(thread, thread.id);
+    this.#snapshots.registerThreadSpawns(thread, thread.id);
     const { threads: subagentThreads, notices } =
       await this.#readSubagentThreads(thread.id);
-    const subagents = this.#subagentResolver(thread.id);
+    const subagents = this.#snapshots.resolver(thread.id);
     const events: TimelineEvent[] = [
       ...mapThreadEvents(thread, subagents),
       ...notices,
     ];
     for (const subagentThread of subagentThreads) {
       const parentThreadId = subagentThread.parentThreadId!;
-      const link = this.#rememberSubagent(subagentThread.id, thread.id);
+      const link = this.#snapshots.remember(subagentThread.id, thread.id);
       link.name = subagentThread.agentNickname ?? link.name;
       const parentAgentId =
         parentThreadId === thread.id
           ? undefined
-          : this.#rememberSubagent(parentThreadId, thread.id).agentId;
+          : this.#snapshots.remember(parentThreadId, thread.id).agentId;
       const childEvents = mapSubagentThread(
         subagentThread,
         link.agentId,
@@ -575,7 +553,7 @@ export class CodexDriver implements AgentDriver {
       );
       emitAgentEvents(
         input.context,
-        this.#finishTools(
+        this.#snapshots.finishTools(
           sessionId,
           input.signal.aborted ? "interrupted" : "failed",
         ),
@@ -674,7 +652,7 @@ export class CodexDriver implements AgentDriver {
         summaries.push(...response.data);
         // Discovery precedes the per-child reads, which can each yield to live events.
         for (const summary of response.data)
-          this.#rememberSubagent(summary.id, rootThreadId);
+          this.#snapshots.remember(summary.id, rootThreadId);
         if (response.nextCursor === null) break;
         if (seenCursors.has(response.nextCursor)) {
           throw new Error("Codex returned a repeated subagent cursor");
@@ -694,23 +672,8 @@ export class CodexDriver implements AgentDriver {
     const threads: Array<CodexThread | undefined> = new Array(summaries.length);
     let next = 0;
     const readChild = async (summary: CodexThread, index: number) => {
-      const link = this.#rememberSubagent(summary.id, rootThreadId);
       for (let attempt = 0; attempt < 2; attempt++) {
-        const read: SnapshotRead = {
-          generation: ++link.snapshotGeneration,
-          changedItems: new Set(),
-          endedTurns: new Set(),
-          unalignedItems: new Set(),
-          endedThread: false,
-          stateChanged: false,
-          invalid: false,
-        };
-        let reads = this.#snapshotReads.get(summary.id);
-        if (reads === undefined) {
-          reads = new Set();
-          this.#snapshotReads.set(summary.id, reads);
-        }
-        reads.add(read);
+        const read = this.#snapshots.beginRead(summary.id, rootThreadId);
         try {
           const response = await this.#client.request<ThreadReadResponse>(
             "thread/read",
@@ -732,7 +695,7 @@ export class CodexDriver implements AgentDriver {
               "Codex 流式快照无法对齐，请重试；等待完整内容前不会应用缺少前缀的增量",
             );
           }
-          this.#seedThreadContent(
+          this.#snapshots.seed(
             response.thread,
             rootThreadId,
             read.generation,
@@ -741,9 +704,7 @@ export class CodexDriver implements AgentDriver {
           threads[index] = response.thread;
           break;
         } finally {
-          reads.delete(read);
-          if (reads.size === 0 && this.#snapshotReads.get(summary.id) === reads)
-            this.#snapshotReads.delete(summary.id);
+          this.#snapshots.endRead(summary.id, read);
         }
       }
     };
@@ -773,57 +734,6 @@ export class CodexDriver implements AgentDriver {
       ),
       notices,
     };
-  }
-
-  #subagentResolver(rootThreadId: string) {
-    return (threadId: string): string | undefined => {
-      const link = this.#subagents.get(threadId);
-      return link?.rootThreadId === rootThreadId ? link.agentId : undefined;
-    };
-  }
-
-  #registerThreadSpawns(thread: CodexThread, rootThreadId: string): void {
-    for (const turn of thread.turns)
-      for (const item of turn.items) this.#registerSpawn(item, rootThreadId);
-  }
-
-  #registerSpawn(item: CodexThreadItem, rootThreadId: string): void {
-    if (item.type === "subAgentActivity" && item.kind === "started") {
-      this.#rememberSubagent(item.agentThreadId, rootThreadId);
-    } else if (
-      item.type === "collabAgentToolCall" &&
-      item.tool === "spawnAgent"
-    ) {
-      for (const threadId of item.receiverThreadIds)
-        this.#rememberSubagent(threadId, rootThreadId);
-    }
-  }
-
-  #rememberSubagent(
-    providerThreadId: string,
-    rootThreadId: string,
-  ): SubagentLink {
-    if (
-      providerThreadId === rootThreadId ||
-      this.#observedRoots.has(providerThreadId)
-    ) {
-      throw new Error("Codex root thread cannot be registered as a subagent");
-    }
-    const existing = this.#subagents.get(providerThreadId);
-    if (existing !== undefined) {
-      if (existing.rootThreadId !== rootThreadId) {
-        throw new Error("Codex subagent belongs to multiple root threads");
-      }
-      return existing;
-    }
-    const link: SubagentLink = {
-      agentId: randomUUID(),
-      rootThreadId,
-      snapshotGeneration: 0,
-      appliedSnapshotGeneration: 0,
-    };
-    this.#subagents.set(providerThreadId, link);
-    return link;
   }
 
   async #ensureLoaded(
@@ -883,7 +793,7 @@ export class CodexDriver implements AgentDriver {
         }
       }
     }
-    if (this.#observeSnapshotNotification(threadId, notification)) return;
+    if (this.#snapshots.observe(threadId, notification)) return;
     if (this.#compactions.has(threadId)) {
       if (notification.method === "turn/started") {
         const { turn } = notification.params as TurnNotification;
@@ -917,17 +827,15 @@ export class CodexDriver implements AgentDriver {
       const deleted = notification.params as { threadId: string };
       this.#loadedThreads.delete(deleted.threadId);
       this.#observedRoots.delete(deleted.threadId);
-      this.#unalignedItems.delete(deleted.threadId);
-      for (const [threadId, link] of this.#subagents) {
+      this.#snapshots.invalidate(deleted.threadId);
+      for (const [threadId, link] of this.#snapshots.entries()) {
         if (
           threadId === deleted.threadId ||
           link.rootThreadId === deleted.threadId
         ) {
-          for (const read of this.#snapshotReads.get(threadId) ?? [])
-            read.invalid = true;
-          this.#unalignedItems.delete(threadId);
+          this.#snapshots.invalidate(threadId);
           const events = [
-            ...this.#finishTools(threadId, "interrupted"),
+            ...this.#snapshots.finishTools(threadId, "interrupted"),
             ...this.#activityMapper.finish(threadId, "interrupted"),
           ];
           if (link.rootThreadId !== deleted.threadId) {
@@ -951,7 +859,7 @@ export class CodexDriver implements AgentDriver {
               });
             }
           }
-          this.#subagents.delete(threadId);
+          this.#snapshots.delete(threadId);
         }
       }
       return;
@@ -974,7 +882,7 @@ export class CodexDriver implements AgentDriver {
     }
 
     const subagent =
-      threadId === undefined ? undefined : this.#subagents.get(threadId);
+      threadId === undefined ? undefined : this.#snapshots.get(threadId);
     const rootThreadId = subagent?.rootThreadId ?? threadId;
     const context =
       rootThreadId === undefined ? undefined : this.#contexts.get(rootThreadId);
@@ -1003,7 +911,7 @@ export class CodexDriver implements AgentDriver {
     const emitter = {
       emit: (event: TimelineEvent) => this.#emitRootEvent(rootThreadId, event),
     };
-    const subagents = this.#subagentResolver(rootThreadId);
+    const subagents = this.#snapshots.resolver(rootThreadId);
 
     // Only the turn ID returned by turn/start belongs to the pending message.
     // An earlier compact action can emit its terminal event while this RPC waits.
@@ -1061,14 +969,14 @@ export class CodexDriver implements AgentDriver {
         notification.method === "item/started"
       )
         return;
-      this.#registerSpawn(item, rootThreadId);
+      this.#snapshots.registerSpawn(item, rootThreadId);
       const events = mapItemEvents(
         item,
         subagents,
         notification.method === "item/started" ? "started" : "completed",
       );
       if (item.type === "subAgentActivity") {
-        const link = this.#subagents.get(item.agentThreadId);
+        const link = this.#snapshots.get(item.agentThreadId);
         if (link?.rootThreadId === rootThreadId)
           link.name = item.agentPath.split("/").filter(Boolean).at(-1);
       }
@@ -1122,7 +1030,7 @@ export class CodexDriver implements AgentDriver {
       const completed = notification.params as TurnNotification;
       emitAgentEvents(
         emitter,
-        this.#finishTools(
+        this.#snapshots.finishTools(
           threadId,
           completed.turn.status === "interrupted"
             ? "interrupted"
@@ -1147,6 +1055,10 @@ export class CodexDriver implements AgentDriver {
         subagent,
       );
       if (subagent !== undefined) {
+        // A terminal for an earlier turn still closes that turn's tracked
+        // items above, but must not finish the currently running child turn.
+        if (!this.#snapshots.acceptsTurnState(threadId, completed.turn.id))
+          return;
         emitter.emit({
           type: "subagent.state",
           id: `${subagent.agentId}:turn-completed:${completed.turn.id}`,
@@ -1188,7 +1100,7 @@ export class CodexDriver implements AgentDriver {
       if (!error.willRetry) {
         emitAgentEvents(
           emitter,
-          this.#finishTools(threadId, "failed", error.turnId),
+          this.#snapshots.finishTools(threadId, "failed", error.turnId),
           subagent,
         );
         emitAgentEvents(
@@ -1210,6 +1122,7 @@ export class CodexDriver implements AgentDriver {
           this.#turnWaiters.get(threadId)?.reject(new Error(message));
         }
       } else {
+        if (!this.#snapshots.acceptsTurnState(threadId, error.turnId)) return;
         emitter.emit({
           type: "subagent.state",
           id: `${subagent.agentId}:error:${randomUUID()}`,
@@ -1225,7 +1138,7 @@ export class CodexDriver implements AgentDriver {
     const thread = notification.thread;
     const parentThreadId = thread.parentThreadId;
     if (parentThreadId == null) return;
-    const parent = this.#subagents.get(parentThreadId);
+    const parent = this.#snapshots.get(parentThreadId);
     const rootThreadId = parent?.rootThreadId ?? parentThreadId;
     if (
       !this.#observedRoots.has(rootThreadId) &&
@@ -1233,11 +1146,11 @@ export class CodexDriver implements AgentDriver {
     )
       return;
 
-    const link = this.#rememberSubagent(thread.id, rootThreadId);
+    const link = this.#snapshots.remember(thread.id, rootThreadId);
     link.name = thread.agentNickname ?? undefined;
     const parentAgentId =
       parentThreadId === rootThreadId ? undefined : parent?.agentId;
-    const subagents = this.#subagentResolver(rootThreadId);
+    const subagents = this.#snapshots.resolver(rootThreadId);
     const protectedIds = new Set(
       thread.turns.flatMap((turn) =>
         turn.status !== "inProgress"
@@ -1255,10 +1168,7 @@ export class CodexDriver implements AgentDriver {
               .map((item) => `${link.agentId}:${item.id}`),
       ),
     );
-    if (
-      !this.#seedThreadContent(thread, rootThreadId, ++link.snapshotGeneration)
-    )
-      return;
+    if (!this.#snapshots.seedStarted(thread, rootThreadId)) return;
     for (const event of mapSubagentThread(
       thread,
       link.agentId,
@@ -1308,7 +1218,7 @@ export class CodexDriver implements AgentDriver {
     threadId: string,
     request: Parameters<DriverContext["requestInteraction"]>[0],
   ): Promise<InteractionResponse> {
-    const subagent = this.#subagents.get(threadId);
+    const subagent = this.#snapshots.get(threadId);
     const context = this.#contexts.get(subagent?.rootThreadId ?? threadId);
     if (context === undefined)
       return { decision: "deny", message: "No active client" };
@@ -1336,7 +1246,7 @@ export class CodexDriver implements AgentDriver {
 
   #handleExit(error: Error): void {
     this.#ready = false;
-    this.#clearSnapshotReads();
+    this.#snapshots.clearReads();
     for (const threadId of this.#compactions.keys()) {
       this.#sessionUpdate?.(threadId, {
         type: "system.notice",
@@ -1348,14 +1258,14 @@ export class CodexDriver implements AgentDriver {
     }
     for (const [threadId, context] of this.#contexts) {
       emitAgentEvents(context, this.#activityMapper.finish(threadId, "error"));
-      emitAgentEvents(context, this.#finishTools(threadId, "failed"));
+      emitAgentEvents(context, this.#snapshots.finishTools(threadId, "failed"));
       context.setState("error");
     }
     this.#finishSubagents(error);
     this.#activityMapper.clear();
     this.#toolLifecycle.clear();
     this.#toolOutput.clear();
-    this.#subagents.clear();
+    this.#snapshots.clear();
     this.#observedRoots.clear();
     this.#loadedThreads.clear();
     for (const waiter of this.#turnWaiters.values()) waiter.reject(error);
@@ -1366,266 +1276,16 @@ export class CodexDriver implements AgentDriver {
     if (!this.#ready) throw new Error("Codex provider is unavailable");
   }
 
-  #seedThreadContent(
-    thread: CodexThread,
-    rootThreadId: string,
-    generation: number,
-    read?: SnapshotRead,
-  ): boolean {
-    if (read?.endedThread || read?.invalid) return false;
-    const link = this.#subagents.get(thread.id)!;
-    if (generation < link.appliedSnapshotGeneration) return false;
-    const latest = thread.turns.at(-1);
-    const previousTurn = link.currentTurn;
-    if (
-      previousTurn !== undefined &&
-      (!thread.turns.some((turn) => turn.id === previousTurn.id) ||
-        (previousTurn.terminal &&
-          latest?.id === previousTurn.id &&
-          latest.status === "inProgress"))
-    ) {
-      if (read) throw new Error("Codex 子任务快照早于已观测的轮次状态，请重试");
-      return false;
-    }
-    if (
-      previousTurn !== undefined &&
-      thread.turns.some(
-        (turn) =>
-          turn.id === previousTurn.id &&
-          turn.status === "inProgress" &&
-          turn.items.some(
-            (item) =>
-              !read?.changedItems.has(item.id) &&
-              previousTurn.completedItems.has(item.id) &&
-              (("status" in item && item.status === "inProgress") ||
-                (item.type === "webSearch" && item.action === null)),
-          ),
-      )
-    ) {
-      if (read) throw new Error("Codex 子任务快照早于已观测的工具终态，请重试");
-      return false;
-    }
-    if (
-      latest !== undefined &&
-      (previousTurn === undefined || latest.id !== previousTurn.id)
-    ) {
-      link.currentTurn = {
-        id: latest.id,
-        terminal: latest.status !== "inProgress",
-        completedItems: new Set(),
-      };
-    }
-    if (latest !== undefined && !read?.stateChanged) {
-      link.state = subagentTurnState(latest);
-      if (
-        latest.status !== "inProgress" &&
-        link.currentTurn?.id === latest.id
-      ) {
-        link.currentTurn.terminal = true;
-        link.currentTurn.completedItems.clear();
-      }
-    }
-    link.appliedSnapshotGeneration = generation;
-    this.#registerThreadSpawns(thread, rootThreadId);
-    const subagents = this.#subagentResolver(rootThreadId);
-    for (const turn of thread.turns) {
-      if (read?.endedTurns.has(turn.id)) continue;
-      if (turn.status !== "inProgress") {
-        this.#clearUnalignedTurn(thread.id, turn.id);
-        if (!turn.items.some((item) => read?.changedItems.has(item.id))) {
-          this.#activityMapper.finish(thread.id, undefined, turn.id);
-          this.#finishTools(thread.id, "incomplete", turn.id);
-        }
-        continue;
-      }
-      for (const item of turn.items) {
-        if (read?.changedItems.has(item.id)) continue;
-        if (
-          link.currentTurn?.id === turn.id &&
-          link.currentTurn.completedItems.has(item.id)
-        ) {
-          continue;
-        }
-        this.#activityMapper.seed(thread.id, turn.id, item, generation);
-        if (item.type === "commandExecution") {
-          const key = `${thread.id}:${item.id}`;
-          const previous = this.#toolOutput.get(key);
-          if (item.status !== "inProgress") this.#toolOutput.delete(key);
-          else if (
-            !previous?.live &&
-            (previous?.generation ?? -1) <= generation
-          ) {
-            this.#toolOutput.set(key, {
-              output: item.aggregatedOutput ?? "",
-              live: false,
-              generation,
-            });
-          }
-        }
-        this.#toolLifecycle.observe(
-          thread.id,
-          turn.id,
-          mapItemEvents(item, subagents, "snapshot"),
-        );
-        if (
-          (("status" in item && item.status !== "inProgress") ||
-            (item.type === "webSearch" && item.action !== null)) &&
-          link.currentTurn?.id === turn.id
-        )
-          link.currentTurn.completedItems.add(item.id);
-        this.#unalignedItems.get(thread.id)?.delete(item.id);
-      }
-      if (this.#unalignedItems.get(thread.id)?.size === 0)
-        this.#unalignedItems.delete(thread.id);
-    }
-    return true;
-  }
-
-  #observeSnapshotNotification(
-    threadId: string,
-    notification: JsonRpcNotification,
-  ): boolean {
-    const reads = this.#snapshotReads.get(threadId);
-    const link = this.#subagents.get(threadId);
-    if (
-      notification.method === "item/started" ||
-      notification.method === "item/completed"
-    ) {
-      const { item, turnId } = notification.params as ItemNotification;
-      if (link !== undefined && link.currentTurn === undefined)
-        link.currentTurn = {
-          id: turnId,
-          terminal: false,
-          completedItems: new Set(),
-        };
-      if (
-        notification.method === "item/completed" &&
-        link?.currentTurn?.id === turnId
-      )
-        link.currentTurn.completedItems.add(item.id);
-      for (const read of reads ?? []) {
-        read.changedItems.add(item.id);
-        read.unalignedItems.delete(item.id);
-      }
-      const unaligned = this.#unalignedItems.get(threadId);
-      unaligned?.delete(item.id);
-      if (unaligned?.size === 0) this.#unalignedItems.delete(threadId);
-    } else if (
-      [
-        "item/commandExecution/outputDelta",
-        "item/agentMessage/delta",
-        "item/plan/delta",
-        "item/reasoning/summaryTextDelta",
-        "item/reasoning/summaryPartAdded",
-      ].includes(notification.method)
-    ) {
-      const delta = notification.params as DeltaNotification;
-      if (
-        link?.currentTurn?.id === delta.turnId &&
-        (link.currentTurn.terminal ||
-          link.currentTurn.completedItems.has(delta.itemId))
-      )
-        return true;
-      for (const read of reads ?? []) read.changedItems.add(delta.itemId);
-      const aligned =
-        notification.method === "item/commandExecution/outputDelta"
-          ? this.#toolOutput.has(`${threadId}:${delta.itemId}`)
-          : this.#activityMapper.hasContent(threadId, delta.itemId);
-      if (
-        !aligned &&
-        (link !== undefined ||
-          (reads?.size ?? 0) > 0 ||
-          this.#unalignedItems.get(threadId)?.has(delta.itemId))
-      ) {
-        let unaligned = this.#unalignedItems.get(threadId);
-        if (unaligned === undefined) {
-          unaligned = new Map();
-          this.#unalignedItems.set(threadId, unaligned);
-        }
-        unaligned.set(delta.itemId, delta.turnId);
-        for (const read of reads ?? []) read.unalignedItems.add(delta.itemId);
-        return true;
-      }
-    } else if (notification.method === "turn/started") {
-      const { turn } = notification.params as TurnNotification;
-      for (const read of reads ?? []) read.stateChanged = true;
-      if (link !== undefined)
-        link.currentTurn = {
-          id: turn.id,
-          terminal: false,
-          completedItems: new Set(),
-        };
-    } else if (notification.method === "turn/completed") {
-      const { turn } = notification.params as TurnNotification;
-      if (
-        link !== undefined &&
-        (link.currentTurn === undefined || link.currentTurn.id === turn.id)
-      ) {
-        link.currentTurn = {
-          id: turn.id,
-          terminal: true,
-          completedItems: new Set(),
-        };
-      }
-      for (const read of reads ?? []) {
-        read.endedTurns.add(turn.id);
-        read.stateChanged = true;
-      }
-      this.#clearUnalignedTurn(threadId, turn.id);
-    } else if (notification.method === "error") {
-      const error = notification.params as ErrorNotification;
-      if (!error.willRetry) {
-        for (const read of reads ?? []) {
-          read.endedTurns.add(error.turnId);
-          read.stateChanged = true;
-        }
-        this.#clearUnalignedTurn(threadId, error.turnId);
-      }
-    } else if (notification.method === "thread/status/changed") {
-      const { status } = notification.params as ThreadStatusNotification;
-      for (const read of reads ?? []) read.stateChanged = true;
-      if (status.type !== "active") {
-        for (const read of reads ?? []) read.endedThread = true;
-        this.#unalignedItems.delete(threadId);
-      }
-    } else if (notification.method === "thread/deleted") {
-      for (const read of reads ?? []) read.invalid = true;
-      this.#unalignedItems.delete(threadId);
-    }
-    return false;
-  }
-
-  #clearUnalignedTurn(threadId: string, turnId: string): void {
-    const unaligned = this.#unalignedItems.get(threadId);
-    for (const [id, ownerTurnId] of unaligned ?? []) {
-      if (ownerTurnId === turnId) unaligned!.delete(id);
-    }
-    if (unaligned?.size === 0) this.#unalignedItems.delete(threadId);
-  }
-
-  #clearSnapshotReads(): void {
-    for (const reads of this.#snapshotReads.values()) {
-      for (const read of reads) read.invalid = true;
-    }
-    this.#snapshotReads.clear();
-    this.#unalignedItems.clear();
-  }
-
   #emitRootEvent(rootThreadId: string, event: TimelineEvent): void {
     if (event.type === "subagent.state") {
-      for (const [threadId, link] of this.#subagents) {
+      for (const [threadId, link] of this.#snapshots.entries()) {
         if (link.agentId === event.agentId) {
-          link.state = event.state;
+          this.#snapshots.setState(threadId, event.state);
           if (event.state !== "starting" && event.state !== "running") {
-            if (link.currentTurn !== undefined) {
-              link.currentTurn.terminal = true;
-              link.currentTurn.completedItems.clear();
-            }
-            this.#unalignedItems.delete(threadId);
             emitAgentEvents(
               { emit: (nested) => this.#emitRootEvent(rootThreadId, nested) },
               [
-                ...this.#finishTools(
+                ...this.#snapshots.finishTools(
                   threadId,
                   event.state === "completed"
                     ? "incomplete"
@@ -1663,10 +1323,10 @@ export class CodexDriver implements AgentDriver {
   }
 
   #finishSubagents(error: Error): void {
-    for (const [threadId, subagent] of this.#subagents) {
+    for (const [threadId, subagent] of this.#snapshots.entries()) {
       const events = [
         ...this.#activityMapper.finish(threadId, "error"),
-        ...this.#finishTools(threadId, "failed"),
+        ...this.#snapshots.finishTools(threadId, "failed"),
       ];
       emitAgentEvents(
         { emit: (event) => this.#emitRootEvent(subagent.rootThreadId, event) },
@@ -1687,16 +1347,5 @@ export class CodexDriver implements AgentDriver {
         });
       }
     }
-  }
-
-  #finishTools(
-    threadId: string,
-    status: Exclude<ToolCompletionStatus, "completed">,
-    turnId?: string,
-  ): AgentTimelineEvent[] {
-    const events = this.#toolLifecycle.finish(threadId, status, turnId);
-    for (const event of events)
-      this.#toolOutput.delete(`${threadId}:${event.id}`);
-    return events;
   }
 }
