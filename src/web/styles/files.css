@@ -461,7 +461,14 @@
 .file-error {
   color: var(--danger);
 }
+.file-code-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
 .file-code-scroll {
+  flex: 1;
   overflow: auto;
   min-height: 0;
   min-width: 0;
@@ -731,4 +738,18 @@
   .app-layout:not(.dock-open) .project-sidebar-header {
     padding-right: 88px;
   }
+}
+
+.file-pagination {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-xs);
+}
+.file-pagination input {
+  width: 6em;
 }

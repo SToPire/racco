@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ProjectFilePreview,
   WorktreeEntry,
@@ -56,6 +56,9 @@ export function FilePreview({
     return () => controller.abort();
   }, [worktree.path, enabled, activePath, fileRevision]);
   const currentPreview = preview?.path === activePath ? preview : undefined;
+  const text =
+    currentPreview?.kind === "text" ? currentPreview.content : undefined;
+  const lines = useMemo(() => text?.split("\n"), [text]);
   const currentFileError =
     fileError !== undefined && fileError.path === activePath
       ? fileError.message
@@ -126,7 +129,7 @@ export function FilePreview({
           ) : currentPreview?.kind === "text" ? (
             <CodePreview
               path={activePath}
-              content={currentPreview.content}
+              lines={lines!}
               line={line}
               locationRequestId={locationRequestId}
             />
@@ -148,12 +151,12 @@ export function FilePreview({
             <span role="status">
               {copyStatus ||
                 (currentPreview?.kind === "text"
-                  ? `${currentPreview.content.split("\n").length} 行 · UTF-8`
+                  ? `${lines!.length} 行 · UTF-8`
                   : "")}
             </span>
             {line !== undefined && currentPreview?.kind === "text" && (
               <span role="status">
-                {line <= currentPreview.content.split("\n").length
+                {line <= lines!.length
                   ? `第 ${line} 行`
                   : `第 ${line} 行不存在`}
               </span>

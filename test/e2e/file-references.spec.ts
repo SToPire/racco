@@ -261,3 +261,41 @@ test("child Markdown, trajectory results and tool changes resolve against the ac
     page.getByText("Outside relative", { exact: true }),
   ).toHaveAttribute("aria-disabled", "true");
 });
+
+test("large short-line files render a bounded page and jump directly to referenced lines", async ({
+  page,
+  racco,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await writeFile(
+    join(racco.projects[0]!.path, "many-lines.txt"),
+    Array.from({ length: 20_000 }, (_, i) => String(i + 1)).join("\n"),
+  );
+  const emit = await openSessionTimeline(page, racco.sessions[0]!.sessionId);
+  emit({
+    type: "assistant.message",
+    id: "large-file",
+    text: "[最后一行](many-lines.txt#L20000)\n\n[其他文件](README.md)",
+  });
+  await page.getByRole("button", { name: "最后一行", exact: true }).click();
+  await expect(page.locator(".file-pagination")).toContainText("共 20000 行");
+  await expect(page.locator(".file-line-number-selected")).toHaveText("20000");
+  await expect(page.locator(".file-line-number-selected")).toBeInViewport();
+  expect(await page.locator(".file-preview *").count()).toBeLessThan(450);
+  await page.getByRole("spinbutton", { name: "文件页码" }).fill("1");
+  await expect(page.locator(".file-line-numbers > span")).toHaveCount(400);
+  await expect(page.locator(".file-line-numbers > span").first()).toHaveText(
+    "1",
+  );
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(page.locator(".file-line-numbers > span").first()).toHaveText(
+    "401",
+  );
+  await page.getByRole("button", { name: "其他文件", exact: true }).click();
+  await expect(
+    page.getByLabel("文件内容 README.md", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "文件分页" })).toHaveCount(
+    0,
+  );
+});
