@@ -1,3 +1,4 @@
+import { assertSmokeHistory } from "./lib/smoke-history.mjs";
 import { withSmokeTarget } from "./lib/smoke-target.mjs";
 import { smokeModelSettings } from "./lib/smoke-model-settings.mjs";
 import { WebSocket } from "ws";
@@ -184,9 +185,13 @@ console.log(
       );
       assert(response.ok, `session read returned ${response.status}`);
       const snapshot = await response.json();
-      assert(
-        snapshot.events.length >= 4,
-        `persisted ${label} history is incomplete`,
+      assertSmokeHistory(
+        snapshot,
+        [
+          `Reply with exactly ${firstExpected}. Do not use any tools.`,
+          `Reply with exactly ${secondExpected}. Do not use any tools.`,
+        ],
+        [firstExpected, secondExpected],
       );
       return `${label} create/follow-up smoke passed for session ${ref.sessionId}`;
     } finally {

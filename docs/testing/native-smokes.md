@@ -1,0 +1,9 @@
+# Native provider smoke tests
+
+`npm run smoke:codex`, `smoke:claude`, and the bypass/question/interrupt variants build the check output, then start an isolated compiled daemon with a temporary Git project, configuration, image runtime and Racco state. They use the installed providers and existing authentication; model turns can incur charges. They are manual commands, outside `npm run check`. Owned native history, processes and temporary files are cleaned after successful or failed execution; a cleanup error makes the command fail.
+
+`npm run smoke:codex-resume` and `smoke:claude-resume` create a new conversation, ask it to remember a random value, stop the isolated daemon, and start a new process over the same temporary state. The second prompt asks for the remembered value without repeating it. Passing requires the same native session ID and the ordered content and distinct identities of both user/assistant message pairs. These commands reject an external URL, working directory or session ID because they must control the actual restart.
+
+For create/follow-up or permission diagnostics against an existing daemon, explicitly set both `RACCO_URL` and `RACCO_TEST_CWD`. That mode may create provider sessions in the specified project and leaves cleanup to the caller; it does not stop the target daemon. The default never imports the current checkout into a daily service. Optional `RACCO_MODEL` and `RACCO_EFFORT` choose the tested model settings.
+
+`npm run check` instead runs the deterministic compiled-server tests, including cold resume against a strict local stdio peer whose native history survives process exit. Those tests perform no real model turn. The peer checks transport, persistence and script assertions; manually running the provider smoke is still necessary to validate actual model memory and provider behavior.
