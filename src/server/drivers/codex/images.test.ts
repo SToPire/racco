@@ -131,15 +131,12 @@ lines.on('line', line => {
       )
         await assert.rejects(result);
       else await result;
-      if (
-        outcome === "error" ||
-        outcome === "malformed" ||
-        outcome === "rpc-internal" ||
-        outcome === "interrupt-rejected"
-      ) {
+      if (outcome === "error" || outcome === "rpc-internal") {
         await stat(path); // A rejected RPC/stream is not proof that the process stopped.
         await driver.close();
       }
+      if (outcome === "interrupt-rejected" || outcome === "malformed")
+        assert.equal(driver.ready, false);
       await assert.rejects(stat(path), { code: "ENOENT" });
       if (outcome === "rpc-rejected") {
         const data = Buffer.alloc(3 * 1024 * 1024, 7).toString("base64");

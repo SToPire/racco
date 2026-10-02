@@ -14,6 +14,8 @@ Provider 已固定使用全权限模式，共享协议、Codex 驱动和界面�
 
 普通对话直接管理自己的启动、完成与中断，不保留只有单一调用者的通用操作执行器；压缩继续使用独立的原生操作路径。相关处理保留通知早于 RPC 响应的顺序保障。两家 Provider 都提供会话更新通知，驱动接口要求实现该回调注册方法，不再静默跳过缺失实现。
 
+[Codex 有界取消](../bug-fix/2026-10-02-codex-bounded-cancellation.md)补充停止确认缺失时的处理：不能确认停止则关闭该 Provider，不重放变更或仅解除本地执行占用。
+
 本决策补全[Claude 全权限回调](../bug-fix/2026-09-19-claude-tool-permissions.md)的共享协议与 Codex 边界，并落实[无逐轮执行记录](2026-09-17-session-state-without-turn-ledger.md)的执行路径简化。两条记录继续持有各自的回调和持久化取舍，没有被完整替代。
 
 ## Alternatives considered

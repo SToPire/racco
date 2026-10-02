@@ -66,9 +66,12 @@ type TurnWaiter = {
   resolve(): void;
   reject(error: Error): void;
   turnId?: string;
+  terminal: boolean;
   pending: JsonRpcNotification[];
   interrupt(): void;
 };
+
+const CANCEL_CONFIRMATION_TIMEOUT_MS = 3000;
 
 type SubagentLink = {
   agentId: string;
@@ -428,20 +431,46 @@ export class CodexDriver implements AgentDriver {
     let waiter: TurnWaiter | undefined;
     let turnImages: TurnImages | undefined;
     let interrupted = false;
+    let turnMayBeRunning = false;
+    let cancellationTimer: ReturnType<typeof setTimeout> | undefined;
+    let providerShutdown: Promise<void> | undefined;
+    const interruptRequest = new AbortController();
+    const stopUnconfirmedTurn = (error: Error) => {
+      if (providerShutdown !== undefined) return;
+      input.context.emit({
+        type: "system.notice",
+        id: randomUUID(),
+        level: "error",
+        text: "Codex 未确认停止，正在关闭该 Provider；其他 Codex 会话也会中断，请重启服务后继续。",
+      });
+      providerShutdown = this.#client.fail(error);
+    };
     const onAbort = () => {
+      // turn/start may be executing even if its ACK never arrives. Give normal
+      // interruption a bounded grace period without guessing ownership from
+      // early notifications (which can belong to an earlier compaction).
+      cancellationTimer ??= setTimeout(() => {
+        stopUnconfirmedTurn(
+          new Error("Codex turn cancellation was not confirmed"),
+        );
+      }, CANCEL_CONFIRMATION_TIMEOUT_MS);
+      cancellationTimer.unref();
       if (waiter?.turnId === undefined || interrupted) return;
       interrupted = true;
       void this.#client
-        .request("turn/interrupt", {
-          threadId: sessionId,
-          turnId: waiter.turnId,
-        })
-        .catch((error: unknown) =>
-          waiter?.reject(
+        .request(
+          "turn/interrupt",
+          { threadId: sessionId, turnId: waiter.turnId },
+          interruptRequest.signal,
+        )
+        .catch((error: unknown) => {
+          if (interruptRequest.signal.aborted) return;
+          stopUnconfirmedTurn(
             error instanceof Error ? error : new Error(String(error)),
-          ),
-        );
+          );
+        });
     };
+    input.signal.addEventListener("abort", onAbort, { once: true });
     try {
       await this.#ensureLoaded(sessionId, input.modelSettings);
       input.signal.throwIfAborted();
@@ -468,12 +497,12 @@ export class CodexDriver implements AgentDriver {
         resolve,
         reject,
         pending: [],
+        terminal: false,
         interrupt: () => {
           if (input.signal.aborted) onAbort();
         },
       };
       this.#turnWaiters.set(sessionId, waiter);
-      input.signal.addEventListener("abort", onAbort, { once: true });
       let imageIndex = 0;
       const nativeInput = input.content.map((part) =>
         part.type === "text"
@@ -484,6 +513,7 @@ export class CodexDriver implements AgentDriver {
             },
       );
       if (turnImages) turnImages.submitted = true;
+      turnMayBeRunning = true;
       const response = await this.#client
         .request<TurnStartResponse>("turn/start", {
           threadId: sessionId,
@@ -493,14 +523,14 @@ export class CodexDriver implements AgentDriver {
           input: nativeInput,
         })
         .catch((error: unknown) => {
-          if (
-            turnImages &&
-            turnImages.turnId === undefined &&
+          const requestRejected =
             error instanceof CodexRpcResponseError &&
             error.requestRejected &&
-            !waiter!.pending.some((event) => event.method === "turn/started")
-          ) {
-            turnImages.submitted = false;
+            !waiter!.pending.some((event) => event.method === "turn/started");
+          if (requestRejected) {
+            turnMayBeRunning = false;
+            if (turnImages && turnImages.turnId === undefined)
+              turnImages.submitted = false;
           }
           throw error;
         });
@@ -512,6 +542,19 @@ export class CodexDriver implements AgentDriver {
       waiter.interrupt();
       await completion;
     } finally {
+      input.signal.removeEventListener("abort", onAbort);
+      clearTimeout(cancellationTimer);
+      interruptRequest.abort();
+      if (input.signal.aborted && turnMayBeRunning && !waiter?.terminal)
+        stopUnconfirmedTurn(
+          new Error("Codex turn cancellation was not confirmed"),
+        );
+      // Do not release the caller's execution lease while an uncertain turn
+      // may still run in the native process being stopped.
+      await providerShutdown;
+      // Another turn can fail the shared Provider and reject this turn's waiter.
+      // Its local shutdown promise does not belong to this execution context.
+      if (!this.#ready) await this.#client.close();
       if (turnImages && (!turnImages.submitted || turnImages.finished))
         await this.#discardImages(turnImages);
       emitAgentEvents(
@@ -528,7 +571,6 @@ export class CodexDriver implements AgentDriver {
           input.signal.aborted ? "interrupted" : "failed",
         ),
       );
-      input.signal.removeEventListener("abort", onAbort);
       this.#turnWaiters.delete(sessionId);
       this.#contexts.delete(sessionId);
     }
@@ -1068,6 +1110,7 @@ export class CodexDriver implements AgentDriver {
       } else {
         context!.setState(mapTurnState(completed.turn));
         const waiter = this.#turnWaiters.get(threadId);
+        if (waiter !== undefined) waiter.terminal = true;
         if (completed.turn.status === "failed") {
           waiter?.reject(
             new Error(completed.turn.error?.message ?? "Codex turn failed"),

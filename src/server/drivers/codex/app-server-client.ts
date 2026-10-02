@@ -167,6 +167,11 @@ export class CodexAppServerClient {
     await this.#stopProcess();
   }
 
+  async fail(error: Error): Promise<void> {
+    this.#handleExit(error);
+    await this.#stopProcess();
+  }
+
   async #stopProcess(): Promise<void> {
     const child = this.#child;
     if (child === undefined) return;
