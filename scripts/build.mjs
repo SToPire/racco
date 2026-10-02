@@ -5,6 +5,7 @@ import { root } from "./lib/process.mjs";
 import { withFileLock } from "./lib/file-lock.mjs";
 import { buildOutput } from "./lib/build-output.mjs";
 import { cancellationSignals } from "./lib/signals.mjs";
+import { productionBuild } from "./lib/deploy-build.mjs";
 export async function build({
   target = "production",
   part = "all",
@@ -19,7 +20,10 @@ export async function build({
     throw new Error("Production builds must include both server and web");
   return withFileLock(
     join(root, ".tmp/locks", `build-${target}.lock`),
-    () => buildOutput({ target, part, signal }),
+    () =>
+      target === "production"
+        ? productionBuild(() => buildOutput({ target, part, signal }))
+        : buildOutput({ target, part, signal }),
     signal,
   );
 }
