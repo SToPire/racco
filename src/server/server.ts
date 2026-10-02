@@ -5,13 +5,11 @@ import fastifyCompress from "@fastify/compress";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyBaseLogger } from "fastify";
-import type { WebSocket } from "ws";
 import { z } from "zod";
 import {
   ClientCommandSchema,
   ProviderSchema,
   type HealthResponse,
-  type ServerMessage,
 } from "../shared/protocol.js";
 import type { RaccoConfig } from "./config.js";
 import { projectFileRoutes } from "./project-files/routes.js";
@@ -22,12 +20,7 @@ import { openRaccoStateDatabase } from "./state/database.js";
 import { SessionRepository } from "./state/session-repository.js";
 import { TemporaryImages } from "./images/temporary.js";
 import { MAX_CLIENT_MESSAGE_BYTES } from "../shared/user-input.js";
-
-function send(socket: WebSocket, message: ServerMessage): void {
-  if (socket.readyState === socket.OPEN) {
-    socket.send(JSON.stringify(message));
-  }
-}
+import { send } from "./socket-sender.js";
 
 function hasAllowedOrigin(
   origin: string | undefined,

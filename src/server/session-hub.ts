@@ -56,6 +56,7 @@ import { WorktreeAccess } from "./worktrees/access.js";
 import { gitCommonDir } from "./worktrees/git.js";
 import { SessionTimeline } from "./session-timeline.js";
 import { assertProjectRoot } from "./worktrees/derive.js";
+import { broadcast } from "./socket-sender.js";
 
 type RuntimeSession = {
   summary: SessionSummary;
@@ -75,11 +76,6 @@ type PendingInteraction = {
   reject(error: Error): void;
   detachAbort(): void;
 };
-
-function send(socket: WebSocket, message: ServerMessage): void {
-  if (socket.readyState === WebSocket.OPEN)
-    socket.send(JSON.stringify(message));
-}
 
 function providerHandle(session: ManagedSession): ProviderSessionHandle {
   if (session.providerSessionId === undefined) {
@@ -1423,7 +1419,7 @@ export class SessionHub {
   }
 
   #broadcast(runtime: RuntimeSession, message: ServerMessage): void {
-    for (const subscriber of runtime.subscribers) send(subscriber, message);
+    broadcast(runtime.subscribers, message);
   }
 
   #broadcastSessionSummary(runtime: RuntimeSession): void {
@@ -1434,7 +1430,7 @@ export class SessionHub {
   }
 
   #broadcastToClients(message: ServerMessage): void {
-    for (const client of this.#clients) send(client, message);
+    broadcast(this.#clients, message);
   }
 
   /** Remove a session from the in-memory runtime map, aborting any active turn. */
