@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ProjectEntry,
   Provider,
@@ -7,7 +7,11 @@ import type {
 } from "../../shared/protocol";
 import { UiIcon } from "./UiIcon";
 import { FileIcon } from "./files/FileIcon";
-import { ProjectFiles } from "./files/ProjectFiles";
+import {
+  ProjectFiles,
+  emptyFileState,
+  type ProjectFileState,
+} from "./files/ProjectFiles";
 import { ProjectSessions } from "./ProjectSessions";
 import type { FileOpenRequest } from "../file-navigation";
 
@@ -56,6 +60,28 @@ export function ProjectDock({
   onDeleteNative,
   onOpen,
 }: Props) {
+  const [fileStates, setFileStates] = useState<
+    Record<string, ProjectFileState>
+  >({});
+  const updateFiles = useCallback(
+    (update: (current: ProjectFileState) => ProjectFileState) => {
+      setFileStates((current) => ({
+        ...current,
+        [worktreePath]: update(current[worktreePath] ?? emptyFileState),
+      }));
+    },
+    [worktreePath],
+  );
+  useEffect(() => {
+    const paths = new Set(worktrees.map((entry) => entry.path));
+    setFileStates((current) =>
+      Object.keys(current).every((path) => paths.has(path))
+        ? current
+        : Object.fromEntries(
+            Object.entries(current).filter(([path]) => paths.has(path)),
+          ),
+    );
+  }, [worktrees]);
   const open = active !== undefined;
   const label = active === "sessions" ? "会话" : "文件";
   const dock = useRef<HTMLElement>(null);
@@ -236,6 +262,8 @@ export function ProjectDock({
           ) : (
             <ProjectFiles
               key={worktree.path}
+              state={fileStates[worktree.path] ?? emptyFileState}
+              onStateChange={updateFiles}
               worktree={worktree}
               enabled={active === "files"}
               controls={active === "files" ? controls : null}

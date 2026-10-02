@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect } from "react";
 import type { WorktreeEntry } from "../../../shared/protocol";
 import { FileTabs, fileTabId } from "./FileTabs";
 import { FileTree } from "./FileTree";
@@ -8,35 +8,46 @@ import type {
   ProjectFileLocation,
 } from "../../file-navigation";
 
+export type ProjectFileState = {
+  tabs: string[];
+  activeFile?: ProjectFileLocation & { requestId?: number };
+};
+export const emptyFileState: ProjectFileState = { tabs: [] };
+
 export function ProjectFiles({
   worktree,
   enabled,
   controls,
   fileRequest,
   onFileOpened,
+  state,
+  onStateChange,
 }: {
   worktree: WorktreeEntry;
   enabled: boolean;
   controls: ReactNode;
   fileRequest?: FileOpenRequest;
   onFileOpened: (requestId: number) => void;
+  state: ProjectFileState;
+  onStateChange: (
+    update: (current: ProjectFileState) => ProjectFileState,
+  ) => void;
 }) {
-  const [tabs, setTabs] = useState<string[]>([]);
-  const [activeFile, setActiveFile] = useState<
-    ProjectFileLocation & { requestId?: number }
-  >();
+  const { tabs, activeFile } = state;
   const activePath = activeFile?.path;
   const openFile = useCallback(
     (path: string, line?: number, requestId?: number) => {
-      setTabs((current) =>
-        current.includes(path) ? current : [...current, path],
-      );
-      setActiveFile({ path, line, requestId });
+      onStateChange((current) => ({
+        tabs: current.tabs.includes(path)
+          ? current.tabs
+          : [...current.tabs, path],
+        activeFile: { path, line, requestId },
+      }));
       requestAnimationFrame(() =>
         document.getElementById(fileTabId(path))?.focus(),
       );
     },
-    [],
+    [onStateChange],
   );
   useEffect(() => {
     if (!enabled || fileRequest === undefined) return;
@@ -44,7 +55,10 @@ export function ProjectFiles({
     onFileOpened(fileRequest.requestId);
   }, [enabled, fileRequest, openFile, onFileOpened]);
   function selectFile(path: string | undefined) {
-    setActiveFile(path === undefined ? undefined : { path });
+    onStateChange((current) => ({
+      ...current,
+      activeFile: path === undefined ? undefined : { path },
+    }));
   }
   function closeFile(path: string) {
     const next = tabs.filter((tab) => tab !== path);
@@ -52,8 +66,15 @@ export function ProjectFiles({
       activePath === path
         ? next[Math.min(tabs.indexOf(path), next.length - 1)]
         : activePath;
-    setTabs(next);
-    if (activePath === path) selectFile(nextActive);
+    onStateChange((current) => ({
+      tabs: next,
+      activeFile:
+        activePath === path
+          ? nextActive === undefined
+            ? undefined
+            : { path: nextActive }
+          : current.activeFile,
+    }));
     requestAnimationFrame(() =>
       document.getElementById(fileTabId(nextActive))?.focus(),
     );
