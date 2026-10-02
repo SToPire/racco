@@ -14,7 +14,6 @@ import { realpathSync, statSync } from "node:fs";
 import { basename, parse } from "node:path";
 import { WebSocket } from "ws";
 import type {
-  InteractionRequest,
   InteractionResponse,
   ProjectEntry,
   Provider,
@@ -54,31 +53,12 @@ import {
 import { WorktreeService } from "./worktrees/service.js";
 import { WorktreeAccess } from "./worktrees/access.js";
 import { gitCommonDir } from "./worktrees/git.js";
-import { SessionTimeline } from "./session-timeline.js";
+import { SessionRuntime } from "./session-runtime.js";
+import { SessionInteractions } from "./session-interactions.js";
 import { assertProjectRoot } from "./worktrees/derive.js";
 import { broadcast } from "./socket-sender.js";
 
-type RuntimeSession = {
-  summary: SessionSummary;
-  events: SessionTimeline;
-  subscribers: Set<WebSocket>;
-  revision: number;
-  readers: number;
-  activeTurn?: {
-    abortController: AbortController;
-    terminalState?: "idle" | "interrupted" | "error";
-  };
-};
-
 export const IDLE_SESSION_CACHE_LIMIT = 16;
-
-type PendingInteraction = {
-  sessionId: string;
-  request: InteractionRequest;
-  resolve(response: InteractionResponse): void;
-  reject(error: Error): void;
-  detachAbort(): void;
-};
 
 function providerHandle(session: ManagedSession): ProviderSessionHandle {
   if (session.providerSessionId === undefined) {
@@ -125,14 +105,30 @@ function creationHash(
 
 export class SessionHub {
   readonly #drivers = new Map<Provider, AgentDriver>();
-  readonly #sessions = new Map<string, RuntimeSession>();
+  readonly #sessions = new Map<string, SessionRuntime>();
   readonly #clients = new Set<WebSocket>();
   readonly #socketSubscriptions = new Map<WebSocket, string>();
   readonly #pendingSubscriptions = new Map<
     WebSocket,
     { request: symbol; sessionId: string }
   >();
-  readonly #interactions = new Map<string, PendingInteraction>();
+  readonly #interactions = new SessionInteractions(
+    (sessionId, event, pendingCount) => {
+      const runtime = this.#sessions.get(sessionId);
+      if (!runtime) return;
+      const updateState = () => {
+        if (runtime.activeTurn !== undefined)
+          this.#setLiveState(
+            sessionId,
+            runtime,
+            pendingCount > 0 ? "waiting_interaction" : "running",
+          );
+      };
+      if (event.type === "interaction.requested") updateState();
+      this.#broadcast(runtime, event);
+      if (event.type === "interaction.resolved") updateState();
+    },
+  );
   readonly #models = new ModelCatalogCache();
   readonly #imageInputs = new ImageInputs();
   readonly #nativeMutations = new Map<string, Promise<void>>();
@@ -169,8 +165,7 @@ export class SessionHub {
         if (!managed) return;
         const runtime = this.#runtimeFor(managed);
         if (update.type === "context.usage") {
-          runtime.summary.contextUsage = update.usage;
-          runtime.revision += 1;
+          runtime.setContextUsage(update.usage);
           this.#broadcastSessionSummary(runtime);
         } else if (update.type === "compaction.finished") {
           this.#setCompacting(runtime, false);
@@ -501,14 +496,14 @@ export class SessionHub {
     let managed = this.repository.get(ref.sessionId);
     if (managed === undefined) return undefined;
     const runtime = this.#runtimeFor(managed);
-    runtime.readers++;
+    const releaseRead = runtime.retainRead();
     try {
       const isCurrent = () =>
         !this.#closed &&
         this.#sessions.get(ref.sessionId) === runtime &&
         this.repository.get(ref.sessionId) !== undefined;
 
-      if (runtime.activeTurn !== undefined || runtime.summary.compacting) {
+      if (runtime.busy) {
         return this.#snapshotMessage(ref.sessionId, runtime);
       }
       if (!projectDirectoryIsAvailable(managed.cwd)) {
@@ -542,13 +537,8 @@ export class SessionHub {
           title: snapshot.metadata.title,
           providerUpdatedAt: snapshot.metadata.updatedAt,
         });
-        if (
-          runtime.revision === revisionBeforeRead &&
-          runtime.activeTurn === undefined
-        ) {
+        if (runtime.replaceHistory(snapshot.events, revisionBeforeRead)) {
           this.#refreshRuntime(runtime, managed);
-          runtime.events = new SessionTimeline(snapshot.events);
-          runtime.revision += 1;
         } else {
           this.#refreshRuntime(runtime, managed);
           return this.#snapshotWithNotice(
@@ -572,7 +562,7 @@ export class SessionHub {
 
       return this.#snapshotMessage(ref.sessionId, runtime);
     } finally {
-      runtime.readers--;
+      releaseRead();
       this.#trimRuntimes();
     }
   }
@@ -816,8 +806,7 @@ export class SessionHub {
             updatedAt: snapshot.metadata.updatedAt,
           });
           const runtime = this.#runtimeFor(managed);
-          runtime.events = new SessionTimeline(snapshot.events);
-          runtime.revision += 1;
+          runtime.replaceHistory(snapshot.events);
           this.#broadcastSessionSummary(runtime);
           return { ...runtime.summary };
         },
@@ -851,10 +840,7 @@ export class SessionHub {
           }
           if (managed !== undefined) {
             const runtime = this.#runtimeFor(managed);
-            if (
-              runtime.activeTurn !== undefined ||
-              runtime.summary.compacting
-            ) {
+            if (runtime.busy) {
               throw new Error("Session is busy and cannot be deleted");
             }
           }
@@ -1041,8 +1027,7 @@ export class SessionHub {
       }
       const driver = this.#requireDriver(managed.provider);
       const runtime = this.#runtimeFor(managed);
-      if (runtime.activeTurn !== undefined || runtime.summary.compacting)
-        throw new Error("Session already has an active turn");
+      if (runtime.busy) throw new Error("Session already has an active turn");
 
       managed = this.repository.acceptTurn(
         ref.sessionId,
@@ -1050,11 +1035,7 @@ export class SessionHub {
         initial,
       );
 
-      const abortController = new AbortController();
-      const activeTurn: NonNullable<RuntimeSession["activeTurn"]> = {
-        abortController,
-      };
-      runtime.activeTurn = activeTurn;
+      const activeTurn = runtime.beginTurn();
       this.#refreshRuntime(runtime, this.#requireManaged(ref.sessionId));
       this.#appendTimelineEvent(runtime, ref.sessionId, {
         type: "user.message",
@@ -1109,8 +1090,7 @@ export class SessionHub {
       if (!driver.compact)
         throw new Error("Provider does not support compaction");
       const runtime = this.#runtimeFor(managed);
-      if (runtime.activeTurn !== undefined || runtime.summary.compacting)
-        throw new Error("Session is busy");
+      if (runtime.busy) throw new Error("Session is busy");
       this.#setCompacting(runtime, true);
       try {
         await driver.compact({ handle: providerHandle(managed) });
@@ -1121,21 +1101,20 @@ export class SessionHub {
     });
   }
 
-  #setCompacting(runtime: RuntimeSession, compacting: boolean): void {
+  #setCompacting(runtime: SessionRuntime, compacting: boolean): void {
     if (
       this.#sessions.get(runtime.summary.sessionId) !== runtime ||
       runtime.summary.compacting === compacting
     )
       return;
-    runtime.summary.compacting = compacting;
-    runtime.revision += 1;
+    runtime.setCompacting(compacting);
     this.#broadcastSessionSummary(runtime);
   }
 
   #launchOperation(
     managed: ManagedSession,
-    runtime: RuntimeSession,
-    activeTurn: NonNullable<RuntimeSession["activeTurn"]>,
+    runtime: SessionRuntime,
+    activeTurn: NonNullable<SessionRuntime["activeTurn"]>,
     execute: (context: DriverContext, signal: AbortSignal) => Promise<void>,
   ): void {
     const { abortController } = activeTurn;
@@ -1167,8 +1146,8 @@ export class SessionHub {
       })
       .finally(() => {
         this.#turnTasks.delete(task);
-        runtime.activeTurn = undefined;
-        this.#rejectInteractions(
+        runtime.finishTurn(activeTurn);
+        this.#interactions.rejectSession(
           managed.sessionId,
           new Error("Turn completed"),
         );
@@ -1188,19 +1167,16 @@ export class SessionHub {
 
   interrupt(ref: SessionRef): boolean {
     const runtime = this.#sessions.get(ref.sessionId);
-    if (runtime?.activeTurn === undefined) return false;
-    runtime.activeTurn.terminalState = "interrupted";
-    runtime.activeTurn.abortController.abort();
-    this.#rejectInteractions(ref.sessionId, new Error("Turn interrupted"));
+    if (!runtime?.interrupt()) return false;
+    this.#interactions.rejectSession(
+      ref.sessionId,
+      new Error("Turn interrupted"),
+    );
     return true;
   }
 
   resolveInteraction(id: string, response: InteractionResponse): boolean {
-    const pending = this.#interactions.get(id);
-    if (pending === undefined) return false;
-    this.#closeInteraction(id, pending);
-    pending.resolve(response);
-    return true;
+    return this.#interactions.resolve(id, response);
   }
 
   registerClient(socket: WebSocket): void {
@@ -1228,11 +1204,8 @@ export class SessionHub {
     this.#models.close();
     this.#worktrees.close();
     for (const [sessionId, runtime] of this.#sessions) {
-      if (runtime.activeTurn !== undefined) {
-        runtime.activeTurn.terminalState = "interrupted";
-        runtime.activeTurn.abortController.abort();
-      }
-      this.#rejectInteractions(sessionId, new Error("Racco closed"));
+      runtime.interrupt();
+      this.#interactions.rejectSession(sessionId, new Error("Racco closed"));
     }
     await Promise.allSettled(
       [...this.#drivers.values()].map((driver) => driver.close()),
@@ -1264,16 +1237,10 @@ export class SessionHub {
     return session;
   }
 
-  #runtimeFor(managed: ManagedSession): RuntimeSession {
+  #runtimeFor(managed: ManagedSession): SessionRuntime {
     let runtime = this.#sessions.get(managed.sessionId);
     if (runtime === undefined) {
-      runtime = {
-        summary: toSessionSummary(managed),
-        events: new SessionTimeline(),
-        subscribers: new Set(),
-        revision: 0,
-        readers: 0,
-      };
+      runtime = new SessionRuntime(toSessionSummary(managed));
       this.#sessions.set(managed.sessionId, runtime);
     } else {
       this.#refreshRuntime(runtime, managed);
@@ -1299,12 +1266,11 @@ export class SessionHub {
     let idle = 0;
     for (const [sessionId, runtime] of [...this.#sessions].reverse()) {
       if (
-        runtime.activeTurn !== undefined ||
-        runtime.summary.compacting ||
+        runtime.busy ||
         runtime.readers > 0 ||
         runtime.subscribers.size > 0 ||
         subscribing.has(sessionId) ||
-        runtime.events.hasActiveDescendants
+        runtime.hasActiveDescendants
       )
         continue;
       const managed = this.repository.get(sessionId);
@@ -1319,17 +1285,13 @@ export class SessionHub {
     }
   }
 
-  #refreshRuntime(runtime: RuntimeSession, managed: ManagedSession): void {
-    runtime.summary = {
-      ...toSessionSummary(managed),
-      contextUsage: runtime.summary.contextUsage,
-      compacting: runtime.summary.compacting,
-    };
+  #refreshRuntime(runtime: SessionRuntime, managed: ManagedSession): void {
+    runtime.refreshSummary(toSessionSummary(managed));
   }
 
   #driverContext(
     sessionId: string,
-    runtime: RuntimeSession,
+    runtime: SessionRuntime,
     setState: (state: SessionState) => void,
   ): DriverContext {
     return {
@@ -1340,7 +1302,7 @@ export class SessionHub {
       },
       setState,
       requestInteraction: (request, signal) =>
-        this.#requestInteraction(sessionId, runtime, request, signal),
+        this.#interactions.request(sessionId, request, signal),
       markProviderMaterialized: () => {
         const managed = this.repository.markProviderMaterialized(sessionId);
         this.#refreshRuntime(runtime, managed);
@@ -1349,13 +1311,11 @@ export class SessionHub {
   }
 
   #appendTimelineEvent(
-    runtime: RuntimeSession,
+    runtime: SessionRuntime,
     sessionId: string,
     event: TimelineEvent,
   ): void {
-    runtime.events.append(event);
-    runtime.revision += 1;
-    runtime.summary.updatedAt = new Date().toISOString();
+    runtime.append(event);
     this.#broadcast(runtime, {
       type: "timeline.event",
       session: { sessionId },
@@ -1363,72 +1323,33 @@ export class SessionHub {
     });
   }
 
-  async #requestInteraction(
-    sessionId: string,
-    runtime: RuntimeSession,
-    request: Omit<InteractionRequest, "id">,
-    signal?: AbortSignal,
-  ): Promise<InteractionResponse> {
-    signal?.throwIfAborted();
-    const interaction: InteractionRequest = { ...request, id: randomUUID() };
-    return new Promise((resolve, reject) => {
-      const onAbort = () => {
-        this.#closeInteraction(interaction.id, pending);
-        reject(signal?.reason ?? new Error("Question cancelled"));
-      };
-      const pending: PendingInteraction = {
-        sessionId,
-        request: interaction,
-        resolve,
-        reject,
-        detachAbort: () => signal?.removeEventListener("abort", onAbort),
-      };
-      this.#interactions.set(interaction.id, pending);
-      signal?.addEventListener("abort", onAbort, { once: true });
-      if (runtime.activeTurn !== undefined)
-        this.#setLiveState(sessionId, runtime, "waiting_interaction");
-      this.#broadcast(runtime, {
-        type: "interaction.requested",
-        session: { sessionId },
-        interaction,
-      });
-    });
-  }
-
   #setLiveState(
     sessionId: string,
-    runtime: RuntimeSession,
+    runtime: SessionRuntime,
     state: "running" | "waiting_interaction",
   ): void {
     if (runtime.summary.state === state || !this.repository.get(sessionId))
       return;
     const managed = this.repository.updateExecutionState(sessionId, state);
     this.#refreshRuntime(runtime, managed);
-    runtime.revision += 1;
     this.#broadcastSessionSummary(runtime);
-  }
-
-  #pendingForSession(sessionId: string): InteractionRequest[] {
-    return [...this.#interactions.values()]
-      .filter((pending) => pending.sessionId === sessionId)
-      .map((pending) => pending.request);
   }
 
   #snapshotMessage(
     sessionId: string,
-    runtime: RuntimeSession,
+    runtime: SessionRuntime,
   ): SessionSnapshotMessage {
     return {
       type: "session.snapshot",
       session: { ...runtime.summary },
-      events: runtime.events.snapshot(),
-      pendingInteractions: this.#pendingForSession(sessionId),
+      events: runtime.snapshotEvents(),
+      pendingInteractions: this.#interactions.forSession(sessionId),
     };
   }
 
   #snapshotWithNotice(
     sessionId: string,
-    runtime: RuntimeSession,
+    runtime: SessionRuntime,
     text: string,
     level: "warning" | "error" = "error",
   ): SessionSnapshotMessage {
@@ -1447,43 +1368,11 @@ export class SessionHub {
     };
   }
 
-  #rejectInteractions(sessionId: string, error: Error): void {
-    for (const [id, pending] of this.#interactions) {
-      if (pending.sessionId === sessionId) {
-        this.#closeInteraction(id, pending);
-        pending.reject(error);
-      }
-    }
-  }
-
-  #closeInteraction(id: string, pending: PendingInteraction): void {
-    if (this.#interactions.get(id) !== pending) return;
-    this.#interactions.delete(id);
-    pending.detachAbort();
-    const runtime = this.#sessions.get(pending.sessionId);
-    if (runtime !== undefined) {
-      this.#broadcast(runtime, {
-        type: "interaction.resolved",
-        session: { sessionId: pending.sessionId },
-        interactionId: id,
-      });
-      if (runtime.activeTurn !== undefined) {
-        this.#setLiveState(
-          pending.sessionId,
-          runtime,
-          this.#pendingForSession(pending.sessionId).length > 0
-            ? "waiting_interaction"
-            : "running",
-        );
-      }
-    }
-  }
-
-  #broadcast(runtime: RuntimeSession, message: ServerMessage): void {
+  #broadcast(runtime: SessionRuntime, message: ServerMessage): void {
     broadcast(runtime.subscribers, message);
   }
 
-  #broadcastSessionSummary(runtime: RuntimeSession): void {
+  #broadcastSessionSummary(runtime: SessionRuntime): void {
     this.#broadcastToClients({
       type: "session.upserted",
       session: { ...runtime.summary },
@@ -1503,11 +1392,8 @@ export class SessionHub {
     for (const subscriber of runtime.subscribers) {
       this.#socketSubscriptions.delete(subscriber);
     }
-    if (runtime.activeTurn !== undefined) {
-      runtime.activeTurn.terminalState = "interrupted";
-      runtime.activeTurn.abortController.abort();
-    }
-    this.#rejectInteractions(sessionId, new Error("Session deleted"));
+    runtime.interrupt();
+    this.#interactions.rejectSession(sessionId, new Error("Session deleted"));
     this.#sessions.delete(sessionId);
   }
 }
