@@ -319,3 +319,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.session-send-target {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  min-width: 0;
+}
+.session-send-target summary {
+  cursor: pointer;
+}
+.session-send-target p {
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+}

@@ -137,10 +137,7 @@ export function SessionView({
   const turnActive =
     session.state === "running" || session.state === "waiting_interaction";
   const inputDisabled =
-    !loaded ||
-    session.compacting ||
-    connection !== "open" ||
-    session.lifecycle !== "active";
+    !loaded || session.compacting || session.lifecycle !== "active";
 
   // Match the scroll container's two stable gutters without clipping footer menus.
   useLayoutEffect(() => {
@@ -396,25 +393,39 @@ export function SessionView({
                 <ContextControls
                   usage={session.contextUsage}
                   compacting={session.compacting}
-                  disabled={sending || inputDisabled || turnActive}
+                  disabled={
+                    sending ||
+                    inputDisabled ||
+                    turnActive ||
+                    connection !== "open"
+                  }
                   onCompact={onCompact}
                 />
               ) : undefined
             }
             selection={selection}
             inputDisabled={inputDisabled}
-            sendDisabled={inputDisabled || turnActive}
+            sendDisabled={inputDisabled || turnActive || connection !== "open"}
             onSend={sendToMainAgent}
             sending={sending}
           />
+          <details className="session-send-target">
+            <summary>
+              发送目标：{session.provider === "codex" ? "Codex" : "Claude"} ·{" "}
+              {session.cwd.split("/").filter(Boolean).at(-1)}
+            </summary>
+            <p aria-label="执行目录">{session.cwd}</p>
+          </details>
           <small className="composer-hint">
-            {turnActive && !inputDisabled && !sending
-              ? selectedSubagent === undefined
-                ? "可先写草稿 · 当前任务结束后才能发送"
-                : "可先写草稿 · 当前任务结束后发送给 Main Agent"
-              : selectedSubagent === undefined
-                ? "Enter 发送 · Shift + Enter 换行"
-                : "消息发送给 Main Agent · Enter 发送"}
+            {connection !== "open"
+              ? "连接未就绪，可继续编辑草稿；恢复后请手动发送"
+              : turnActive && !inputDisabled && !sending
+                ? selectedSubagent === undefined
+                  ? "可先写草稿 · 当前任务结束后才能发送"
+                  : "可先写草稿 · 当前任务结束后发送给 Main Agent"
+                : selectedSubagent === undefined
+                  ? "Enter 发送 · Shift + Enter 换行"
+                  : "消息发送给 Main Agent · Enter 发送"}
           </small>
         </div>
       </footer>
