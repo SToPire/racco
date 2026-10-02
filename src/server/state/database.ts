@@ -1,103 +1,49 @@
-import { randomUUID } from "node:crypto";
-import {
-  chmodSync,
-  closeSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { initializeStateSchema } from "./schema.js";
 
-type LockPayload = {
-  pid: number;
-  token: string;
-};
-
-function processIsAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-function readLock(path: string): LockPayload | undefined {
-  try {
-    const value = JSON.parse(
-      readFileSync(path, "utf8"),
-    ) as Partial<LockPayload>;
-    return typeof value.pid === "number" && typeof value.token === "string"
-      ? {
-          pid: value.pid,
-          token: value.token,
-        }
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 class InstanceLock {
-  readonly #token: string;
   #released = false;
 
-  private constructor(
-    private readonly path: string,
-    token: string,
-  ) {
-    this.#token = token;
-  }
+  private constructor(private readonly descriptor: number) {}
 
   static acquire(path: string): InstanceLock {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const descriptor = openSync(path, "wx", 0o600);
-        try {
-          const payload: LockPayload = {
-            pid: process.pid,
-            token: randomUUID(),
-          };
-          writeFileSync(descriptor, JSON.stringify(payload), "utf8");
-          return new InstanceLock(path, payload.token);
-        } finally {
-          closeSync(descriptor);
-        }
-      } catch (error) {
-        const failure = error as NodeJS.ErrnoException;
-        if (failure.code !== "EEXIST") throw error;
-        const existing = readLock(path);
-        if (existing !== undefined && processIsAlive(existing.pid)) {
-          throw new Error(
-            `Another Racco process is using this state directory (pid ${existing.pid})`,
-          );
-        }
-        try {
-          unlinkSync(path);
-        } catch (unlinkError) {
-          if ((unlinkError as NodeJS.ErrnoException).code !== "ENOENT")
-            throw unlinkError;
-        }
+    // Keep a stable inode: removing this file could let another process lock a
+    // different inode while the current owner still holds its descriptor.
+    const descriptor = openSync(path, "a+", 0o600);
+    try {
+      // The child shares our open-file description. Its exit leaves the lock
+      // held by this descriptor until release() or process termination.
+      const result = spawnSync(
+        "flock",
+        ["--nonblock", "--conflict-exit-code", "75", "3"],
+        { stdio: ["ignore", "ignore", "pipe", descriptor], encoding: "utf8" },
+      );
+      if (result.error)
+        throw new Error(
+          `Could not run flock for the Racco state lock: ${result.error.message}`,
+          { cause: result.error },
+        );
+      if (result.status === 75) {
+        throw new Error("Another Racco process is using this state directory");
       }
+      if (result.status !== 0)
+        throw new Error(
+          `Could not acquire the Racco state lock: ${result.stderr?.trim() || result.signal || result.status}`,
+        );
+      return new InstanceLock(descriptor);
+    } catch (error) {
+      closeSync(descriptor);
+      throw error;
     }
-    throw new Error("Could not acquire the Racco state lock");
   }
 
   release(): void {
     if (this.#released) return;
     this.#released = true;
-    const existing = readLock(this.path);
-    if (existing?.token !== this.#token) return;
-    try {
-      unlinkSync(this.path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    closeSync(this.descriptor);
   }
 }
 
