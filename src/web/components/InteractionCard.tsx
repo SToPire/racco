@@ -48,6 +48,9 @@ export function InteractionCard({
   return (
     <form className="interaction-card question-card" onSubmit={submit}>
       <strong>{interaction.title}</strong>
+      {interaction.sourceAgentId && (
+        <small>子 Agent：{interaction.sourceAgentId}</small>
+      )}
       {interaction.questions.map((question) => (
         <fieldset key={question.id}>
           <legend>{question.text}</legend>

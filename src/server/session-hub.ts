@@ -73,6 +73,7 @@ type PendingInteraction = {
   request: InteractionRequest;
   resolve(response: InteractionResponse): void;
   reject(error: Error): void;
+  detachAbort(): void;
 };
 
 function send(socket: WebSocket, message: ServerMessage): void {
@@ -1182,18 +1183,6 @@ export class SessionHub {
     const pending = this.#interactions.get(id);
     if (pending === undefined) return false;
     this.#closeInteraction(id, pending);
-    const runtime = this.#sessions.get(pending.sessionId);
-    if (runtime !== undefined) {
-      if (runtime.activeTurn !== undefined) {
-        this.#setLiveState(
-          pending.sessionId,
-          runtime,
-          this.#pendingForSession(pending.sessionId).length > 0
-            ? "waiting_interaction"
-            : "running",
-        );
-      }
-    }
     pending.resolve(response);
     return true;
   }
@@ -1294,8 +1283,8 @@ export class SessionHub {
         }
       },
       setState,
-      requestInteraction: (request) =>
-        this.#requestInteraction(sessionId, runtime, request),
+      requestInteraction: (request, signal) =>
+        this.#requestInteraction(sessionId, runtime, request, signal),
       markProviderMaterialized: () => {
         const managed = this.repository.markProviderMaterialized(sessionId);
         this.#refreshRuntime(runtime, managed);
@@ -1318,26 +1307,34 @@ export class SessionHub {
     });
   }
 
-  #requestInteraction(
+  async #requestInteraction(
     sessionId: string,
     runtime: RuntimeSession,
     request: Omit<InteractionRequest, "id">,
+    signal?: AbortSignal,
   ): Promise<InteractionResponse> {
+    signal?.throwIfAborted();
     const interaction: InteractionRequest = { ...request, id: randomUUID() };
-    if (runtime.activeTurn !== undefined) {
-      this.#setLiveState(sessionId, runtime, "waiting_interaction");
-    }
-    this.#broadcast(runtime, {
-      type: "interaction.requested",
-      session: { sessionId },
-      interaction,
-    });
     return new Promise((resolve, reject) => {
-      this.#interactions.set(interaction.id, {
+      const onAbort = () => {
+        this.#closeInteraction(interaction.id, pending);
+        reject(signal?.reason ?? new Error("Question cancelled"));
+      };
+      const pending: PendingInteraction = {
         sessionId,
         request: interaction,
         resolve,
         reject,
+        detachAbort: () => signal?.removeEventListener("abort", onAbort),
+      };
+      this.#interactions.set(interaction.id, pending);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (runtime.activeTurn !== undefined)
+        this.#setLiveState(sessionId, runtime, "waiting_interaction");
+      this.#broadcast(runtime, {
+        type: "interaction.requested",
+        session: { sessionId },
+        interaction,
       });
     });
   }
@@ -1404,7 +1401,9 @@ export class SessionHub {
   }
 
   #closeInteraction(id: string, pending: PendingInteraction): void {
+    if (this.#interactions.get(id) !== pending) return;
     this.#interactions.delete(id);
+    pending.detachAbort();
     const runtime = this.#sessions.get(pending.sessionId);
     if (runtime !== undefined) {
       this.#broadcast(runtime, {
@@ -1412,6 +1411,15 @@ export class SessionHub {
         session: { sessionId: pending.sessionId },
         interactionId: id,
       });
+      if (runtime.activeTurn !== undefined) {
+        this.#setLiveState(
+          pending.sessionId,
+          runtime,
+          this.#pendingForSession(pending.sessionId).length > 0
+            ? "waiting_interaction"
+            : "running",
+        );
+      }
     }
   }
 

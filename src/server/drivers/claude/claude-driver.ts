@@ -436,16 +436,30 @@ export class ClaudeDriver implements AgentDriver {
   ): ReturnType<CanUseTool> {
     if (toolName === "AskUserQuestion") {
       const questions = ClaudeQuestionsSchema.parse(input.questions);
-      const response = await context.requestInteraction({
-        title: options.title ?? "Claude 需要更多信息",
-        questions: questions.map((question, index) => ({
-          id: String(index),
-          text: question.question,
-          multiple: question.multiSelect,
-          options: question.options,
-          allowOther: true,
-        })),
-      });
+      const response = await context
+        .requestInteraction(
+          {
+            ...(options.agentID === undefined
+              ? {}
+              : { sourceAgentId: options.agentID }),
+            title: options.title ?? "Claude 需要更多信息",
+            questions: questions.map((question, index) => ({
+              id: String(index),
+              text: question.question,
+              multiple: question.multiSelect,
+              options: question.options,
+              allowOther: true,
+            })),
+          },
+          options.signal,
+        )
+        .catch((error: unknown) => {
+          if (!options.signal.aborted) throw error;
+          return {
+            decision: "deny" as const,
+            message: "Question cancelled by Claude",
+          };
+        });
       if (response.decision !== "answer") {
         return {
           behavior: "deny",

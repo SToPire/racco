@@ -56,6 +56,7 @@ export interface DriverContext {
   setState(state: SessionState): void;
   requestInteraction(
     request: Omit<InteractionRequest, "id">,
+    signal?: AbortSignal,
   ): Promise<InteractionResponse>;
   markProviderMaterialized(): void;
 }

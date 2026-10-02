@@ -126,6 +126,7 @@ test("Claude discovers without a prompt and passes each model/effort pair into f
       signal: new AbortController().signal,
       toolUseID: "tool-permission",
       requestId: "request-permission",
+      agentID: "child-question",
     };
     context.requestInteraction = async () => {
       assert.fail("Ordinary tools must not request approval");
@@ -138,7 +139,9 @@ test("Claude discovers without a prompt and passes each model/effort pair into f
       });
     }
     let questions = 0;
-    context.requestInteraction = async (interaction) => {
+    context.requestInteraction = async (interaction, signal) => {
+      assert.equal(signal, permissionOptions.signal);
+      assert.equal(interaction.sourceAgentId, "child-question");
       assert.equal(interaction.questions[0]?.text, "Choose?");
       questions++;
       return { decision: "answer", answers: { "0": ["A"] } };
@@ -163,6 +166,19 @@ test("Claude discovers without a prompt and passes each model/effort pair into f
       },
     );
     assert.equal(questions, 1);
+    const cancelled = new AbortController();
+    context.requestInteraction = async (_request, signal) => {
+      assert.equal(signal, cancelled.signal);
+      cancelled.abort(new Error("Native question withdrawn"));
+      throw cancelled.signal.reason;
+    };
+    assert.deepEqual(
+      await canUseTool("AskUserQuestion", questionInput, {
+        ...permissionOptions,
+        signal: cancelled.signal,
+      }),
+      { behavior: "deny", message: "Question cancelled by Claude" },
+    );
     context.requestInteraction = async () => ({
       decision: "deny",
       message: "Cancelled",

@@ -2630,3 +2630,78 @@ test("shutdown while preparing a new image request releases the late lease witho
   assert.equal(f.allocations(), 0);
   assert.equal(f.received.length, 0);
 });
+
+test("native cancellation closes only its question and never displays a pre-aborted question", async () => {
+  const f = await modelTestHub();
+  const sent: ServerMessage[] = [];
+  const first = new AbortController();
+  const pre = new AbortController();
+  pre.abort(new Error("Already withdrawn"));
+  let finish!: () => void;
+  let questions!: Promise<PromiseSettledResult<unknown>[]>;
+  f.driver.runTurn = async ({ context }) => {
+    questions = Promise.allSettled([
+      context.requestInteraction(
+        { title: "first", sourceAgentId: "child-a", questions: [] },
+        first.signal,
+      ),
+      context.requestInteraction({
+        title: "second",
+        sourceAgentId: "child-b",
+        questions: [],
+      }),
+      context.requestInteraction({ title: "never", questions: [] }, pre.signal),
+    ]);
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  };
+  try {
+    const { ref } = await f.hub.createSession(
+      recordingSocket(sent),
+      "codex",
+      f.projectId,
+      f.cwd,
+      "native-questions",
+      [{ type: "text", text: "Ask" }],
+      fixtureModelSettings,
+    );
+    const initial = await f.hub.snapshot(ref);
+    assert.equal(initial?.pendingInteractions.length, 2);
+    assert.deepEqual(
+      initial?.pendingInteractions.map((x) => x.sourceAgentId),
+      ["child-a", "child-b"],
+    );
+    const [a, b] = initial!.pendingInteractions;
+    first.abort(new Error("Only first withdrawn"));
+    assert.equal(f.hub.listSessions()[0].state, "waiting_interaction");
+    assert.deepEqual(
+      (await f.hub.snapshot(ref))?.pendingInteractions.map((x) => x.id),
+      [b.id],
+    );
+    assert.equal(f.hub.resolveInteraction(a.id, { decision: "deny" }), false);
+    assert.equal(
+      f.hub.resolveInteraction(b.id, { decision: "answer", answers: {} }),
+      true,
+    );
+    assert.equal(f.hub.listSessions()[0].state, "running");
+    assert.deepEqual(
+      (await questions).map((x) => x.status),
+      ["rejected", "fulfilled", "rejected"],
+    );
+    assert.deepEqual(
+      sent.flatMap((x) =>
+        x.type === "interaction.resolved" ? [x.interactionId] : [],
+      ),
+      [a.id, b.id],
+    );
+    assert.equal(
+      sent.filter((x) => x.type === "interaction.requested").length,
+      2,
+    );
+    finish();
+  } finally {
+    finish?.();
+    await f.hub.close();
+  }
+});

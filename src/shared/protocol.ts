@@ -196,6 +196,7 @@ export type FileChange = {
 
 export type InteractionRequest = {
   id: string;
+  sourceAgentId?: string;
   title: string;
   questions: Array<{
     id: string;
