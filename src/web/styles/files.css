@@ -1,12 +1,5 @@
 /* Project dock and file views */
-.app-layout.dock-open {
-  --project-panel-size: min(var(--project-dock-width), calc(100vw - 352px));
-}
-@media (min-width: 1601px) {
-  .app-layout.dock-open.inspector-open {
-    --project-panel-size: min(var(--project-dock-width), calc(100vw - 732px));
-  }
-}
+
 .project-dock {
   position: relative;
   min-width: 0;
@@ -49,10 +42,10 @@
 }
 .project-dock {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(0, 1fr) var(--dock-rail-width);
 }
 .project-dock:not(.open) {
-  grid-template-columns: 40px;
+  grid-template-columns: var(--dock-rail-width);
 }
 .project-dock-content {
   min-width: 0;
@@ -602,81 +595,7 @@
 .file-code-grid .hljs-built_in {
   color: #b64f64;
 }
-@media (max-width: 1600px) and (min-width: 1101px) {
-  .app-layout.dock-open.inspector-open {
-    grid-template-columns: 288px minmax(0, 1fr) var(--project-panel-size);
-  }
-  .dock-open .tool-inspector {
-    position: fixed;
-    z-index: 30;
-    right: var(--project-panel-size);
-    top: 0;
-    width: min(380px, calc(100vw - var(--project-panel-size)));
-    box-shadow: -10px 0 28px rgb(0 0 0 / 12%);
-  }
-}
-@media (max-width: 1100px) {
-  .app-layout,
-  .app-layout.inspector-open,
-  .app-layout.dock-open {
-    --project-panel-size: 40px;
-    grid-template-columns: 288px minmax(0, 1fr) 40px;
-  }
-  .project-dock.open {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: min(640px, calc(100vw - 48px));
-    z-index: 45;
-    box-shadow: -12px 0 32px rgb(0 0 0 / 16%);
-  }
-  .project-dock-resizer {
-    display: none;
-  }
-}
-@media (max-width: 900px) and (min-width: 761px) {
-  .app-layout,
-  .app-layout.inspector-open,
-  .app-layout.dock-open {
-    grid-template-columns: 248px minmax(0, 1fr) 40px;
-  }
-}
-@media (max-width: 760px) {
-  .project-dock:not(.open) {
-    position: fixed;
-    right: 8px;
-    top: 4px;
-    z-index: 46;
-    height: auto;
-    width: 76px;
-    grid-template-columns: 1fr;
-    border: 1px solid var(--border-strong);
-    border-radius: 10px;
-    box-shadow: var(--shadow);
-  }
-  .project-dock:not(.open) .project-dock-rail {
-    display: flex;
-    border: 0;
-    border-radius: inherit;
-  }
-  .project-dock-launcher {
-    height: 36px;
-    margin: 0 auto;
-  }
-  .project-dock.open {
-    width: 100vw;
-  }
-  .project-dock-expanded {
-    grid-template-rows: var(--header-height) minmax(0, 1fr);
-  }
-  .file-tree-entry {
-    height: 34px;
-  }
-  .file-tab-wrap,
-  .file-tab-files {
-    height: 32px;
-  }
-}
+
 @media (prefers-color-scheme: dark) {
   .file-code-grid .hljs-keyword,
   .file-code-grid .hljs-selector-tag,
@@ -701,42 +620,6 @@
   .file-code-grid .hljs-name,
   .file-code-grid .hljs-built_in {
     color: #e891a0;
-  }
-}
-
-@media (max-width: 1100px) and (min-width: 761px) {
-  .project-dock:not(.open) {
-    z-index: 31;
-  }
-  .tool-inspector {
-    right: 40px;
-    width: min(420px, calc(100vw - 88px));
-  }
-}
-
-.workspace {
-  container-type: inline-size;
-}
-@container (max-width: 720px) {
-  .trajectory-view.detail-open .trajectory-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .trajectory-inspector {
-    position: absolute;
-    z-index: 40;
-    inset: 0;
-  }
-}
-
-@media (max-width: 760px) {
-  .app-layout:not(.dock-open) .session-header,
-  .app-layout:not(.dock-open) .new-session-header,
-  .app-layout:not(.dock-open) .inspector-header,
-  .app-layout:not(.dock-open) .trajectory-inspector > header {
-    padding-right: 96px;
-  }
-  .app-layout:not(.dock-open) .project-sidebar-header {
-    padding-right: 88px;
   }
 }
 

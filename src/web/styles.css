@@ -10,9 +10,9 @@
 @import "./styles/trajectory.css";
 @import "./styles/inspector.css";
 @import "./styles/composer.css";
-@import "./styles/responsive.css";
 @import "./styles/model-settings.css";
 @import "./styles/files.css";
 @import "./styles/project-sessions.css";
 @import "./styles/subagent-topology.css";
 @import "./styles/assistant-activity.css";
+@import "./styles/responsive.css";

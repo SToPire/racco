@@ -46,6 +46,14 @@
   --avatar-codex-bg: #ffffff;
   --avatar-claude-bg: #f3e8e1;
   --provider-logo: #141413;
+  --sidebar-width: 288px;
+  --sidebar-compact-width: 248px;
+  --dock-rail-width: 40px;
+  --workspace-min-width: 64px;
+  --inspector-width: 380px;
+  --subagent-panel-width: 252px;
+  --subagent-panel-inset: 12px;
+  --subagent-panel-gap: 12px;
   --conversation-width: 760px;
   --conversation-gutter: 24px;
   --font-size-xs: 0.6875rem;
@@ -162,9 +170,11 @@ input:focus-visible {
 }
 
 .app-layout {
-  --project-panel-size: 40px;
+  --project-panel-size: var(--dock-rail-width);
   display: grid;
-  grid-template-columns: 288px minmax(0, 1fr) var(--project-panel-size);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(
+      --project-panel-size
+    );
   width: 100%;
   height: 100dvh;
   overflow: hidden;
@@ -172,7 +182,18 @@ input:focus-visible {
 }
 
 .app-layout.inspector-open {
-  grid-template-columns: 288px minmax(0, 1fr) minmax(320px, 380px) var(
-      --project-panel-size
-    );
+  grid-template-columns:
+    var(--sidebar-width) minmax(0, 1fr) minmax(320px, var(--inspector-width))
+    var(--project-panel-size);
+}
+
+.app-layout.dock-open {
+  --project-panel-size: min(
+    var(--project-dock-width),
+    calc(100vw - var(--sidebar-width) - var(--workspace-min-width))
+  );
+}
+
+.workspace {
+  container-type: inline-size;
 }

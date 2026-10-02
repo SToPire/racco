@@ -18,6 +18,8 @@ Chat 的可见消息列与输入框共享宽度、居中和水平留白，并计
 
 本决策细化[正文居中](2026-09-28-subagent-topology-centering.md)的内容边界，保留悬浮拓扑不挤压正文的约束；[阅读位置](../feature/2026-09-22-conversation-reading-position.md)与[轨迹定位](../feature/2026-09-22-trajectory-location.md)继续持有跟随和导航语义。[临时图片](../feature/2026-09-27-ephemeral-chat-images.md)的数量占位与存储边界不变，无需完整替代或归档相关记录。
 
+页面外壳列宽与布局容器由 base.css 统一拥有；跨组件视口、容器断点集中于最后加载的 responsive.css，组件文件保留局部外观。侧栏、Dock 和拓扑几何尺寸使用公共 CSS token，拓扑的空间判断读取同一 token，避免样式与行为重复维护数值。断点维持现有响应式语义，不引入额外样式框架。
+
 ## Alternatives considered
 
 **把所有状态合成一个指示器：** 能减少视觉元素，却会混淆连接中断、主任务执行和子任务完成，失去独立的操作依据。

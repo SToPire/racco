@@ -8,13 +8,13 @@
 .subagent-topology {
   position: absolute;
   z-index: 15;
-  top: 12px;
-  left: 12px;
+  top: var(--subagent-panel-inset);
+  left: var(--subagent-panel-inset);
   display: flex;
   flex-direction: column;
-  width: 252px;
-  max-width: calc(100% - 24px);
-  max-height: calc(100% - 24px);
+  width: var(--subagent-panel-width);
+  max-width: calc(100% - 2 * var(--subagent-panel-inset));
+  max-height: calc(100% - 2 * var(--subagent-panel-inset));
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 14px;

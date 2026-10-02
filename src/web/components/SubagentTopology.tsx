@@ -8,10 +8,6 @@ import { sessionStateLabel } from "../session-presentation";
 
 type AgentNode = { row: SubagentTimelineRow; children: AgentNode[] };
 
-// Keep the centered 760px transcript clear of the 252px card, its 12px
-// outer inset, and a 12px gap. Both sides of a centered column need that room.
-const EXPANDED_CONTENT_WIDTH = 760 + 2 * (252 + 12 + 12);
-
 // Streaming discovery may deliver children before their parents. Rebuild from
 // current relationships, keeping disconnected nodes visible and cycles bounded.
 export function agentForest(rows: SubagentTimelineRow[]): AgentNode[] {
@@ -67,7 +63,16 @@ export function SubagentTopology({
     if (!parent) return;
     const observer = new ResizeObserver(([entry]) => {
       const width = entry?.borderBoxSize[0]?.inlineSize ?? parent.clientWidth;
-      if (width > 0) setCompact(width < EXPANDED_CONTENT_WIDTH);
+      const style = getComputedStyle(parent);
+      const size = (token: string) =>
+        Number.parseFloat(style.getPropertyValue(token));
+      const expandedWidth =
+        size("--conversation-width") +
+        2 *
+          (size("--subagent-panel-width") +
+            size("--subagent-panel-inset") +
+            size("--subagent-panel-gap"));
+      if (width > 0) setCompact(width < expandedWidth);
     });
     observer.observe(parent);
     return () => observer.disconnect();
