@@ -6,8 +6,9 @@ import {
   fixtureModelSettings,
 } from "../../test/model-catalog.js";
 import assert from "node:assert/strict";
-import { realpath } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { memoryRepository } from "../../test/state.js";
@@ -30,6 +31,12 @@ function recordingSocket(sent: ServerMessage[] = []): WebSocket {
 
 async function fixtureCwd(): Promise<string> {
   return realpath(process.cwd());
+}
+
+async function fixtureDirectory(t: test.TestContext): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), "racco-hub-project-"));
+  t.after(() => rm(path, { recursive: true, force: true }));
+  return realpath(path);
 }
 
 function fixtureProjectId(repository: SessionRepository, cwd: string): string {
@@ -1108,8 +1115,8 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
   database.close();
 });
 
-test("imports canonical projects into the database without scanning a parent", async () => {
-  const cwd = await fixtureCwd();
+test("imports canonical projects into the database without scanning a parent", async (t) => {
+  const cwd = await fixtureDirectory(t);
   const repository = memoryRepository();
   const hub = new SessionHub(
     [],
@@ -1125,6 +1132,120 @@ test("imports canonical projects into the database without scanning a parent", a
   assert.equal(first.path, cwd);
   assert.deepEqual(hub.listProjects(), [first]);
   await hub.close();
+});
+
+test("serializes concurrent repository ownership checks before project registration", async (t) => {
+  const childProcess = (await import("node:child_process")).default;
+  const filesystem = (await import("node:fs/promises")).default;
+  const { syncBuiltinESMExports } = await import("node:module");
+  const fixture = await fixtureDirectory(t);
+  const main = join(fixture, "repo");
+  const nested = join(main, "src");
+  const existing = join(fixture, "existing");
+  await mkdir(nested, { recursive: true });
+  await mkdir(existing);
+  const repository = memoryRepository();
+  repository.importProject({ name: "existing", path: existing });
+  const hub = new SessionHub([], repository, fixture, async () => {});
+
+  // Gate Git callbacks after canonicalization. Both contenders in the broken
+  // implementation observe the same project list before either can insert.
+  const canonicalized = Promise.withResolvers<void>();
+  const remaining = new Set([main, nested]);
+  const stat = filesystem.stat;
+  const statMock = t.mock.method(
+    filesystem,
+    "stat",
+    async (...args: Parameters<typeof stat>) => {
+      const result = await stat(...args);
+      remaining.delete(String(args[0]));
+      if (remaining.size === 0) canonicalized.resolve();
+      return result;
+    },
+  );
+  const replies: Array<() => void> = [];
+  const gitMock = t.mock.method(
+    childProcess,
+    "execFile",
+    (...args: unknown[]) => {
+      const [file, command, options, callback] = args as [
+        string,
+        string[],
+        { cwd: string },
+        (error: null, stdout: string, stderr: string) => void,
+      ];
+      assert.equal(file, "git");
+      assert(command.includes("--git-common-dir"));
+      const common =
+        options.cwd === main || options.cwd === nested
+          ? join(main, ".git")
+          : join(existing, ".git");
+      replies.push(() => callback(null, `${common}\n`, ""));
+      return new childProcess.ChildProcess();
+    },
+  );
+  syncBuiltinESMExports();
+  async function complete<T>(operation: Promise<T>): Promise<T> {
+    let finished = false;
+    void operation.then(
+      () => {
+        finished = true;
+      },
+      () => {
+        finished = true;
+      },
+    );
+    while (!finished) {
+      for (const reply of replies.splice(0)) reply();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    return operation;
+  }
+  try {
+    const importing = Promise.allSettled([
+      hub.importProject(main),
+      hub.importProject(nested),
+    ]);
+    await canonicalized.promise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const results = await complete(importing);
+    const accepted = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result) => result.status === "rejected");
+    assert.equal(accepted.length, 1);
+    assert.equal(rejected.length, 1);
+    assert.match(String(rejected[0].reason), /已注册为项目/);
+    assert.equal(repository.listProjects().length, 2);
+    // A rejected registration cannot poison subsequent imports.
+    const repeated = await complete(hub.importProject(accepted[0].value.path));
+    assert.equal(repeated.projectId, accepted[0].value.projectId);
+  } finally {
+    statMock.mock.restore();
+    gitMock.mock.restore();
+    syncBuiltinESMExports();
+    await hub.close();
+  }
+});
+
+test("concurrent aliases of a valid main worktree return one project", async (t) => {
+  const { runGit } = await import("./worktrees/git.js");
+  const fixture = await fixtureDirectory(t);
+  const main = join(fixture, "repo");
+  const alias = join(fixture, "alias");
+  await runGit(["init", "-q", main]);
+  await symlink(main, alias);
+  const repository = memoryRepository();
+  const hub = new SessionHub([], repository, fixture, async () => {});
+  try {
+    const projects = await Promise.all([
+      hub.importProject(main),
+      hub.importProject(alias),
+    ]);
+    assert.equal(projects[0].projectId, projects[1].projectId);
+    assert.equal(projects[0].path, main);
+    assert.equal(repository.listProjects().length, 1);
+  } finally {
+    await hub.close();
+  }
 });
 
 test("rejects session creation unless the project is already imported", async () => {
@@ -1330,8 +1451,8 @@ for (const outcome of ["interrupt", "completed", "error", "answer"] as const) {
   });
 }
 
-test("broadcasts project and session catalog updates to every connected client", async () => {
-  const cwd = await fixtureCwd();
+test("broadcasts project and session catalog updates to every connected client", async (t) => {
+  const cwd = await fixtureDirectory(t);
   const repository = memoryRepository();
   const sentA: ServerMessage[] = [];
   const sentB: ServerMessage[] = [];
