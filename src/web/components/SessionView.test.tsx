@@ -1,3 +1,5 @@
+import { ComposerDrafts } from "../composer-drafts";
+import { ComposerDraftContext } from "../hooks/useComposerDraft";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -36,33 +38,35 @@ for (const provider of ["codex", "claude"] as const) {
       },
     ];
     const html = renderToStaticMarkup(
-      <SessionView
-        active={true}
-        loaded={true}
-        connection="open"
-        interactions={[]}
-        onBack={() => undefined}
-        onInterrupt={() => undefined}
-        onCompact={async () => true}
-        onResolve={() => undefined}
-        onSelectTool={() => undefined}
-        onSend={async () => true}
-        rows={rows}
-        sending={false}
-        session={{
-          sessionId: "session-1",
-          projectId: "project-1",
-          provider,
-          title: "Main task",
-          cwd: "/work/project",
-          state: "running",
-          updatedAt: "2026-09-03T00:00:00.000Z",
-          lifecycle: "active",
-          selectedModelSettings: null,
-          contextUsage: null,
-          compacting: false,
-        }}
-      />,
+      <ComposerDraftContext.Provider value={new ComposerDrafts()}>
+        <SessionView
+          active={true}
+          loaded={true}
+          connection="open"
+          interactions={[]}
+          onBack={() => undefined}
+          onInterrupt={() => undefined}
+          onCompact={async () => true}
+          onResolve={() => undefined}
+          onSelectTool={() => undefined}
+          onSend={async () => true}
+          rows={rows}
+          sending={false}
+          session={{
+            sessionId: "session-1",
+            projectId: "project-1",
+            provider,
+            title: "Main task",
+            cwd: "/work/project",
+            state: "running",
+            updatedAt: "2026-09-03T00:00:00.000Z",
+            lifecycle: "active",
+            selectedModelSettings: null,
+            contextUsage: null,
+            compacting: false,
+          }}
+        />
+      </ComposerDraftContext.Provider>,
     );
 
     assert.match(html, /Main task/);

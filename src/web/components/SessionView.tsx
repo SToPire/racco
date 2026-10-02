@@ -389,7 +389,7 @@ export function SessionView({
             </button>
           )}
           <Composer
-            scope={session.sessionId}
+            scope={`session:${session.sessionId}`}
             compacting={session.compacting}
             contextControls={
               session.provider === "codex" ? (

@@ -1,4 +1,5 @@
 import { useImageDraft } from "../hooks/useImageDraft";
+import { useDraftText } from "../hooks/useComposerDraft";
 import {
   AttachImageButton,
   ImageAttachments,
@@ -78,7 +79,7 @@ export function NewSessionView({
   onCreateWorktree,
 }: NewSessionViewProps) {
   const input = useRef<HTMLTextAreaElement>(null);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useDraftText("new-text");
   const [provider, setProvider] = useState<Provider>("codex");
   const [creatingWorktree, setCreatingWorktree] = useState(false);
   const [newWorktreeName, setNewWorktreeName] = useState("");
@@ -110,7 +111,7 @@ export function NewSessionView({
     true,
     connected,
   );
-  const images = useImageDraft(`${projectId}:${targetPath}`);
+  const images = useImageDraft(`new-images:${projectId}:${targetPath}`);
   const unsupported =
     selection.catalog?.models.find(
       (model) => model.id === selection.draft?.modelId,

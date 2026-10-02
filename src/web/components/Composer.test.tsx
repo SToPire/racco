@@ -1,3 +1,5 @@
+import { ComposerDrafts } from "../composer-drafts";
+import { ComposerDraftContext } from "../hooks/useComposerDraft";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -31,15 +33,17 @@ function renderComposer({
   compacting = false,
 } = {}) {
   return renderToStaticMarkup(
-    <Composer
-      scope={"test"}
-      inputDisabled={inputDisabled}
-      sendDisabled={sendDisabled}
-      sending={sending}
-      compacting={compacting}
-      selection={selection}
-      onSend={async () => true}
-    />,
+    <ComposerDraftContext.Provider value={new ComposerDrafts()}>
+      <Composer
+        scope={"test"}
+        inputDisabled={inputDisabled}
+        sendDisabled={sendDisabled}
+        sending={sending}
+        compacting={compacting}
+        selection={selection}
+        onSend={async () => true}
+      />
+    </ComposerDraftContext.Provider>,
   );
 }
 

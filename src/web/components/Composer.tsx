@@ -7,7 +7,8 @@ import {
   imageDragOver,
 } from "./ImageAttachments";
 import type { UserInput } from "../../shared/user-input";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode } from "react";
+import { useDraftText } from "../hooks/useComposerDraft";
 import type { ModelSettings } from "../../shared/protocol";
 import { submitOnEnter } from "../composer-keyboard";
 import {
@@ -37,7 +38,7 @@ export function Composer({
   contextControls,
   compacting = false,
 }: ComposerProps) {
-  const [text, setText] = useState("");
+  const [text, setText] = useDraftText(scope);
   const images = useImageDraft(scope);
   const unsupported =
     selection.catalog?.models.find(

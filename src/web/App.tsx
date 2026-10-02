@@ -21,8 +21,11 @@ import { useProjectPicker } from "./hooks/useProjectPicker";
 import { useRacco } from "./hooks/useRacco";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
 import { findTimelineTool } from "./store";
+import { ComposerDrafts } from "./composer-drafts";
+import { ComposerDraftContext } from "./hooks/useComposerDraft";
 
 export function App() {
+  const [drafts] = useState(() => new ComposerDrafts());
   const navigation = useWorkspaceNavigation();
   const {
     activeRef,
@@ -83,6 +86,18 @@ export function App() {
   /** Worktree chosen in the new-session view; empty means the primary one. */
   const [newSessionWorktreePath, setNewSessionWorktreePath] = useState("");
   const [fileRequest, setFileRequest] = useState<FileOpenRequest>();
+  useEffect(() => {
+    if (loading) return;
+    const sessionIds = new Set(sessions.map((entry) => entry.sessionId));
+    const projectIds = new Set(projects.map((entry) => entry.projectId));
+    drafts.discardWhere((scope) =>
+      scope.startsWith("session:")
+        ? !sessionIds.has(scope.slice("session:".length))
+        : scope.startsWith("new-images:") &&
+          !projectIds.has(scope.split(":")[1]!),
+    );
+  }, [drafts, loading, sessions, projects]);
+  useEffect(() => () => drafts.discardWhere(() => true), [drafts]);
   const fileRequestSequence = useRef(0);
   const onFileOpened = useCallback((requestId: number) => {
     setFileRequest((current) =>
@@ -194,7 +209,7 @@ export function App() {
     });
   }
 
-  return (
+  const content = (
     <FileNavigationContext.Provider
       value={
         session === undefined
@@ -374,5 +389,10 @@ export function App() {
         />
       </main>
     </FileNavigationContext.Provider>
+  );
+  return (
+    <ComposerDraftContext.Provider value={drafts}>
+      {content}
+    </ComposerDraftContext.Provider>
   );
 }

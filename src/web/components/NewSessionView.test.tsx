@@ -1,3 +1,5 @@
+import { ComposerDrafts } from "../composer-drafts";
+import { ComposerDraftContext } from "../hooks/useComposerDraft";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -47,24 +49,26 @@ const worktrees: WorktreeEntry[] = [
 
 function render(props: Partial<Parameters<typeof NewSessionView>[0]> = {}) {
   return renderToStaticMarkup(
-    <NewSessionView
-      active={true}
-      busyWorktree={false}
-      connected={true}
-      creating={false}
-      health={{ ok: true, providers: { codex: "ready", claude: "ready" } }}
-      onBack={() => undefined}
-      onCreate={async () => true}
-      onCreateWorktree={async () => undefined}
-      onImportProject={() => undefined}
-      onProjectChange={() => undefined}
-      onWorktreeChange={() => undefined}
-      projectId=""
-      projects={[]}
-      worktreePath=""
-      worktrees={[]}
-      {...props}
-    />,
+    <ComposerDraftContext.Provider value={new ComposerDrafts()}>
+      <NewSessionView
+        active={true}
+        busyWorktree={false}
+        connected={true}
+        creating={false}
+        health={{ ok: true, providers: { codex: "ready", claude: "ready" } }}
+        onBack={() => undefined}
+        onCreate={async () => true}
+        onCreateWorktree={async () => undefined}
+        onImportProject={() => undefined}
+        onProjectChange={() => undefined}
+        onWorktreeChange={() => undefined}
+        projectId=""
+        projects={[]}
+        worktreePath=""
+        worktrees={[]}
+        {...props}
+      />
+    </ComposerDraftContext.Provider>,
   );
 }
 
