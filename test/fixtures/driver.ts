@@ -146,17 +146,35 @@ export class FixtureDriver implements AgentDriver {
       if (inputText(input.content) === "error")
         throw new Error("Fixture provider failure");
       let suffix = "";
-      if (inputText(input.content) === "question") {
+      if (["question", "question-other"].includes(inputText(input.content))) {
         const answer = await input.context.requestInteraction({
           title: "Fixture question",
-          questions: [
-            {
-              id: "choice",
-              text: "选择一个选项",
-              multiple: false,
-              options: [{ label: "Alpha" }, { label: "Beta" }],
-            },
-          ],
+          questions:
+            inputText(input.content) === "question-other"
+              ? [
+                  {
+                    id: "multiple",
+                    text: "选择多个选项",
+                    multiple: true,
+                    allowOther: true,
+                    options: [{ label: "Alpha" }, { label: "Beta" }],
+                  },
+                  {
+                    id: "single",
+                    text: "选择一个选项",
+                    multiple: false,
+                    allowOther: true,
+                    options: [{ label: "Gamma" }, { label: "Delta" }],
+                  },
+                ]
+              : [
+                  {
+                    id: "choice",
+                    text: "选择一个选项",
+                    multiple: false,
+                    options: [{ label: "Alpha" }, { label: "Beta" }],
+                  },
+                ],
         });
         suffix = ` (${answer.decision})`;
       }
