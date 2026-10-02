@@ -1,5 +1,6 @@
 import { useImageDraft } from "../hooks/useImageDraft";
 import { useDraftText } from "../hooks/useComposerDraft";
+import { useAutosizeTextarea } from "../hooks/useAutosizeTextarea";
 import {
   AttachImageButton,
   ImageAttachments,
@@ -80,6 +81,7 @@ export function NewSessionView({
 }: NewSessionViewProps) {
   const input = useRef<HTMLTextAreaElement>(null);
   const [prompt, setPrompt] = useDraftText("new-text");
+  useAutosizeTextarea(input, prompt);
   const [provider, setProvider] = useState<Provider>("codex");
   const [creatingWorktree, setCreatingWorktree] = useState(false);
   const [newWorktreeName, setNewWorktreeName] = useState("");
