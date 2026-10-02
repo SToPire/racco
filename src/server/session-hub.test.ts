@@ -226,6 +226,44 @@ test("broadcasts withdrawn and stopped text and replays it consistently on recon
   }
 });
 
+test("active-session reconnect snapshots retain only the current streaming content", async () => {
+  const f = await modelTestHub();
+  let emit!: (event: TimelineEvent) => void;
+  f.driver.runTurn = async ({ context, signal }) => {
+    emit = context.emit;
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  };
+  try {
+    const { ref } = await f.hub.createSession(
+      { readyState: WebSocket.CLOSED } as WebSocket,
+      "codex",
+      f.projectId,
+      f.cwd,
+      "compact-stream",
+      [{ type: "text", text: "hello" }],
+      fixtureModelSettings,
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (let count = 1; count <= 2000; count++) {
+      emit({
+        type: "assistant.message",
+        id: "answer",
+        text: "x".repeat(count * 20),
+        partial: true,
+      });
+    }
+    const snapshot = await f.hub.snapshot(ref);
+    assert(snapshot);
+    assert.equal(snapshot.events.length, 2);
+    assert.equal(snapshot.events.at(-1)?.type, "assistant.message");
+    assert(JSON.stringify(snapshot).length < 41_000);
+  } finally {
+    await f.hub.close();
+  }
+});
+
 test("coalesces creation and binds accepted requests to both model and effort", async () => {
   const f = await modelTestHub();
   try {
