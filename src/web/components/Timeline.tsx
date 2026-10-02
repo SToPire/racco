@@ -115,6 +115,11 @@ export const Timeline = memo(function Timeline({
                   {`[图片*${row.imageCount}]`}
                 </p>
               )}
+              {user && row.imageCount > 0 && (
+                <small className="image-input-status">
+                  Racco 历史不保存原图，需要时请重新上传。
+                </small>
+              )}
               {row.text && <MarkdownContent text={row.text} />}
             </div>
           </article>

@@ -56,7 +56,7 @@ export function AttachImageButton({
         type="button"
         className="attach-image-button"
         aria-label="添加图片"
-        title="添加图片，也可粘贴或拖拽"
+        title="添加图片，也可粘贴或拖拽；仅供本轮处理，Racco 历史不保存原图"
         disabled={disabled || draft.preparing}
         onClick={() => input.current?.click()}
       >
@@ -104,6 +104,11 @@ export function ImageAttachments({
             </div>
           ))}
         </div>
+      )}
+      {draft.images.length > 0 && (
+        <small className="image-input-status">
+          图片仅供本轮处理，发送后历史只保留数量；需要再次查看或分析时请重新上传。
+        </small>
       )}
       {draft.preparing && (
         <small className="image-input-status" role="status">

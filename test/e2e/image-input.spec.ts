@@ -36,6 +36,12 @@ for (const provider of ["codex", "claude"] as const) {
     await expect(
       page.getByRole("img", { name: "图片 1：red.png" }),
     ).toBeVisible();
+    await expect(
+      page.getByText(
+        "图片仅供本轮处理，发送后历史只保留数量；需要再次查看或分析时请重新上传。",
+        { exact: true },
+      ),
+    ).toBeVisible();
     await page.getByRole("button", { name: "新建并发送", exact: true }).click();
     await expect(page).toHaveURL(/\/session\//);
     await expect(
@@ -54,6 +60,11 @@ for (const provider of ["codex", "claude"] as const) {
       page.locator(".session-view:not([hidden]) .message-image-placeholder"),
     ).toHaveText("[图片*1]");
     await expect(page.locator(".message-user img")).toHaveCount(0);
+    await expect(
+      page.getByText("Racco 历史不保存原图，需要时请重新上传。", {
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(page.getByLabel("待发送图片")).toHaveCount(0);
     await page.getByRole("textbox", { name: "发送给 Racco" }).fill("continue");
     await page.getByRole("button", { name: "发送", exact: true }).click();
