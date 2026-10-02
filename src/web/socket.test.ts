@@ -185,3 +185,14 @@ test("ACKs clear deadlines and destroy clears all scheduled work", async (t) => 
   socket.destroy();
   assert.equal(timers.size, 0);
 });
+
+test("structurally invalid server JSON closes the connection and never reaches the domain", async (t) => {
+  const { socket, clients } = fixture(t);
+  const messages: string[] = [];
+  socket.onMessage((message) => messages.push(message.type));
+  const pending = assert.rejects(socket.request(command), /不符合当前协议/);
+  clients[0].reply({ type: "session.removed" });
+  await pending;
+  assert.deepEqual(messages, ["error"]);
+  assert.equal(clients[0].readyState, 2);
+});

@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { ApiResponseSchemas } from "../shared/server-message-schema";
 import type {
   HealthResponse,
   DirectoryListing,
@@ -30,21 +32,25 @@ export async function listModels(
       { message?: string } | undefined;
     throw new Error(payload?.message ?? "无法读取模型列表");
   }
-  const catalog = ModelCatalogSchema.parse(await response.json());
+  const catalog = parseResponse(ModelCatalogSchema, await response.json());
   if (catalog.provider !== provider || catalog.path !== path)
     throw new Error("模型目录与当前 Worktree 不符");
   return catalog;
 }
 
-async function getJson<T>(url: string): Promise<T> {
+async function getJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
-  return (await response.json()) as T;
+  return parseResponse(schema, await response.json());
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
+async function postJson<T>(
+  url: string,
+  schema: z.ZodType<T>,
+  body: unknown,
+): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
     headers:
@@ -58,7 +64,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
       payload?.message ?? `${response.status} ${response.statusText}`,
     );
   }
-  return (await response.json()) as T;
+  return parseResponse(schema, await response.json());
 }
 
 async function del(url: string): Promise<void> {
@@ -74,7 +80,7 @@ async function del(url: string): Promise<void> {
   }
 }
 
-async function delJson<T>(url: string): Promise<T> {
+async function delJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   const response = await fetch(url, { method: "DELETE" });
   if (!response.ok) {
     const payload = (await response.json().catch(() => undefined)) as
@@ -85,15 +91,15 @@ async function delJson<T>(url: string): Promise<T> {
     error.status = response.status;
     throw error;
   }
-  return (await response.json()) as T;
+  return parseResponse(schema, await response.json());
 }
 
 export function getHealth(): Promise<HealthResponse> {
-  return getJson("/api/health");
+  return getJson("/api/health", ApiResponseSchemas.health);
 }
 
 export function listSessions(): Promise<SessionSummary[]> {
-  return getJson("/api/sessions");
+  return getJson("/api/sessions", ApiResponseSchemas.sessions);
 }
 
 export async function listNativeSessions(
@@ -112,7 +118,7 @@ export async function listNativeSessions(
       { message?: string } | undefined;
     throw new Error(payload?.message ?? "无法读取会话列表");
   }
-  const page = NativeSessionPageSchema.parse(await response.json());
+  const page = parseResponse(NativeSessionPageSchema, await response.json());
   if (page.path !== path || page.provider !== provider)
     throw new Error("会话列表与当前 Worktree 不符");
   return page;
@@ -124,7 +130,7 @@ export function importSession(
   projectId: string,
   path: string,
 ): Promise<SessionSummary> {
-  return postJson("/api/sessions/import", {
+  return postJson("/api/sessions/import", ApiResponseSchemas.session, {
     provider,
     providerSessionId,
     projectId,
@@ -138,21 +144,29 @@ export function deleteNativeSession(
   projectId: string,
   path: string,
 ): Promise<{ removedManagedSessionId: string | null }> {
-  return postJson("/api/sessions/delete-native", {
-    provider,
-    providerSessionId,
-    projectId,
-    path,
-  });
+  return postJson(
+    "/api/sessions/delete-native",
+    ApiResponseSchemas.nativeDeletion,
+    {
+      provider,
+      providerSessionId,
+      projectId,
+      path,
+    },
+  );
 }
 
 export function listWorktrees(projectId: string): Promise<WorktreeCatalog> {
-  return getJson(`/api/worktrees?${new URLSearchParams({ projectId })}`);
+  return getJson(
+    `/api/worktrees?${new URLSearchParams({ projectId })}`,
+    ApiResponseSchemas.worktrees,
+  );
 }
 
 export function refreshWorktrees(projectId: string): Promise<WorktreeCatalog> {
   return postJson(
     `/api/worktrees/refresh?${new URLSearchParams({ projectId })}`,
+    ApiResponseSchemas.worktrees,
     undefined,
   );
 }
@@ -164,6 +178,7 @@ export function createWorktree(
 ): Promise<WorktreeCatalog> {
   return postJson(
     `/api/projects/${encodeURIComponent(projectId)}/worktrees`,
+    ApiResponseSchemas.worktrees,
     baseRef === undefined ? { name } : { name, baseRef },
   );
 }
@@ -177,11 +192,11 @@ export function deleteWorktree(
   const query = new URLSearchParams({ projectId, path });
   if (force) query.set("force", "true");
   if (deleteBranch) query.set("deleteBranch", "true");
-  return delJson(`/api/worktrees?${query}`);
+  return delJson(`/api/worktrees?${query}`, ApiResponseSchemas.deleteWorktree);
 }
 
 export function listProjects(): Promise<ProjectEntry[]> {
-  return getJson("/api/projects");
+  return getJson("/api/projects", ApiResponseSchemas.projects);
 }
 
 export function deleteProject(
@@ -199,7 +214,7 @@ export function deleteSession(sessionId: string): Promise<void> {
 }
 
 export function importProject(path: string): Promise<ProjectEntry> {
-  return postJson("/api/projects", { path });
+  return postJson("/api/projects", ApiResponseSchemas.project, { path });
 }
 
 export async function listDirectories(
@@ -213,11 +228,12 @@ export async function listDirectories(
       { message?: string } | undefined;
     throw new Error(payload?.message ?? `无法读取目录（${response.status}）`);
   }
-  return (await response.json()) as DirectoryListing;
+  return parseResponse(ApiResponseSchemas.directory, await response.json());
 }
 
 async function readWorktreeResource<T>(
   resource: "tree" | "file",
+  schema: z.ZodType<T>,
   path: string,
   relative: string,
   signal?: AbortSignal,
@@ -234,7 +250,7 @@ async function readWorktreeResource<T>(
       { message?: string } | undefined;
     throw new Error(payload?.message ?? `读取失败（${response.status}）`);
   }
-  return (await response.json()) as T;
+  return parseResponse(schema, await response.json());
 }
 
 export function listWorktreeFiles(
@@ -242,7 +258,13 @@ export function listWorktreeFiles(
   dir = "",
   signal?: AbortSignal,
 ): Promise<ProjectTreeListing> {
-  return readWorktreeResource("tree", path, dir, signal);
+  return readWorktreeResource(
+    "tree",
+    ApiResponseSchemas.tree,
+    path,
+    dir,
+    signal,
+  );
 }
 
 export function readWorktreeFile(
@@ -250,5 +272,18 @@ export function readWorktreeFile(
   file: string,
   signal?: AbortSignal,
 ): Promise<ProjectFilePreview> {
-  return readWorktreeResource("file", path, file, signal);
+  return readWorktreeResource(
+    "file",
+    ApiResponseSchemas.file,
+    path,
+    file,
+    signal,
+  );
+}
+
+function parseResponse<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+  if (!result.success)
+    throw new Error("服务器响应不符合当前协议，请刷新后重试。");
+  return result.data;
 }

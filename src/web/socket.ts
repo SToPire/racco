@@ -1,3 +1,4 @@
+import { ServerMessageSchema } from "../shared/server-message-schema";
 import type { ClientCommand, ServerMessage } from "../shared/protocol";
 
 export const SOCKET_REQUEST_TIMEOUT_MS = 30_000;
@@ -70,9 +71,12 @@ export class RaccoSocket {
       if (this.#socket !== socket || typeof event.data !== "string") return;
       let message: ServerMessage;
       try {
-        message = JSON.parse(event.data) as ServerMessage;
+        message = ServerMessageSchema.parse(JSON.parse(event.data));
       } catch {
-        this.#disconnect(socket, new Error("服务器消息无效，请刷新后重试"));
+        const error = new Error("服务器消息不符合当前协议，请刷新后重试。");
+        for (const listener of this.#messageListeners)
+          listener({ type: "error", message: error.message });
+        this.#disconnect(socket, error);
         return;
       }
       if (message.type === "ack" || message.type === "error") {

@@ -1,3 +1,4 @@
+import { InspectorErrorBoundary } from "./components/InspectorErrorBoundary";
 import {
   type CSSProperties,
   useCallback,
@@ -358,11 +359,15 @@ export function App() {
                 : session?.cwd
             }
           >
-            <ToolInspector
+            <InspectorErrorBoundary
               key={selectedTool.id}
               onClose={() => setSelectedToolId(undefined)}
-              row={selectedTool}
-            />
+            >
+              <ToolInspector
+                onClose={() => setSelectedToolId(undefined)}
+                row={selectedTool}
+              />
+            </InspectorErrorBoundary>
           </FileReferenceScope>
         )}
         <ProjectDock
