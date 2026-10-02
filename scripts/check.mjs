@@ -10,6 +10,7 @@ const checks = [
   "test",
   "test:tools",
   "build:check",
+  "test:compiled",
   "test:ui",
 ];
 const source = await buildInfo();
@@ -18,11 +19,15 @@ let failed = false;
 await mkdir(join(root, ".tmp/check"), { recursive: true });
 for (const check of checks) {
   const startedAt = new Date().toISOString();
-  const nodeReport = ["test", "test:tools"].includes(check)
+  const nodeReport = ["test", "test:tools", "test:compiled"].includes(check)
     ? join(
         root,
         ".tmp/check",
-        check === "test" ? "unit-counts.json" : "tool-counts.json",
+        check === "test"
+          ? "unit-counts.json"
+          : check === "test:tools"
+            ? "tool-counts.json"
+            : "compiled-counts.json",
       )
     : undefined;
   const uiReport =

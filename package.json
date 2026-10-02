@@ -38,6 +38,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"test/**/*.{ts,tsx,mjs}\" vite.config.ts playwright.config.ts",
     "test:tools": "node --test --test-reporter=./scripts/lib/test-reporter.mjs \"scripts/**/*.test.mjs\"",
     "test:ui": "playwright test",
+    "test:compiled": "node --test --test-reporter=./scripts/lib/test-reporter.mjs test/compiled/*.test.mjs",
     "smoke:images": "node --import tsx scripts/smoke-images.mjs"
   },
   "dependencies": {
