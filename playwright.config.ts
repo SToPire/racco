@@ -3,6 +3,7 @@ export default defineConfig({
   testDir: "./test/e2e",
   globalSetup: "./test/e2e/global-setup.mjs",
   fullyParallel: true,
+  forbidOnly: process.env.RACCO_FULL_CHECK === "1",
   workers: 2,
   timeout: 30_000,
   reporter: [

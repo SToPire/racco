@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-仓库不提供 GitHub Actions 工作流，开发者手动运行 `npm run check` 完成项目验证。检查脚本及本地报告输出继续保留。本记录持有验证触发方式，与[开发资料的版本控制边界](2026-09-19-versioned-development-assets.md)互补，不替代其资料收录约定。
+仓库不提供 GitHub Actions 工作流，开发者手动运行 `npm run check` 完成项目验证。检查脚本及本地报告输出继续保留。完整门禁禁止 Playwright 独占用例，并记录 Node 与浏览器执行和跳过数量；缺少用例统计不能算通过。静态组件测试只保留可访问性和状态语义，不锁定 SVG 几何、CSS 类名或属性顺序。本记录持有验证触发方式，与[开发资料的版本控制边界](2026-09-19-versioned-development-assets.md)互补，不替代其资料收录约定。
 
 ## Alternatives considered
 

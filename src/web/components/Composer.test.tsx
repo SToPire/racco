@@ -49,13 +49,21 @@ function renderComposer({
   );
 }
 
+function disabledControl(html: string, label: string) {
+  const tag = html
+    .match(/<[^>]+>/g)
+    ?.find((tag) => tag.includes(`aria-label="${label}"`));
+  assert.ok(tag, `Missing control ${label}`);
+  assert.match(tag, /\bdisabled=""/);
+}
+
 test("permits draft editing while sending a new turn is disabled", () => {
   const html = renderComposer({ sendDisabled: true });
   const input = html.match(/<textarea\b[^>]*>/)?.[0];
   assert.ok(input);
   assert.doesNotMatch(input, /disabled/);
   assert.match(input, /可先准备草稿，任务结束后发送/);
-  assert.match(html, /aria-label="模型"[^>]*disabled=""/);
+  disabledControl(html, "模型");
 });
 
 test("locks draft editing while a submission is awaiting confirmation", () => {
@@ -64,19 +72,21 @@ test("locks draft editing while a submission is awaiting confirmation", () => {
   assert.ok(input);
   assert.match(input, /disabled=""/);
   assert.match(input, /正在发送，请稍候/);
-  assert.match(html, /aria-label="发送中"[^>]*disabled=""/);
+  disabledControl(html, "发送中");
 });
 
 test("compaction locks the entire composer even when other controls allow editing", () => {
   const html = renderComposer({ compacting: true });
-  assert.match(html, /composer-compacting/);
-  assert.match(html, /<textarea[^>]*disabled=""[^>]*正在压缩上下文/);
-  assert.match(html, /aria-label="模型"[^>]*disabled=""/);
-  assert.match(html, /aria-label="发送"[^>]*disabled=""/);
+  const input = html.match(/<textarea\b[^>]*>/)?.[0];
+  assert.ok(input);
+  assert.match(input, /disabled=""/);
+  assert.match(input, /正在压缩上下文/);
+  disabledControl(html, "模型");
+  disabledControl(html, "发送");
 });
 
 test("an unavailable session prevents editing regardless of submission state", () => {
   const html = renderComposer({ inputDisabled: true });
   assert.match(html, /<textarea[^>]*disabled=""/);
-  assert.match(html, /aria-label="发送"[^>]*disabled=""/);
+  disabledControl(html, "发送");
 });
