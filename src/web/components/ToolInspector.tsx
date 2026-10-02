@@ -280,12 +280,38 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         className="inspector-tabs view-tabs"
         role="tablist"
         aria-label="工具详情选项卡"
+        onKeyDown={(event) => {
+          const tabs = Array.from(
+            event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              "[role=tab]",
+            ),
+          );
+          const index = tabs.indexOf(
+            document.activeElement as HTMLButtonElement,
+          );
+          const next =
+            event.key === "ArrowRight"
+              ? (index + 1) % tabs.length
+              : event.key === "ArrowLeft"
+                ? (index + tabs.length - 1) % tabs.length
+                : event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? tabs.length - 1
+                    : undefined;
+          if (next !== undefined) {
+            event.preventDefault();
+            tabs[next]?.focus();
+            tabs[next]?.click();
+          }
+        }}
       >
         {hasInput && (
           <button
             id={`${id}-input`}
             aria-controls={`${id}-panel`}
             aria-selected={activeTab === "input"}
+            tabIndex={activeTab === "input" ? 0 : -1}
             onClick={() => setRequestedTab("input")}
             role="tab"
             type="button"
@@ -298,6 +324,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
             id={`${id}-output`}
             aria-controls={`${id}-panel`}
             aria-selected={activeTab === "output"}
+            tabIndex={activeTab === "output" ? 0 : -1}
             onClick={() => setRequestedTab("output")}
             role="tab"
             type="button"
@@ -310,6 +337,7 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
             id={`${id}-raw`}
             aria-controls={`${id}-panel`}
             aria-selected={activeTab === "raw"}
+            tabIndex={activeTab === "raw" ? 0 : -1}
             onClick={() => setRequestedTab("raw")}
             role="tab"
             type="button"

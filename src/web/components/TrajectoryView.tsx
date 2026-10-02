@@ -281,7 +281,6 @@ export function TrajectoryView({
                 </small>
                 <button
                   aria-current={entry.id === selected?.id ? "true" : undefined}
-                  role="listitem"
                   className="trajectory-entry"
                   onClick={() => setSelectedId(entry.id)}
                   type="button"

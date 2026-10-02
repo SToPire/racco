@@ -36,10 +36,43 @@ export function AgentSwitcherMenu({
   onSelect: (agentId: string | undefined) => void;
 }) {
   const selected = subagents.find((row) => row.agentId === selectedAgentId);
+  const [focused, setFocused] = useState(() =>
+    selected === undefined ? 0 : subagents.indexOf(selected) + 1,
+  );
   const byId = new Map(subagents.map((row) => [row.agentId, row]));
   return (
-    <div className="agent-switcher-menu" role="listbox" aria-label="切换 Agent">
+    <div
+      className="agent-switcher-menu"
+      role="listbox"
+      aria-label="切换 Agent"
+      onKeyDown={(event) => {
+        const options = Array.from(
+          event.currentTarget.querySelectorAll<HTMLButtonElement>(
+            "[role=option]",
+          ),
+        );
+        const index = options.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        const next =
+          event.key === "ArrowDown"
+            ? (index + 1) % options.length
+            : event.key === "ArrowUp"
+              ? (index + options.length - 1) % options.length
+              : event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? options.length - 1
+                  : undefined;
+        if (next !== undefined) {
+          event.preventDefault();
+          options[next]?.focus();
+        }
+      }}
+    >
       <button
+        tabIndex={focused === 0 ? 0 : -1}
+        onFocus={() => setFocused(0)}
         aria-selected={selected === undefined}
         className={selected === undefined ? "selected" : ""}
         onClick={() => onSelect(undefined)}
@@ -55,12 +88,14 @@ export function AgentSwitcherMenu({
         </span>
       </button>
 
-      {subagents.map((row) => {
+      {subagents.map((row, index) => {
         const depth = subagentDepth(row, byId);
         const path = formatAgentPath(row.agentPath);
         const eventCount = row.timeline.length;
         return (
           <button
+            tabIndex={focused === index + 1 ? 0 : -1}
+            onFocus={() => setFocused(index + 1)}
             aria-selected={row.agentId === selected?.agentId}
             className={row.agentId === selected?.agentId ? "selected" : ""}
             key={row.agentId}
@@ -104,11 +139,19 @@ export function AgentSwitcher({
 
   useEffect(() => {
     if (!open) return;
+    containerRef.current
+      ?.querySelector<HTMLButtonElement>("[role=option][aria-selected=true]")
+      ?.focus();
     const closeOnPointerDown = (event: PointerEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        containerRef.current
+          ?.querySelector<HTMLButtonElement>(".agent-switcher-trigger")
+          ?.focus();
+      }
     };
     document.addEventListener("pointerdown", closeOnPointerDown);
     document.addEventListener("keydown", closeOnEscape);
@@ -121,6 +164,9 @@ export function AgentSwitcher({
   function choose(agentId: string | undefined) {
     onSelect(agentId);
     setOpen(false);
+    containerRef.current
+      ?.querySelector<HTMLButtonElement>(".agent-switcher-trigger")
+      ?.focus();
   }
 
   return (
@@ -130,6 +176,12 @@ export function AgentSwitcher({
         aria-haspopup="listbox"
         className="agent-switcher-trigger"
         title={`${selected ? subagentName(selected) : "Main Agent"} · ${stateLabel}`}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
         onClick={() => setOpen((current) => !current)}
         type="button"
       >

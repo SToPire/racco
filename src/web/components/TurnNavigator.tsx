@@ -65,6 +65,11 @@ export function TurnNavigator({
 
   useEffect(() => {
     if (!open) return;
+    rootRef.current
+      ?.querySelector<HTMLButtonElement>(
+        ".turn-navigator-menu button[aria-current=true]",
+      )
+      ?.focus();
     const closeOnOutsideClick = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
@@ -74,7 +79,12 @@ export function TurnNavigator({
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        rootRef.current
+          ?.querySelector<HTMLButtonElement>(".turn-navigator-trigger")
+          ?.focus();
+      }
     };
     document.addEventListener("pointerdown", closeOnOutsideClick);
     document.addEventListener("keydown", closeOnEscape);
@@ -100,6 +110,9 @@ export function TurnNavigator({
       });
     setActiveId(request.id);
     setOpen(false);
+    rootRef.current
+      ?.querySelector<HTMLButtonElement>(".turn-navigator-trigger")
+      ?.focus();
   }
 
   return (
@@ -110,7 +123,6 @@ export function TurnNavigator({
     >
       <button
         aria-expanded={open}
-        aria-haspopup="menu"
         className="turn-navigator-trigger"
         onClick={() => setOpen((current) => !current)}
         title="跳转到用户请求"
@@ -123,14 +135,13 @@ export function TurnNavigator({
       </button>
 
       {open && (
-        <div className="turn-navigator-menu" role="menu">
+        <div className="turn-navigator-menu">
           {requests.map((request, index) => (
             <button
               aria-current={request.id === activeId ? "true" : undefined}
               className={request.id === activeId ? "active" : ""}
               key={request.id}
               onClick={() => jumpTo(request)}
-              role="menuitem"
               title={request.text}
               type="button"
             >

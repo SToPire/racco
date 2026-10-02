@@ -292,7 +292,7 @@ test("trajectory labels fit narrow and scaled panels with readable category colo
           ).toBeGreaterThanOrEqual(4.5);
         await searchbox.fill("第 128 轮任务");
         await expect(
-          page.locator(".trajectory-entry[role='listitem']"),
+          page.locator(".trajectory-entry-wrap[role='listitem']"),
         ).toHaveCount(1);
         await searchbox.fill("");
       }
@@ -514,7 +514,7 @@ test("reduced motion disables animated feedback and explicit turn navigation hon
   for (const reducedMotion of ["reduce", "no-preference", "reduce"] as const) {
     await page.emulateMedia({ reducedMotion });
     await page.locator(".turn-navigator-trigger").click();
-    await page.getByRole("menuitem").first().click();
+    await page.locator(".turn-navigator-menu button").first().click();
     await expect(page.locator("html")).toHaveAttribute(
       "data-scroll-behavior",
       reducedMotion === "reduce" ? "instant" : "smooth",
