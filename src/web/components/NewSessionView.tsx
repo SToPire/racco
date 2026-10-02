@@ -118,6 +118,7 @@ export function NewSessionView({
     selection.catalog?.models.find(
       (model) => model.id === selection.draft?.modelId,
     )?.imageInput === "unsupported";
+  const imageDisabled = creating || unsupported || !targetAvailable;
   useEffect(() => {
     if (projectId !== "") return;
     const availableProject = projects.find((project) => project.available);
@@ -305,11 +306,9 @@ export function NewSessionView({
         <form
           className="new-session-composer"
           onSubmit={submit}
-          onPaste={(event) =>
-            imagePaste(event, images, creating || unsupported)
-          }
+          onPaste={(event) => imagePaste(event, images, imageDisabled)}
           onDragOver={imageDragOver}
-          onDrop={(event) => imageDrop(event, images, creating || unsupported)}
+          onDrop={(event) => imageDrop(event, images, imageDisabled)}
         >
           {error && <p className="error-banner">{error}</p>}
           <ImageAttachments
@@ -345,10 +344,7 @@ export function NewSessionView({
             </div>
 
             <div className="new-session-actions">
-              <AttachImageButton
-                draft={images}
-                disabled={creating || unsupported}
-              />
+              <AttachImageButton draft={images} disabled={imageDisabled} />
               <ModelSettingsControls
                 selection={selection}
                 disabled={creating || !connected}

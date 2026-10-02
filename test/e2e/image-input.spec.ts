@@ -32,6 +32,7 @@ for (const provider of ["codex", "claude"] as const) {
     if (provider === "claude")
       await page.getByRole("button", { name: "Claude", exact: true }).click();
     const png = await image();
+    await expect(page.getByRole("button", { name: "添加图片" })).toBeEnabled();
     await page.getByLabel("选择图片文件").setInputFiles(png);
     await expect(
       page.getByRole("img", { name: "图片 1：red.png" }),
@@ -189,6 +190,7 @@ test("images stay out of a different home worktree draft and unsupported models 
     await route.fulfill({ response, json: catalog });
   });
   await page.goto("/");
+  await expect(page.getByRole("button", { name: "添加图片" })).toBeEnabled();
   await page.getByLabel("选择图片文件").setInputFiles(await image());
   await expect(page.getByLabel("待发送图片").locator("img")).toHaveCount(1);
   await page.getByRole("button", { name: "模型", exact: true }).click();
@@ -200,4 +202,30 @@ test("images stay out of a different home worktree draft and unsupported models 
   await page.getByRole("button", { name: "项目", exact: true }).click();
   await page.getByRole("option", { name: "beta", exact: true }).click();
   await expect(page.getByLabel("待发送图片")).toHaveCount(0);
+});
+
+test("home attachments wait for a known worktree before accepting files", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/projects", async (route) => {
+    await ready;
+    await route.continue();
+  });
+  await page.goto("/");
+  const attach = page.getByRole("button", { name: "添加图片" });
+  await expect(attach).toBeDisabled();
+  await page
+    .getByRole("textbox", { name: "首条任务" })
+    .fill("draft before project discovery");
+  release();
+  await expect(attach).toBeEnabled();
+  await page.getByLabel("选择图片文件").setInputFiles(await image());
+  await expect(page.getByLabel("待发送图片").locator("img")).toHaveCount(1);
+  await expect(page.getByRole("textbox", { name: "首条任务" })).toHaveValue(
+    "draft before project discovery",
+  );
 });

@@ -48,7 +48,8 @@ export function AttachImageButton({
         aria-label="选择图片文件"
         disabled={disabled || draft.preparing}
         onChange={(event) => {
-          if (event.target.files) void draft.add([...event.target.files]);
+          if (!disabled && !draft.preparing && event.target.files)
+            void draft.add([...event.target.files]);
           event.target.value = "";
         }}
       />

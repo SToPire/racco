@@ -14,6 +14,8 @@ Status: implemented
 
 本记录部分替代[会话切换](2026-09-22-session-switching.md)中草稿跟随显示缓存淘汰的边界，并扩展[首页输入页](../simplification/2026-09-18-home-composer.md)的页面内保留范围；原记录继续约束有界 DOM、阅读位置和浏览器历史。[跨视图操作](../feature/2026-09-22-continuous-session-controls.md)的未确认发送锁定与无队列语义仍有效，没有需要完整替代或归档的记录。
 
+新建页的图片入口在可用 Worktree 确认后才接受图片，避免把首次加载期间的附件绑定到尚未确定的目录；文字仍可先行编辑。
+
 ## Alternatives considered
 
 **继续保留更多会话视图：** 只能延后草稿损失，还会把大量历史 DOM 留在内存中；草稿大小和历史大小应独立管理。
