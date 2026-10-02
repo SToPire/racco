@@ -223,12 +223,37 @@ test("trajectory labels fit narrow and scaled panels with readable category colo
       await page.evaluate((size) => {
         document.documentElement.style.fontSize = `${size}px`;
       }, fontSize);
-      for (const width of [320, 760, 1280]) {
+      for (const width of [320, 390, 760, 1280]) {
         await page.setViewportSize({ width, height: 900 });
-        const search = (await page
-          .getByRole("searchbox", { name: "搜索交互" })
-          .boundingBox())!;
+        const toolbar = page.locator(".trajectory-toolbar");
+        const toolbarBox = (await toolbar.boundingBox())!;
+        const searchbox = page.getByRole("searchbox", { name: "搜索交互" });
+        const search = (await searchbox.boundingBox())!;
+        expect(search.x).toBeGreaterThanOrEqual(toolbarBox.x);
         expect(search.x + search.width).toBeLessThanOrEqual(width);
+        expect(search.x + search.width).toBeLessThanOrEqual(
+          toolbarBox.x + toolbarBox.width,
+        );
+        expect(search.width).toBeGreaterThanOrEqual(fontSize * 6);
+        expect(
+          await toolbar.evaluate(
+            (element) => element.scrollWidth <= element.clientWidth,
+          ),
+        ).toBe(true);
+        for (const metric of await page
+          .locator(".trajectory-metrics > span")
+          .all()) {
+          const box = (await metric.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(toolbarBox.x);
+          expect(box.x + box.width).toBeLessThanOrEqual(
+            toolbarBox.x + toolbarBox.width,
+          );
+          expect(
+            await metric.evaluate(
+              (element) => element.scrollWidth <= element.clientWidth,
+            ),
+          ).toBe(true);
+        }
         for (const label of [
           childLabel,
           page.locator('.trajectory-turn-label[title="Turn 12"]'),
@@ -237,14 +262,25 @@ test("trajectory labels fit narrow and scaled panels with readable category colo
           const metrics = await label.evaluate((element) => {
             const range = document.createRange();
             range.selectNodeContents(element);
+            const box = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            const text = range.getBoundingClientRect();
+            const rects = [...range.getClientRects()].filter(
+              (rect) => rect.width > 0,
+            );
             return {
-              lines: [...range.getClientRects()].filter(
-                (rect) => rect.width > 0,
-              ).length,
-              clipped: element.scrollWidth > element.clientWidth,
+              // Ellipsis can add another fragment on the same line; integer
+              // scrollWidth/clientWidth also miss fractional clipping.
+              lines: new Set(rects.map((rect) => rect.top)).size,
+              clipped:
+                text.left < box.left + parseFloat(style.paddingLeft) ||
+                text.right > box.right - parseFloat(style.paddingRight),
             };
           });
-          expect(metrics).toEqual({ lines: 1, clipped: false });
+          expect(
+            metrics,
+            `${colorScheme}, ${fontSize}px, ${width}px, ${await label.textContent()}`,
+          ).toEqual({ lines: 1, clipped: false });
         }
         for (const kind of ["user", "assistant", "tool", "subagent"])
           expect(
@@ -252,6 +288,11 @@ test("trajectory labels fit narrow and scaled panels with readable category colo
               page.locator(`.trajectory-kind.kind-${kind}`).first(),
             ),
           ).toBeGreaterThanOrEqual(4.5);
+        await searchbox.fill("第 128 轮任务");
+        await expect(
+          page.locator(".trajectory-entry[role='listitem']"),
+        ).toHaveCount(1);
+        await searchbox.fill("");
       }
     }
   }

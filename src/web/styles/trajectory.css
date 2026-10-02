@@ -11,17 +11,20 @@
 
 .trajectory-toolbar {
   display: flex;
+  flex-wrap: wrap;
   min-height: 34px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 6px 16px;
   padding: 4px 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .trajectory-metrics {
   display: flex;
-  gap: 14px;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   color: var(--text-faint);
   font-size: var(--font-size-xs);
 }
@@ -30,14 +33,23 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 .trajectory-metrics .ui-icon {
   width: 12px;
   height: 12px;
 }
 
+.trajectory-search {
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 10rem;
+  margin-left: auto;
+}
+
 .trajectory-search input {
-  width: 160px;
+  width: 100%;
+  min-width: 0;
   height: 25px;
   padding: 0 9px;
   border: 1px solid var(--border);
@@ -74,7 +86,7 @@
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: calc(4.5 * var(--font-size-xs) + 13px) minmax(0, 1fr);
+  grid-template-columns: calc(4.5 * var(--font-size-xs) + 14px) minmax(0, 1fr);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 

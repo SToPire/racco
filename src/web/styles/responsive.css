@@ -125,8 +125,8 @@
     gap: 8px;
   }
 
-  .trajectory-search input {
-    width: 105px;
+  .trajectory-search {
+    flex-basis: 6.5625rem;
   }
 
   .trajectory-view.detail-open .trajectory-workspace {
