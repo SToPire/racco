@@ -335,6 +335,7 @@ export function SessionView({
           </section>
         ) : (
           <TrajectoryView
+            active={active}
             rows={rows}
             focusRowId={trajectoryTargetId}
             onReveal={revealInChat}

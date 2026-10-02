@@ -54,7 +54,9 @@ for (const width of [1440, 390]) {
         .filter({ hasText: `${id}.txt` })
         .click();
       await page
-        .getByRole("complementary", { name: "交互详情" })
+        .getByRole(width <= 760 ? "dialog" : "complementary", {
+          name: "交互详情",
+        })
         .getByRole("button", { name: "在 Chat 中查看" })
         .click();
       const history = page.locator(".tool-history");

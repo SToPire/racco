@@ -155,7 +155,7 @@ test("an unconfirmed send locks the draft even after the task starts and the vie
   await expect(input).toHaveValue("draft after confirmed send");
 });
 
-test("mobile trajectory details leave pending questions and navigation reachable", async ({
+test("mobile trajectory details return to pending questions and navigation after closing", async ({
   page,
   racco,
 }) => {
@@ -168,9 +168,8 @@ test("mobile trajectory details leave pending questions and navigation reachable
   ).toBeVisible();
   await page.getByRole("button", { name: "Trajectory", exact: true }).click();
   await page.locator(".trajectory-entry").first().click();
-  await expect(
-    page.getByRole("complementary", { name: "交互详情" }),
-  ).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "交互详情" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭交互详情" }).click();
   await page.getByRole("radio", { name: "Alpha", exact: true }).check();
   await page.getByRole("button", { name: "提交回答" }).click();
   await page.getByRole("button", { name: "Chat", exact: true }).click();

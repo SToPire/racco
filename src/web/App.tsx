@@ -105,7 +105,10 @@ export function App() {
     );
   }, []);
 
-  useEffect(() => setSelectedToolId(undefined), [activeRef]);
+  useEffect(() => {
+    setSelectedToolId(undefined);
+    if (window.matchMedia("(max-width: 1100px)").matches) setDockPanel(undefined);
+  }, [activeRef, historyOpen]);
 
   function startNewSession(worktree?: WorktreeEntry) {
     racco.clearHomeError();

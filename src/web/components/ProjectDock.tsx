@@ -1,3 +1,4 @@
+import { ResponsivePanel } from "./ResponsivePanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ProjectEntry,
@@ -106,10 +107,12 @@ export function ProjectDock({
     const workspace = element?.parentElement?.querySelector(".workspace");
     if (!element || !workspace) return;
     const update = () => {
+      const current = dock.current;
+      if (!current) return;
       const available =
-        getComputedStyle(element).position === "fixed"
+        getComputedStyle(current).position === "fixed"
           ? window.innerWidth - 48
-          : element.getBoundingClientRect().width +
+          : current.getBoundingClientRect().width +
             workspace.getBoundingClientRect().width -
             64;
       setMaximumWidth(Math.max(360, Math.floor(available)));
@@ -180,16 +183,13 @@ export function ProjectDock({
     </div>
   );
   return (
-    <aside
-      ref={dock}
+    <ResponsivePanel
+      panelRef={dock}
       className={`project-dock${open ? " open" : ""}`}
-      aria-label={`${label}侧栏`}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && open) {
-          event.stopPropagation();
-          onToggle(active!);
-        }
-      }}
+      label={`${label}侧栏`}
+      query="(max-width: 1100px)"
+      open={open}
+      onClose={() => active && onToggle(active)}
     >
       <div className="project-dock-content" hidden={!open}>
         <div
@@ -339,6 +339,6 @@ export function ProjectDock({
           <UiIcon name="message" />
         </button>
       </nav>
-    </aside>
+    </ResponsivePanel>
   );
 }

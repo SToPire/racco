@@ -120,7 +120,7 @@ test("session dock follows the selected project and can import Claude on a narro
   await page.getByRole("button", { name: "项目", exact: true }).click();
   await page.getByRole("option", { name: "beta", exact: true }).click();
   await page.getByRole("button", { name: "展开会话侧栏" }).click();
-  const dock = page.getByRole("complementary", { name: "会话侧栏" });
+  const dock = page.getByRole("dialog", { name: "会话侧栏" });
   await expect(
     dock.getByRole("combobox", { name: "会话侧栏 Worktree" }),
   ).toHaveValue(racco.projects[1]!.path);
@@ -132,8 +132,7 @@ test("session dock follows the selected project and can import Claude on a narro
       exact: true,
     })
     .click();
-  await expect(dock).not.toContainText("Alpha history");
-  await dock.getByRole("button", { name: "折叠会话侧栏" }).click();
+  await expect(dock).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "展开会话侧栏" }),
   ).toBeFocused();

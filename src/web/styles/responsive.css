@@ -244,3 +244,26 @@
     scroll-behavior: auto !important;
   }
 }
+
+:where(.responsive-panel) {
+  position: static;
+  inset: auto;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  color: var(--text);
+}
+.responsive-panel-modal::backdrop {
+  background: rgb(0 0 0 / 25%);
+}
+.trajectory-inspector.responsive-panel-modal {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+}

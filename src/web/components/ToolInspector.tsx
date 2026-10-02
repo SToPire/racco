@@ -1,3 +1,4 @@
+import { ResponsivePanel } from "./ResponsivePanel";
 import { UiIcon } from "./UiIcon";
 import { useId, useState, type ReactNode } from "react";
 import type { FileChange } from "../../shared/protocol";
@@ -251,7 +252,12 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
         : "Input";
 
   return (
-    <aside className="tool-inspector" aria-label="工具详情">
+    <ResponsivePanel
+      className="tool-inspector"
+      label="工具详情"
+      query="(max-width: 1100px)"
+      onClose={onClose}
+    >
       <header className="inspector-header">
         <div>
           <small>Tool</small>
@@ -327,6 +333,6 @@ export function ToolInspector({ row, onClose }: ToolInspectorProps) {
           <OutputPanel row={row} />
         )}
       </section>
-    </aside>
+    </ResponsivePanel>
   );
 }

@@ -94,7 +94,10 @@ for (const viewport of [
     for (const id of ids) await expect(row(id)).toBeVisible();
     await expectOrder();
     await row("history-b").click();
-    const inspector = page.getByRole("complementary", { name: "工具详情" });
+    const inspector = page.getByRole(
+      viewport.width <= 1100 ? "dialog" : "complementary",
+      { name: "工具详情" },
+    );
     await expect(inspector).toBeVisible();
     await expect(row("history-b")).toHaveAttribute("aria-pressed", "true");
     await expect(
@@ -255,7 +258,10 @@ for (const viewport of [
       await page
         .getByRole("button", { name: "Trajectory", exact: true })
         .click();
-      const details = page.getByRole("complementary", { name: "交互详情" });
+      const details = page.getByRole(
+        viewport.width <= 760 ? "dialog" : "complementary",
+        { name: "交互详情" },
+      );
       for (const [label, id] of [
         ["思考摘要", `${prefix}-empty`],
         ["方案", `${prefix}-plan`],
@@ -386,7 +392,10 @@ for (const viewport of [
       path: testInfo.outputPath(`chat-${viewport.width}.png`),
     });
     await page.locator('[data-timeline-row="test-failure"]').click();
-    const inspector = page.getByRole("complementary", { name: "工具详情" });
+    const inspector = page.getByRole(
+      viewport.width <= 1100 ? "dialog" : "complementary",
+      { name: "工具详情" },
+    );
     await expect(
       inspector.getByRole("tab", { name: "Output", exact: true }),
     ).toHaveAttribute("aria-selected", "true");

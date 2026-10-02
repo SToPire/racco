@@ -1,5 +1,6 @@
+import { ResponsivePanel } from "./ResponsivePanel";
 import { UiIcon } from "./UiIcon";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FileChange } from "../../shared/protocol";
 import type { TimelineRow } from "../store";
 import {
@@ -59,10 +60,12 @@ export function TrajectoryResult({ entry }: { entry: TrajectoryEntry }) {
 }
 
 export function TrajectoryInspector({
+  active = true,
   entry,
   onClose,
   onReveal,
 }: {
+  active?: boolean;
   entry: TrajectoryEntry;
   onClose: () => void;
   onReveal?: (entry: TrajectoryEntry) => void;
@@ -72,9 +75,12 @@ export function TrajectoryInspector({
     entry.rowId !== undefined ||
     (entry.agentId !== undefined && entry.kind !== "assistant");
   const content = (
-    <aside
+    <ResponsivePanel
+      open={active}
+      query="(max-width: 760px)"
+      onClose={onClose}
       className={`trajectory-inspector${onReveal && canReveal ? " with-reveal" : ""}`}
-      aria-label="交互详情"
+      label="交互详情"
     >
       <header>
         <div>
@@ -162,7 +168,7 @@ export function TrajectoryInspector({
         {tab === "result" && <TrajectoryResult entry={entry} />}
         {tab === "raw" && <pre>{json(entry.raw)}</pre>}
       </div>
-    </aside>
+    </ResponsivePanel>
   );
   return entry.agentId === undefined ? (
     content
@@ -172,10 +178,12 @@ export function TrajectoryInspector({
 }
 
 export function TrajectoryView({
+  active = true,
   rows,
   onReveal,
   focusRowId,
 }: {
+  active?: boolean;
   rows: TimelineRow[];
   onReveal?: (entry: TrajectoryEntry) => void;
   focusRowId?: string;
@@ -187,6 +195,9 @@ export function TrajectoryView({
         (entry) => entry.rowId === focusRowId && focusRowId !== undefined,
       )?.id,
   );
+  useEffect(() => {
+    if (!active) setSelectedId(undefined);
+  }, [active]);
   const [search, setSearch] = useState("");
   const selected = entries.find((entry) => entry.id === selectedId);
   const query = search.trim().toLowerCase();
@@ -257,7 +268,11 @@ export function TrajectoryView({
                 : `Turn ${entry.turn}`
               : "";
             return (
-              <div className="trajectory-entry-wrap" key={entry.id}>
+              <div
+                className="trajectory-entry-wrap"
+                key={entry.id}
+                role="listitem"
+              >
                 <small
                   className="trajectory-turn-label"
                   title={turnLabel || undefined}
@@ -266,9 +281,9 @@ export function TrajectoryView({
                 </small>
                 <button
                   aria-current={entry.id === selected?.id ? "true" : undefined}
+                  role="listitem"
                   className="trajectory-entry"
                   onClick={() => setSelectedId(entry.id)}
-                  role="listitem"
                   type="button"
                 >
                   <span className={`trajectory-kind kind-${entry.kind}`}>
@@ -289,6 +304,7 @@ export function TrajectoryView({
         </div>
         {selected !== undefined && (
           <TrajectoryInspector
+            active={active}
             entry={selected}
             key={selected.id}
             onClose={() => setSelectedId(undefined)}
