@@ -30,18 +30,6 @@ export async function projectFileRoutes(
       `/api/worktrees/${operation}`,
       async (request, reply) => {
         reply.header("Cache-Control", "no-store");
-        if (request.headers["sec-fetch-site"] === "cross-site")
-          return reply.code(403).send({ message: "不允许跨站读取项目文件。" });
-        if (request.headers.origin !== undefined) {
-          try {
-            if (new URL(request.headers.origin).host !== request.headers.host)
-              throw new Error();
-          } catch {
-            return reply
-              .code(403)
-              .send({ message: "不允许跨站读取项目文件。" });
-          }
-        }
         const query = (operation === "tree" ? TreeQuery : FileQuery).safeParse(
           request.query,
         );

@@ -77,6 +77,8 @@ Node/CLI 的安装路径变化时，执行 `systemctl --user stop raccod.service
 
 ## 从另一台设备访问
 
+可信 Host、Origin 与 Tailscale/HTTPS 代理配置见[访问边界与远程入口](docs/remote-access.md)。
+
 默认 HTTP 入口仅监听宿主回环地址。可通过 SSH 本地转发访问：在客户端运行 `ssh -N -L 7331:127.0.0.1:7331 用户名@Linux主机`，然后打开客户端的 <http://127.0.0.1:7331>。手机需要支持本地转发的 SSH 客户端。终端使用的项目路径始终属于运行 daemon 的 Linux 主机。
 
 如果使用反向代理或 Tailscale 入口，应由外层提供受信任设备/用户的访问控制，并转发 WebSocket；Racco 的来源检查不替代身份认证。不要把未保护的端口直接开放到互联网。宿主仍需保持受支持的 Linux 桌面用户会话；本项目不提供服务器无头部署或其他 init 系统方案。

@@ -18,6 +18,7 @@ await mkdir(path);
 execFileSync("git", ["init", "-q", path]);
 const config = {
   host: "127.0.0.1",
+  allowedHosts: ["127.0.0.1", "localhost", "[::1]"],
   port: 0,
   stateDir: join(root, "state"),
   worktreeRoot: join(root, "worktrees"),

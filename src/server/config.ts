@@ -2,10 +2,23 @@ import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
+import { allowedHostname, DEFAULT_ALLOWED_HOSTS } from "./request-boundary.js";
 
 const RaccoConfigSchema = z.strictObject({
   host: z.string().min(1).default("127.0.0.1"),
   port: z.number().int().min(1).max(65_535).default(7331),
+  allowedHosts: z
+    .array(
+      z
+        .string()
+        .refine(
+          (value) => allowedHostname(value) !== undefined,
+          "Expected hostname or IP without scheme, port or path",
+        )
+        .transform((value) => value.toLowerCase()),
+    )
+    .min(1)
+    .default(DEFAULT_ALLOWED_HOSTS),
   stateDir: z.string().min(1).optional(),
   worktreeRoot: z.string().min(1).optional(),
 });

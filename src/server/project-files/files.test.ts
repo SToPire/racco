@@ -13,6 +13,10 @@ import test from "node:test";
 import Fastify from "fastify";
 import { listProjectFiles, readProjectFile } from "./files.js";
 import { projectFileRoutes } from "./routes.js";
+import {
+  DEFAULT_ALLOWED_HOSTS,
+  registerRequestBoundary,
+} from "../request-boundary.js";
 
 async function fixture(t: test.TestContext) {
   const container = await mkdtemp(join(tmpdir(), "racco-files-"));
@@ -123,6 +127,7 @@ test("supports images and empty files, with bounded reads for large or binary fi
 test("file endpoints require an available worktree, validate input and reject cross-site access", async (t) => {
   const { root } = await fixture(t);
   const app = Fastify();
+  registerRequestBoundary(app, DEFAULT_ALLOWED_HOSTS);
   await app.register(projectFileRoutes, {
     worktreeIsAvailable: async (path) => path === root,
   });

@@ -20,6 +20,7 @@ test("startup cleans old images before constructing providers and an active stat
   t.after(() => rm(root, { recursive: true, force: true }));
   const config = {
     host: "127.0.0.1",
+    allowedHosts: ["127.0.0.1", "localhost", "[::1]"],
     port: 0,
     stateDir: join(root, "state"),
     worktreeRoot: join(root, "worktrees"),
@@ -67,6 +68,7 @@ test("shutdown holds the state lock until image resource cleanup has finished", 
   t.after(() => rm(root, { recursive: true, force: true }));
   const config = {
     host: "127.0.0.1",
+    allowedHosts: ["127.0.0.1", "localhost", "[::1]"],
     port: 0,
     stateDir: join(root, "state"),
     worktreeRoot: join(root, "worktrees"),
@@ -124,6 +126,7 @@ test("an image close error still releases the state lock after cleanup has settl
   t.after(() => rm(root, { recursive: true, force: true }));
   const config = {
     host: "127.0.0.1",
+    allowedHosts: ["127.0.0.1", "localhost", "[::1]"],
     port: 0,
     stateDir: join(root, "state"),
     worktreeRoot: join(root, "worktrees"),

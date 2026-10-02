@@ -37,6 +37,7 @@ test(
     const app = await buildServer(
       {
         host: "127.0.0.1",
+        allowedHosts: ["127.0.0.1", "localhost", "[::1]"],
         port: 7331,
         stateDir: join(directory, "state"),
         worktreeRoot: join(directory, "worktrees"),

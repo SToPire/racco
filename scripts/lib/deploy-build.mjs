@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { root } from "./process.mjs";
+import { tsImport } from "tsx/esm/api";
 
 const exec = promisify(execFile);
 const unit = "raccod.service";
@@ -83,7 +84,10 @@ export async function productionBuild(
     (await realpath(properties.WorkingDirectory)) !== (await realpath(checkout))
   )
     return build();
-  const { loadConfig } = await import("../../src/server/config.ts");
+  const { loadConfig } = await tsImport(
+    "../../src/server/config.ts",
+    import.meta.url,
+  );
   const config = await loadConfig(join(checkout, "racco.config.json"));
   const host =
     config.host === "0.0.0.0"

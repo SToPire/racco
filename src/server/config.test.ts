@@ -23,7 +23,9 @@ test("resolves a configured state directory relative to the config file", async 
 
   assert.equal(config.stateDir, join(directory, "state"));
   assert.equal(config.worktreeRoot, join(directory, "trees"));
+  assert.deepEqual(config.allowedHosts, ["127.0.0.1", "localhost", "[::1]"]);
   assert.deepEqual(Object.keys(config).sort(), [
+    "allowedHosts",
     "host",
     "port",
     "stateDir",
@@ -35,6 +37,41 @@ test("resolves a configured state directory relative to the config file", async 
     loadConfig(configPath),
     /Unrecognized key.*projectRoots/,
   );
+});
+
+test("trusted hosts are explicit hostnames or IPs, independently of the bind address", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "racco-host-config-"));
+  t.after(() => rm(directory, { force: true, recursive: true }));
+  const path = join(directory, "racco.config.json");
+  await writeFile(path, JSON.stringify({ host: "0.0.0.0" }));
+  assert.deepEqual((await loadConfig(path)).allowedHosts, [
+    "127.0.0.1",
+    "localhost",
+    "[::1]",
+  ]);
+  await writeFile(
+    path,
+    JSON.stringify({
+      allowedHosts: ["RACCO.EXAMPLE", "100.64.0.1", "[fd7a:115c:a1e0::1]"],
+    }),
+  );
+  assert.deepEqual((await loadConfig(path)).allowedHosts, [
+    "racco.example",
+    "100.64.0.1",
+    "[fd7a:115c:a1e0::1]",
+  ]);
+  for (const value of [
+    [],
+    ["*"],
+    ["https://racco.example"],
+    ["racco.example:7331"],
+    ["racco.example/path"],
+    ["user@racco.example"],
+    [""],
+  ]) {
+    await writeFile(path, JSON.stringify({ allowedHosts: value }));
+    await assert.rejects(loadConfig(path));
+  }
 });
 
 test("defaults the worktree root under the XDG data home", async (t) => {

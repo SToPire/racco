@@ -21,19 +21,7 @@ import { SessionRepository } from "./state/session-repository.js";
 import { TemporaryImages } from "./images/temporary.js";
 import { MAX_CLIENT_MESSAGE_BYTES } from "../shared/user-input.js";
 import { send } from "./socket-sender.js";
-
-function hasAllowedOrigin(
-  origin: string | undefined,
-  host: string | undefined,
-) {
-  if (origin === undefined) return true;
-  if (host === undefined) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
+import { registerRequestBoundary } from "./request-boundary.js";
 
 export type ServerOptions = {
   createDrivers: (
@@ -50,6 +38,7 @@ export async function buildServer(
   options: ServerOptions,
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger ?? true });
+  registerRequestBoundary(app, config.allowedHosts);
   const startedAt = new Date().toISOString();
   const providerFailures = new Map<string, string>();
 
@@ -148,12 +137,6 @@ export async function buildServer(
   app.get<{ Params: { provider: string }; Querystring: unknown }>(
     "/api/providers/:provider/models",
     async (request, reply) => {
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      ) {
-        return reply.code(403).send({ message: "不允许跨站读取模型目录" });
-      }
       const provider = ProviderSchema.safeParse(request.params.provider);
       const query = ModelsQuerySchema.safeParse(request.query);
       if (!provider.success || !query.success)
@@ -178,13 +161,6 @@ export async function buildServer(
     "/api/worktrees",
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      )
-        return reply
-          .code(403)
-          .send({ message: "不允许跨站读取 Worktree 列表" });
       const query = WorktreesQuerySchema.safeParse(request.query);
       if (!query.success)
         return reply
@@ -206,13 +182,6 @@ export async function buildServer(
     "/api/worktrees/refresh",
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      )
-        return reply
-          .code(403)
-          .send({ message: "不允许跨站刷新 Worktree 列表" });
       const query = WorktreesQuerySchema.safeParse(request.query);
       if (!query.success)
         return reply
@@ -236,11 +205,6 @@ export async function buildServer(
     "/api/projects/:projectId/worktrees",
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      )
-        return reply.code(403).send({ message: "不允许跨站创建 Worktree" });
       const parsed = CreateWorktreeSchema.safeParse(request.body);
       if (!parsed.success)
         return reply
@@ -283,11 +247,6 @@ export async function buildServer(
     "/api/worktrees",
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      )
-        return reply.code(403).send({ message: "不允许跨站删除 Worktree" });
       const query = DeleteWorktreeSchema.safeParse(request.query);
       if (!query.success)
         return reply
@@ -320,11 +279,6 @@ export async function buildServer(
     "/api/worktrees/native-sessions",
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      )
-        return reply.code(403).send({ message: "不允许跨站读取会话列表" });
       const query = NativeSessionsQuerySchema.safeParse(request.query);
       if (!query.success)
         return reply
@@ -428,11 +382,6 @@ export async function buildServer(
   app.post<{ Body: unknown }>(
     "/api/sessions/import",
     async (request, reply) => {
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      )
-        return reply.code(403).send({ message: "不允许跨站导入会话" });
       const parsed = ImportSessionSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply
@@ -452,11 +401,6 @@ export async function buildServer(
   app.post<{ Body: unknown }>(
     "/api/sessions/delete-native",
     async (request, reply) => {
-      if (
-        request.headers["sec-fetch-site"] === "cross-site" ||
-        !hasAllowedOrigin(request.headers.origin, request.headers.host)
-      )
-        return reply.code(403).send({ message: "不允许跨站删除会话" });
       const parsed = DeleteNativeSessionSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply
@@ -496,15 +440,6 @@ export async function buildServer(
     "/api/ws",
     {
       websocket: true,
-      preValidation: (request, reply, done) => {
-        if (!hasAllowedOrigin(request.headers.origin, request.headers.host)) {
-          void reply
-            .code(403)
-            .send({ message: "WebSocket origin is not allowed" });
-          return;
-        }
-        done();
-      },
     },
     (socket) => {
       hub.registerClient(socket);

@@ -58,6 +58,7 @@ export async function startFixture(options: {
   const app = await buildServer(
     {
       host: "127.0.0.1",
+      allowedHosts: ["127.0.0.1", "localhost", "[::1]"],
       port: options.port ?? 0,
       stateDir: join(directory, "state"),
       worktreeRoot: join(directory, "worktrees"),
@@ -112,7 +113,10 @@ export async function startFixture(options: {
     if (session.statusCode !== 200) throw new Error(session.body);
     sessions.push(session.json());
   }
-  await app.listen({ host: "127.0.0.1", port: options.port ?? 0 });
+  await app.listen({
+    host: "127.0.0.1",
+    port: options.port ?? 0,
+  });
   const address = app.server.address();
   if (!address || typeof address === "string")
     throw new Error("Missing fixture server address");

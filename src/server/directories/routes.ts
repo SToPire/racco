@@ -11,17 +11,6 @@ export async function directoryRoutes(app: FastifyInstance): Promise<void> {
     "/api/directories",
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
-      if (request.headers["sec-fetch-site"] === "cross-site") {
-        return reply.code(403).send({ message: "不允许跨站浏览目录。" });
-      }
-      if (request.headers.origin !== undefined) {
-        try {
-          if (new URL(request.headers.origin).host !== request.headers.host)
-            throw new Error();
-        } catch {
-          return reply.code(403).send({ message: "不允许跨站浏览目录。" });
-        }
-      }
       const parsed = QuerySchema.safeParse(request.query);
       if (!parsed.success)
         return reply.code(400).send({ message: "目录查询参数无效。" });

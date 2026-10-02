@@ -13,6 +13,10 @@ import test from "node:test";
 import Fastify from "fastify";
 import { DirectoryBrowseError, listDirectories } from "./browser.js";
 import { directoryRoutes } from "./routes.js";
+import {
+  DEFAULT_ALLOWED_HOSTS,
+  registerRequestBoundary,
+} from "../request-boundary.js";
 
 async function fixture(t: test.TestContext) {
   const root = await mkdtemp(join(tmpdir(), "racco-directory-"));
@@ -100,6 +104,7 @@ test("root navigation ends at the filesystem root", async () => {
 test("directory API validates queries, refuses cross-site reads and does not cache paths", async (t) => {
   const root = await fixture(t);
   const app = Fastify();
+  registerRequestBoundary(app, DEFAULT_ALLOWED_HOSTS);
   await app.register(directoryRoutes);
   t.after(() => app.close());
   const url = `/api/directories?${new URLSearchParams({ path: root })}`;
