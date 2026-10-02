@@ -547,10 +547,12 @@ export function ConfirmDeleteWorktreeDialog({
   onConfirm: (deleteBranch: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const element = dialog.current;
     if (element === null) return;
     if (!element.open) element.showModal();
+    cancel.current?.focus();
     return () => {
       if (element.open) element.close();
     };
@@ -613,14 +615,15 @@ export function ConfirmDeleteWorktreeDialog({
       )}
       <div className="confirm-delete-dialog-actions">
         <button
+          autoFocus
           className="confirm-delete-cancel-button"
+          ref={cancel}
           onClick={onCancel}
           type="button"
         >
           取消
         </button>
         <button
-          autoFocus
           className="confirm-delete-confirm-button"
           onClick={() => onConfirm(deleteBranch)}
           type="button"
@@ -650,10 +653,12 @@ export function ConfirmDeleteProjectDialog({
   onConfirm: (removeWorktrees: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const element = dialog.current;
     if (element === null) return;
     if (!element.open) element.showModal();
+    cancel.current?.focus();
     return () => {
       if (element.open) element.close();
     };
@@ -725,14 +730,15 @@ export function ConfirmDeleteProjectDialog({
       <p className="confirm-delete-dialog-note">项目目录本身不会被删除。</p>
       <div className="confirm-delete-dialog-actions">
         <button
+          autoFocus
           className="confirm-delete-cancel-button"
+          ref={cancel}
           onClick={onCancel}
           type="button"
         >
           取消
         </button>
         <button
-          autoFocus
           className="confirm-delete-confirm-button"
           onClick={() => onConfirm(removeWorktrees)}
           type="button"
