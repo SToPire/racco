@@ -54,6 +54,15 @@ export class WorktreeService {
     return this.#toCatalog(project, derived);
   }
 
+  /** Ownership reads use Git membership only, without scanning working files. */
+  async resolvePath(
+    project: ManagedProject,
+    path: string,
+  ): Promise<DerivedWorktree | undefined> {
+    const derived = await this.#cache.get(project.path);
+    return derived.worktrees.find((entry) => entry.path === path);
+  }
+
   /** Re-reads from Git, ignoring anything cached. */
   async refresh(project: ManagedProject): Promise<WorktreeCatalog> {
     const derived = await this.#cache.refresh(project.path);

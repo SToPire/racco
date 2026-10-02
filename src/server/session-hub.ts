@@ -403,8 +403,8 @@ export class SessionHub {
     // must not make every worktree unreadable.
     for (const project of this.repository.listProjects()) {
       try {
-        const catalog = await this.#worktrees.catalog(project);
-        if (catalog.worktrees.some((entry) => entry.path === path)) return true;
+        if ((await this.#worktrees.resolvePath(project, path))?.available)
+          return true;
       } catch {
         // The project's worktrees are unknown right now; keep checking the rest.
       }
@@ -901,8 +901,7 @@ export class SessionHub {
     if (!projectDirectoryIsAvailable(path))
       throw new Error("Worktree directory is unavailable");
     if (path === project.path) return;
-    const catalog = await this.#worktrees.catalog(project);
-    const match = catalog.worktrees.find((entry) => entry.path === path);
+    const match = await this.#worktrees.resolvePath(project, path);
     if (match === undefined) {
       throw new Error("该目录不是当前项目的 Worktree，请刷新项目列表");
     }

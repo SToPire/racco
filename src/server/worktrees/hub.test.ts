@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -322,5 +323,60 @@ test("a Git outage preserves the linked catalog and reports degradation until re
   assert.equal(
     (await f.hub.refreshWorktrees(f.project.projectId)).degradedReason,
     null,
+  );
+});
+
+test("linked ownership reads do not run git status, but deletion checks current files", async (t) => {
+  const f = await fixture(t);
+  await f.hub.createWorktree({
+    projectId: f.project.projectId,
+    name: "second",
+  });
+  const bin = await mkdtemp(join(tmpdir(), "racco-git-membership-"));
+  t.after(() => rm(bin, { recursive: true, force: true }));
+  const log = join(bin, "status.log");
+  await writeFile(log, "");
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh
+if [ "$1" = "status" ]; then printf 'status\\n' >> "$RACCO_TEST_STATUS_LOG"; fi
+PATH="$RACCO_TEST_GIT_PATH" exec git "$@"
+`,
+  );
+  await chmod(join(bin, "git"), 0o700);
+  const previous = {
+    PATH: process.env.PATH,
+    RACCO_TEST_GIT_PATH: process.env.RACCO_TEST_GIT_PATH,
+    RACCO_TEST_STATUS_LOG: process.env.RACCO_TEST_STATUS_LOG,
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  process.env.RACCO_TEST_GIT_PATH = previous.PATH;
+  process.env.RACCO_TEST_STATUS_LOG = log;
+  process.env.PATH = `${bin}:${previous.PATH}`;
+
+  for (let index = 0; index < 3; index++) {
+    assert.equal(await f.hub.worktreePathIsReadable(f.worktree.path), true);
+    await f.hub.listModels("codex", f.worktree.path);
+    await f.hub.importSession(f.input);
+  }
+  assert.equal(await readFile(log, "utf8"), "");
+
+  await writeFile(join(f.worktree.path, "fresh.txt"), "unsaved work\n");
+  await assert.rejects(
+    f.hub.deleteWorktree({
+      projectId: f.project.projectId,
+      path: f.worktree.path,
+    }),
+    WorktreeDirtyError,
+  );
+  assert.match(await readFile(log, "utf8"), /status/);
+  assert.equal(
+    await readFile(join(f.worktree.path, "fresh.txt"), "utf8"),
+    "unsaved work\n",
   );
 });
