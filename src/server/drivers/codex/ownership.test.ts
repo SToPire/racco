@@ -301,6 +301,11 @@ for (const kind of ["activity", "collab"] as const) {
 test("native child discovery rejects a root identity before it can change main routing", async (t) => {
   const f = await fixture(t);
   f.children.push(f.root);
-  await assert.rejects(f.driver.readSession(f.handle), /subagent/i);
+  const snapshot = await f.driver.readSession(f.handle);
+  assert(
+    snapshot.events.some(
+      (event) => event.type === "system.notice" && /subagent/i.test(event.text),
+    ),
+  );
   await (await f.begin()).finish();
 });

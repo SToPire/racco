@@ -329,9 +329,13 @@ export class CodexDriver implements AgentDriver {
     // Recognize recorded launches before any asynchronous discovery so live
     // child deltas remain subject to the snapshot alignment checks.
     this.#registerThreadSpawns(thread, thread.id);
-    const subagentThreads = await this.#readSubagentThreads(thread.id);
+    const { threads: subagentThreads, notices } =
+      await this.#readSubagentThreads(thread.id);
     const subagents = this.#subagentResolver(thread.id);
-    const events: TimelineEvent[] = mapThreadEvents(thread, subagents);
+    const events: TimelineEvent[] = [
+      ...mapThreadEvents(thread, subagents),
+      ...notices,
+    ];
     for (const subagentThread of subagentThreads) {
       const parentThreadId = subagentThread.parentThreadId!;
       const link = this.#rememberSubagent(subagentThread.id, thread.id);
@@ -640,41 +644,54 @@ export class CodexDriver implements AgentDriver {
     this.#sessionUpdate?.(threadId, { type: "compaction.finished" });
   }
 
-  async #readSubagentThreads(rootThreadId: string): Promise<CodexThread[]> {
+  async #readSubagentThreads(
+    rootThreadId: string,
+  ): Promise<{ threads: CodexThread[]; notices: TimelineEvent[] }> {
     const summaries: CodexThread[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | undefined;
-    do {
-      const response = await this.#client.request<ThreadListResponse>(
-        "thread/list",
-        {
-          ancestorThreadId: rootThreadId,
-          sourceKinds: [
-            "subAgent",
-            "subAgentReview",
-            "subAgentCompact",
-            "subAgentThreadSpawn",
-            "subAgentOther",
-          ],
-          useStateDbOnly: true,
-          limit: 100,
-          cursor,
-        },
-      );
-      summaries.push(...response.data);
-      // Discovery precedes the per-child reads, which can each yield to live events.
-      for (const summary of response.data)
-        this.#rememberSubagent(summary.id, rootThreadId);
-      if (response.nextCursor === null) break;
-      if (seenCursors.has(response.nextCursor)) {
-        throw new Error("Codex returned a repeated subagent cursor");
-      }
-      seenCursors.add(response.nextCursor);
-      cursor = response.nextCursor;
-    } while (cursor !== undefined);
+    const notices: TimelineEvent[] = [];
+    try {
+      do {
+        const response = await this.#client.request<ThreadListResponse>(
+          "thread/list",
+          {
+            ancestorThreadId: rootThreadId,
+            sourceKinds: [
+              "subAgent",
+              "subAgentReview",
+              "subAgentCompact",
+              "subAgentThreadSpawn",
+              "subAgentOther",
+            ],
+            useStateDbOnly: true,
+            limit: 100,
+            cursor,
+          },
+        );
+        summaries.push(...response.data);
+        // Discovery precedes the per-child reads, which can each yield to live events.
+        for (const summary of response.data)
+          this.#rememberSubagent(summary.id, rootThreadId);
+        if (response.nextCursor === null) break;
+        if (seenCursors.has(response.nextCursor)) {
+          throw new Error("Codex returned a repeated subagent cursor");
+        }
+        seenCursors.add(response.nextCursor);
+        cursor = response.nextCursor;
+      } while (cursor !== undefined);
+    } catch (error) {
+      notices.push({
+        type: "system.notice",
+        id: randomUUID(),
+        level: "warning",
+        text: `子 Agent 列表不完整：${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
 
-    const threads: CodexThread[] = [];
-    for (const summary of summaries) {
+    const threads: Array<CodexThread | undefined> = new Array(summaries.length);
+    let next = 0;
+    const readChild = async (summary: CodexThread, index: number) => {
       const link = this.#rememberSubagent(summary.id, rootThreadId);
       for (let attempt = 0; attempt < 2; attempt++) {
         const read: SnapshotRead = {
@@ -719,7 +736,7 @@ export class CodexDriver implements AgentDriver {
             read.generation,
             read,
           );
-          threads.push(response.thread);
+          threads[index] = response.thread;
           break;
         } finally {
           reads.delete(read);
@@ -727,8 +744,33 @@ export class CodexDriver implements AgentDriver {
             this.#snapshotReads.delete(summary.id);
         }
       }
-    }
-    return threads;
+    };
+    // Register the entire discovered tree before any read can yield to live events.
+    const worker = async () => {
+      while (next < summaries.length) {
+        const index = next++;
+        const summary = summaries[index];
+        try {
+          await readChild(summary, index);
+        } catch (error) {
+          notices.push({
+            type: "system.notice",
+            id: randomUUID(),
+            level: "warning",
+            text: `子 Agent ${summary.agentNickname ?? summary.id} 的历史暂不可用：${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, summaries.length) }, worker),
+    );
+    return {
+      threads: threads.filter(
+        (thread): thread is CodexThread => thread !== undefined,
+      ),
+      notices,
+    };
   }
 
   #subagentResolver(rootThreadId: string) {

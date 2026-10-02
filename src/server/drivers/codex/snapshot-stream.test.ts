@@ -522,12 +522,24 @@ test("a native terminal observed before a later stale read cannot revive the old
     },
   });
   // The old item is also protected while other items in this turn are running.
-  await assert.rejects(f.read(), /快照早于已观测的工具终态/);
+  assert(
+    (await f.read()).events.some(
+      (event) =>
+        event.type === "system.notice" &&
+        /快照早于已观测的工具终态/.test(event.text),
+    ),
+  );
   f.emit("turn/completed", {
     turn: { id: "turn", status: "completed", items: [], error: null },
   });
   const stoppedCount = f.updates.length;
-  await assert.rejects(f.read(), /快照早于已观测的轮次状态/); // Native mock deliberately returns the earlier inProgress view.
+  assert(
+    (await f.read()).events.some(
+      (event) =>
+        event.type === "system.notice" &&
+        /快照早于已观测的轮次状态/.test(event.text),
+    ),
+  ); // Native mock deliberately returns the earlier inProgress view.
   await f.driver.close();
   assert.equal(f.updates.length, stoppedCount);
   const child = f.rows(snapshot.events);
@@ -843,7 +855,12 @@ test("continuous initial races fail after two reads and recover only from a full
     });
     return f.child;
   });
-  await assert.rejects(f.read(), /流式快照无法对齐/);
+  assert(
+    (await f.read()).events.some(
+      (event) =>
+        event.type === "system.notice" && /流式快照无法对齐/.test(event.text),
+    ),
+  );
   assert.equal(f.count(), 2);
   assert.equal(f.updates.length, 0);
   f.emit("item/commandExecution/outputDelta", {
@@ -909,7 +926,11 @@ test("Codex child web searches survive refresh, completion and stale snapshot re
   const row = f.rows(initial.events).timeline[0]!;
   assert(row.type === "tool");
   assert.equal(row.status, "completed");
-  await assert.rejects(f.read(), /工具终态/);
+  assert(
+    (await f.read()).events.some(
+      (event) => event.type === "system.notice" && /工具终态/.test(event.text),
+    ),
+  );
   f.child.turns[0]!.items = [completed];
   const refreshed = buildTimeline((await f.read()).events)[0]!;
   assert(refreshed.type === "subagent");
@@ -935,4 +956,66 @@ test("Codex tracks a web search restored while running until interruption", asyn
   const row = f.rows(initial.events).timeline[0]!;
   assert(row.type === "tool");
   assert.equal(row.status, "interrupted");
+});
+
+test("child reads are bounded in parallel and a missing child preserves the parent and siblings", async (t) => {
+  const f = await fixture(t);
+  for (let i = 1; i < 10; i++)
+    f.children.push({ ...structuredClone(f.child), id: `child-${i}` });
+  f.root.turns = [
+    {
+      id: "main",
+      status: "completed",
+      error: null,
+      items: [
+        {
+          type: "agentMessage",
+          id: "main-answer",
+          text: "Parent survives",
+          phase: "final_answer",
+        },
+      ],
+    },
+  ];
+  let active = 0,
+    peak = 0;
+  const gates: Array<() => void> = [];
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  f.setRead(async (_count, id) => {
+    active++;
+    peak = Math.max(peak, active);
+    if (active === 4) markStarted();
+    await new Promise<void>((resolve) => gates.push(resolve));
+    active--;
+    if (id === "child-1") throw new Error("child history missing");
+    return f.children.find((x) => x.id === id)!;
+  });
+  await f.driver.start();
+  const reading = f.read();
+  await started;
+  assert.equal(peak, 4);
+  while (gates.length || active > 0) {
+    for (const release of gates.splice(0)) release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const snapshot = await reading;
+  assert.equal(peak, 4);
+  assert.equal(f.count(), 10);
+  assert(
+    snapshot.events.some(
+      (x) => x.type === "assistant.message" && x.text === "Parent survives",
+    ),
+  );
+  assert(
+    snapshot.events.some(
+      (x) => x.type === "system.notice" && /child history missing/.test(x.text),
+    ),
+  );
+  assert.equal(
+    buildTimeline(snapshot.events).filter((x) => x.type === "subagent").length,
+    9,
+  );
 });
