@@ -28,9 +28,9 @@ Racco currently targets Linux desktops only. The production process is a systemd
 <!-- agent-notes:start -->
 ## Agent Notes
 
-Every non-trivial change adds or updates an [Agent Note](.agents/notes/README.md) in the same PR; purely mechanical or local edits without a decision change are exempt. Use [agent-notes-write](.agents/skills/agent-notes-write/SKILL.md) to record proposals and decisions. Every new note includes a scoped supersession check through [agent-notes-maintain](.agents/skills/agent-notes-maintain/SKILL.md).
+Record durable engineering decisions in [Agent Notes](.agents/notes/README.md): ownership, persistence and deletion boundaries, support constraints, and consequential alternatives. Routine fixes, local refactors, and tests that preserve those decisions do not require a new note or a no-information update.
 
-Keep implemented records current with code in the same change. Review decision/implementation agreement with [agent-notes-review](.agents/skills/agent-notes-review/SKILL.md). Archived notes are frozen historical snapshots, never current authority.
+Update an existing owner when its decision-relevant facts change. For a new decision, use [agent-notes-write](.agents/skills/agent-notes-write/SKILL.md), search related notes, and reconcile overlap with [agent-notes-maintain](.agents/skills/agent-notes-maintain/SKILL.md). Keep useful rationale current; Git retains removed and superseded history. Review agreement with [agent-notes-review](.agents/skills/agent-notes-review/SKILL.md).
 
-Run `python3 scripts/agent_notes.py check` before submitting changes to the Notes tree. Repair inbound links whenever a note moves or is deleted. CI archive checks use a trusted pre-change commit through `AGENT_NOTES_BASE_REF`.
+Run `python3 scripts/agent_notes.py check` after Notes changes and repair links when moving or deleting records. Notes maintenance does not grant permission for unrelated edits, destructive operations, or publishing.
 <!-- agent-notes:end -->
