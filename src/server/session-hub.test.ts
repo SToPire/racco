@@ -1200,6 +1200,84 @@ test("broadcasts a real session turn to every subscribed client", async () => {
   await hub.close();
 });
 
+for (const outcome of ["interrupt", "completed", "error", "answer"] as const) {
+  test(`closes pending questions for every subscriber when a turn is ${outcome}`, async () => {
+    const f = await modelTestHub();
+    const sentA: ServerMessage[] = [];
+    const sentB: ServerMessage[] = [];
+    let finishTurn!: () => void;
+    let settled!: Promise<PromiseSettledResult<unknown>[]>;
+    f.driver.runTurn = async ({ context, signal }) => {
+      settled = Promise.allSettled(
+        ["first", "second"].map((id) =>
+          context.requestInteraction({
+            title: id,
+            questions: [{ id, text: id, multiple: false }],
+          }),
+        ),
+      );
+      await new Promise<void>((resolve) => {
+        finishTurn = resolve;
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      if (outcome === "error") throw new Error("Provider failed");
+    };
+    try {
+      const { ref } = await f.hub.createSession(
+        recordingSocket(sentA),
+        "codex",
+        f.projectId,
+        f.cwd,
+        `questions-${outcome}`,
+        [{ type: "text", text: "Ask" }],
+        fixtureModelSettings,
+      );
+      const joined = await f.hub.subscribe(recordingSocket(sentB), ref);
+      assert(joined);
+      assert.equal(joined.pendingInteractions.length, 2);
+      const ids = joined.pendingInteractions.map((question) => question.id);
+      if (outcome === "answer") {
+        assert(
+          f.hub.resolveInteraction(ids[0], {
+            decision: "answer",
+            answers: { first: ["yes"] },
+          }),
+        );
+        assert.equal(f.hub.listSessions()[0].state, "waiting_interaction");
+        assert(f.hub.resolveInteraction(ids[1], { decision: "deny" }));
+        assert.equal(f.hub.listSessions()[0].state, "running");
+      }
+      if (outcome === "interrupt") assert(f.hub.interrupt(ref));
+      else finishTurn();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const results = await settled;
+      assert(
+        results.every(
+          (result) =>
+            result.status === (outcome === "answer" ? "fulfilled" : "rejected"),
+        ),
+      );
+      for (const sent of [sentA, sentB]) {
+        assert.deepEqual(
+          sent.flatMap((message) =>
+            message.type === "interaction.resolved"
+              ? [message.interactionId]
+              : [],
+          ),
+          ids,
+        );
+      }
+      assert.deepEqual((await f.hub.snapshot(ref))?.pendingInteractions, []);
+      assert.equal(
+        f.hub.resolveInteraction(ids[0], { decision: "deny" }),
+        false,
+      );
+    } finally {
+      await f.hub.close();
+    }
+  });
+}
+
 test("broadcasts project and session catalog updates to every connected client", async () => {
   const cwd = await fixtureCwd();
   const repository = memoryRepository();
