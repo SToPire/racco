@@ -100,6 +100,35 @@ test("creates a worktree from an explicit base ref", async (t) => {
   assert.equal(catalog.worktrees[1].head, head.trim());
 });
 
+test("creates from a main root whose Git administrative directory is separate", async (t) => {
+  const { fixture, project, worktreeRoot } = await setUp(t, "separate-git-dir");
+  await runGit([
+    "init",
+    "-q",
+    "--separate-git-dir",
+    join(fixture, "git-admin"),
+    project,
+  ]);
+  const catalog = await createWorktree({
+    projectPath: project,
+    worktreeRoot,
+    name: "feature",
+  });
+  assert.equal(catalog.worktrees[0].path, project);
+  assert.equal(catalog.worktrees[0].kind, "primary");
+  assert.equal(catalog.worktrees[1].branch, "feature");
+  const subdirectory = join(project, "src");
+  await mkdir(subdirectory);
+  await assert.rejects(
+    deriveWorktrees({ projectPath: subdirectory }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.ok(error.message.endsWith(project));
+      return true;
+    },
+  );
+});
+
 test("refuses a name Git rejects, with Git's own reason", async (t) => {
   const { project, worktreeRoot } = await setUp(t, "badname");
 
@@ -226,7 +255,7 @@ test("refuses to create inside a project that is itself a linked worktree", asyn
   });
 
   // Running `worktree add` from inside a linked worktree succeeds in Git, so the
-  // guard must come from `--git-dir`, not from "is a repository".
+  // guard must check its actual main-root identity, not "is a repository".
   await assert.rejects(
     createWorktree({
       projectPath: nested,

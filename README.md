@@ -36,6 +36,8 @@
 
 ## Worktree
 
+导入 Git 项目时请选择仓库的主工作区根目录；子目录、链接 Worktree 和裸仓库不能作为独立项目导入。普通非 Git 目录仍可直接使用。
+
 需要 `git`：每个项目下可以并行多个 Worktree，列表实时来自 `git worktree list`，因此终端里手工建的 Worktree 也会出现。Racco 自己创建的 Worktree 放在 `~/.local/share/racco/worktrees/<项目>-<路径摘要>/`，可在 `racco.config.json` 里用 `worktreeRoot` 改到别处（该项只约束创建位置，不影响列表）。
 
 安装步骤把本检出软链到 `~/.local/share/racco`，因此默认的 Worktree 落点位于本检出内，已在 `.gitignore` 中忽略。在本检出中清理时请用 `git clean -df`，**不要**用 `-x`——它会连同这些 Worktree 一起删掉。

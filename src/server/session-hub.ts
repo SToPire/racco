@@ -55,6 +55,7 @@ import { WorktreeService } from "./worktrees/service.js";
 import { WorktreeAccess } from "./worktrees/access.js";
 import { gitCommonDir } from "./worktrees/git.js";
 import { SessionTimeline } from "./session-timeline.js";
+import { assertProjectRoot } from "./worktrees/derive.js";
 
 type RuntimeSession = {
   summary: SessionSummary;
@@ -341,6 +342,7 @@ export class SessionHub {
         "Project must be an existing absolute directory other than /",
       );
     }
+    await assertProjectRoot(canonicalPath);
     // Registration is infrequent. Serialize its ownership read and insert so
     // concurrent imports cannot both claim the same Git common directory.
     const registration = this.#projectImports.then(async () => {
