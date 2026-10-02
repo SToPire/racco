@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -141,6 +149,72 @@ test("refuses to create when the target directory already exists", async (t) => 
   await assert.rejects(
     createWorktree({ projectPath: project, worktreeRoot, name: "occupied" }),
     WorktreeTargetExistsError,
+  );
+});
+
+test("preserves a target created by another process after the existence check", async (t) => {
+  const { fixture, project, worktreeRoot } = await setUp(t, "target-race");
+  const bin = join(fixture, "bin");
+  await mkdir(bin);
+  // The wrapper injects the competing filesystem write immediately before the
+  // real Git command. Git itself must reject the now-occupied target.
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh
+if [ "$1" = worktree ] && [ "$2" = add ]; then
+  mkdir -p "$5"
+  printf 'external work\\n' > "$5/important.txt"
+fi
+PATH="$RACCO_TEST_GIT_PATH" exec git "$@"
+`,
+    { mode: 0o700 },
+  );
+  const previousPath = process.env.PATH;
+  const previousGitPath = process.env.RACCO_TEST_GIT_PATH;
+  process.env.RACCO_TEST_GIT_PATH = previousPath;
+  process.env.PATH = `${bin}:${previousPath}`;
+  t.after(() => {
+    process.env.PATH = previousPath;
+    if (previousGitPath === undefined) delete process.env.RACCO_TEST_GIT_PATH;
+    else process.env.RACCO_TEST_GIT_PATH = previousGitPath;
+  });
+
+  await assert.rejects(
+    createWorktree({ projectPath: project, worktreeRoot, name: "contended" }),
+    /already exists/,
+  );
+  const target = join(worktreeRoot, projectSlug(project), "contended");
+  assert.equal(
+    await readFile(join(target, "important.txt"), "utf8"),
+    "external work\n",
+  );
+});
+
+test("retains a checkout and hook output when the checkout hook fails", async (t) => {
+  const { project, worktreeRoot } = await setUp(t, "hook-failure");
+  await writeFile(
+    join(project, ".git", "hooks", "post-checkout"),
+    "#!/bin/sh\nprintf 'hook work\\n' > hook-output.txt\nexit 1\n",
+    { mode: 0o700 },
+  );
+  await assert.rejects(
+    createWorktree({ projectPath: project, worktreeRoot, name: "hook-work" }),
+    { name: "GitCommandError" },
+  );
+  const target = join(worktreeRoot, projectSlug(project), "hook-work");
+  assert.equal(
+    await readFile(join(target, "hook-output.txt"), "utf8"),
+    "hook work\n",
+  );
+  assert.equal(
+    await readFile(join(target, "tracked.txt"), "utf8"),
+    "fixture\n",
+  );
+  const catalog = await deriveWorktrees({ projectPath: project });
+  assert.ok(
+    catalog.worktrees.some(
+      (entry) => entry.path === target && entry.branch === "hook-work",
+    ),
   );
 });
 
