@@ -10,6 +10,7 @@ import { DirectoryBrowser } from "./components/DirectoryBrowser";
 import { NewSessionView } from "./components/NewSessionView";
 import { ProjectDock, type DockPanel } from "./components/ProjectDock";
 import { SessionList } from "./components/SessionList";
+import { SessionLoadState } from "./components/SessionLoadState";
 import { SessionView } from "./components/SessionView";
 import { ToolInspector } from "./components/ToolInspector";
 import {
@@ -278,17 +279,21 @@ export function App() {
         />
 
         <section className="workspace">
-          {activeRef !== undefined && session === undefined && (
-            <div className="conversation-loading">
-              <span className="button-spinner" />
-              <p>正在读取对话…</p>
-              {sessionError && <p className="error-banner">{sessionError}</p>}
-            </div>
+          {activeRef !== undefined && racco.sessionLoadState !== "ready" && (
+            <SessionLoadState
+              status={racco.sessionLoadState}
+              error={sessionError}
+              onRetry={racco.retrySession}
+              onBack={showHistory}
+            />
           )}
           {sessionViews.map((view) => (
             <SessionView
               key={view.session.sessionId}
-              active={activeRef?.sessionId === view.session.sessionId}
+              active={
+                activeRef?.sessionId === view.session.sessionId &&
+                racco.sessionLoadState === "ready"
+              }
               loaded={view.loaded}
               connection={connection}
               error={

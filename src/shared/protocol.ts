@@ -277,7 +277,12 @@ export type SessionSnapshotMessage = {
 
 export type ServerMessage =
   | { type: "ack"; requestId: string; data?: unknown }
-  | { type: "error"; requestId?: string; message: string }
+  | {
+      type: "error";
+      requestId?: string;
+      message: string;
+      code?: "session_not_found";
+    }
   | { type: "project.upserted"; project: ProjectEntry }
   | { type: "project.deleted"; projectId: string }
   | { type: "worktree.upserted"; worktree: WorktreeEntry }

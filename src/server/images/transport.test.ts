@@ -75,6 +75,12 @@ test("the WebSocket enforces image model capability, emits only placeholders, an
     return reply;
   }
   assert.equal((await request({ type: "connection.ping" })).type, "ack");
+  const missing = await request({
+    type: "session.subscribe",
+    sessionId: "missing",
+  });
+  assert.equal(missing.type, "error");
+  if (missing.type === "error") assert.equal(missing.code, "session_not_found");
   const sessionId = fixture.sessions[0].sessionId;
   await request({ type: "session.subscribe", sessionId });
   const data = (

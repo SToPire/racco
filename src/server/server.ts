@@ -555,7 +555,15 @@ export async function buildServer(
 
             if (command.type === "session.subscribe") {
               const snapshot = await hub.subscribe(socket, command);
-              if (snapshot === undefined) throw new Error("Session not found");
+              if (snapshot === undefined) {
+                send(socket, {
+                  type: "error",
+                  requestId: command.requestId,
+                  code: "session_not_found",
+                  message: "会话不存在或已删除",
+                });
+                return;
+              }
               send(socket, { type: "ack", requestId: command.requestId });
               send(socket, snapshot);
               return;

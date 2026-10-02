@@ -33,7 +33,7 @@ import {
   initialCatalogState,
   type CatalogChange,
 } from "../catalog-state";
-import { RaccoSocket, type SocketStatus } from "../socket";
+import { RaccoRequestError, RaccoSocket, type SocketStatus } from "../socket";
 import { applyTimelineEvent, buildTimeline, type TimelineRow } from "../store";
 import {
   visitSession,
@@ -111,6 +111,11 @@ export function useRacco({
   const [loading, setLoading] = useState(true);
   const [homeError, setHomeError] = useState<string>();
   const [sessionError, setSessionError] = useState<string>();
+  const [subscription, setSubscription] = useState<{
+    sessionId: string;
+    status: "loading" | "not-found" | "error";
+  }>();
+  const [subscriptionAttempt, setSubscriptionAttempt] = useState(0);
   /** Project whose worktree list is being re-read, or being created in. */
   const [busyWorktreeProjectId, setBusyWorktreeProjectId] = useState<string>();
   const [connection, setConnection] = useState<SocketStatus>("closed");
@@ -211,8 +216,19 @@ export function useRacco({
   );
 
   useEffect(() => {
-    if (connection !== "open" || activeRef === undefined) return;
+    if (activeRef === undefined) return;
+    if (connection !== "open") {
+      setSubscription({
+        sessionId: activeRef.sessionId,
+        status: connection === "closed" ? "error" : "loading",
+      });
+      if (connection === "closed")
+        setSessionError("连接已断开，恢复连接后可重试读取。");
+      return;
+    }
     let cancelled = false;
+    setSubscription({ sessionId: activeRef.sessionId, status: "loading" });
+    setSessionError(undefined);
     const requestId = crypto.randomUUID();
     subscriptionRequests.current.add(requestId);
     void socket
@@ -222,16 +238,25 @@ export function useRacco({
         sessionId: activeRef.sessionId,
       })
       .catch((error: unknown) => {
-        if (!cancelled)
+        if (!cancelled) {
+          setSubscription({
+            sessionId: activeRef.sessionId,
+            status:
+              error instanceof RaccoRequestError &&
+              error.code === "session_not_found"
+                ? "not-found"
+                : "error",
+          });
           setSessionError(
             error instanceof Error ? error.message : String(error),
           );
+        }
       })
       .finally(() => subscriptionRequests.current.delete(requestId));
     return () => {
       cancelled = true;
     };
-  }, [activeRef?.sessionId, connection, socket]);
+  }, [activeRef?.sessionId, connection, socket, subscriptionAttempt]);
 
   useEffect(
     () =>
@@ -789,6 +814,16 @@ export function useRacco({
   const interactions = activeContent?.interactions ?? EMPTY_INTERACTIONS;
   return {
     session,
+    sessionLoadState: activeContent?.loaded
+      ? ("ready" as const)
+      : subscription !== undefined &&
+          subscription.sessionId === activeRef?.sessionId
+        ? subscription.status
+        : ("loading" as const),
+    retrySession: () => {
+      socket.connect();
+      setSubscriptionAttempt((attempt) => attempt + 1);
+    },
     sessions,
     projects,
     worktrees,

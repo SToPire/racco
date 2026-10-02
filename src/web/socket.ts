@@ -14,6 +14,15 @@ export type SocketStatus = "connecting" | "open" | "closed";
 type MessageListener = (message: ServerMessage) => void;
 type StatusListener = (status: SocketStatus) => void;
 
+export class RaccoRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code?: "session_not_found",
+  ) {
+    super(message);
+  }
+}
+
 export class RaccoSocket {
   readonly #messageListeners = new Set<MessageListener>();
   readonly #statusListeners = new Set<StatusListener>();
@@ -24,6 +33,7 @@ export class RaccoSocket {
   #reconnectTimer?: number;
   #destroyed = false;
   #heartbeatTimer?: number;
+  #connectTimer?: number;
   readonly #requests = new Map<
     string,
     { resolve(data: unknown): void; reject(error: Error): void; timer: number }
@@ -43,9 +53,14 @@ export class RaccoSocket {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
     this.#socket = socket;
+    this.#connectTimer = window.setTimeout(
+      () => this.#disconnect(socket),
+      SOCKET_HEARTBEAT_TIMEOUT_MS,
+    );
 
     socket.addEventListener("open", () => {
       if (this.#socket !== socket) return;
+      window.clearTimeout(this.#connectTimer);
       this.#reconnectAttempt = 0;
       this.#setStatus("open");
       this.#scheduleHeartbeat(socket);
@@ -69,7 +84,10 @@ export class RaccoSocket {
           this.#requests.delete(message.requestId!);
           window.clearTimeout(pending.timer);
           if (message.type === "ack") pending.resolve(message.data);
-          else pending.reject(new Error(message.message));
+          else
+            pending.reject(
+              new RaccoRequestError(message.message, message.code),
+            );
         }
       }
       for (const listener of this.#messageListeners) listener(message);
@@ -128,6 +146,7 @@ export class RaccoSocket {
     // Do not wait for the browser's close handshake on a half-open network.
     this.#socket = undefined;
     window.clearTimeout(this.#heartbeatTimer);
+    window.clearTimeout(this.#connectTimer);
     this.#rejectRequests(error);
     this.#setStatus("closed");
     this.#scheduleReconnect();
@@ -150,6 +169,7 @@ export class RaccoSocket {
     this.#rejectRequests(new Error("Racco connection closed"));
     window.clearTimeout(this.#reconnectTimer);
     window.clearTimeout(this.#heartbeatTimer);
+    window.clearTimeout(this.#connectTimer);
     const socket = this.#socket;
     this.#socket = undefined;
     socket?.close();
