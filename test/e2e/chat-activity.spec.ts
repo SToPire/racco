@@ -377,7 +377,9 @@ for (const viewport of [
               .boundingBox()
           )?.height ?? Infinity,
       )
-      .toBeLessThanOrEqual(68);
+      // Mobile shrinks the root font to 15px (see responsive.css); fractional
+      // line-height rounding lands this card at 69px there.
+      .toBeLessThanOrEqual(viewport.width <= 760 ? 70 : 68);
     await page.screenshot({
       path: testInfo.outputPath(`chat-expanded-${viewport.width}.png`),
     });

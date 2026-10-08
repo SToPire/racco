@@ -3,8 +3,12 @@
     position: fixed;
     z-index: 30;
     top: 0;
-    right: 0;
+    /* Fixed positioning escapes the shell's safe-area padding; keep the
+       content clear of the notch/home indicator, surface stays full-bleed. */
+    right: env(safe-area-inset-right, 0px);
     width: min(420px, calc(100vw - 48px));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.14);
   }
 }
@@ -19,6 +23,20 @@
 @media (max-width: 760px) {
   :root {
     --conversation-gutter: 12px;
+    /* Shrink every rem-based font token one notch for mobile density. */
+    font-size: 15px;
+  }
+
+  /* iOS force-zooms focused text inputs smaller than 16px. Component rules
+     (e.g. .new-session-composer textarea) outrank a bare element selector, so
+     the guard must win with !important or focus zoom returns. */
+  textarea,
+  input {
+    font-size: 16px !important;
+  }
+
+  .message {
+    line-height: 1.5;
   }
 
   .app-layout,
@@ -102,6 +120,12 @@
     border-radius: 20px;
   }
 
+  /* rows=4 plus the 100px floor make an oversized empty box on phones. */
+  .new-session-composer textarea {
+    height: 84px;
+    min-height: 84px;
+  }
+
   .new-session-toolbar {
     flex-wrap: wrap;
   }
@@ -111,8 +135,10 @@
   }
 
   .timeline {
-    gap: 20px;
-    padding: 26px 0 56px;
+    gap: 14px;
+    /* The bottom padding is the floating turn navigator's runway (34px
+       trigger + 12px offset); keep it, tighten the top instead. */
+    padding: 16px 0 56px;
   }
 
   .trajectory-toolbar {
@@ -189,10 +215,20 @@
   }
 
   .session-footer {
+    /* Safe-area compensation lives on .app-layout so it covers every
+       orientation and panel, not just this footer. */
     padding-bottom: 8px;
   }
 
+  /* Pending interaction cards share the screen with the composer; cap them
+     lower on phones so the conversation stays visible. */
+  .session-interactions {
+    max-height: min(24dvh, 240px);
+  }
+
   .composer {
+    gap: 6px;
+    padding: 8px 8px 8px 12px;
     border-radius: 20px;
   }
 
