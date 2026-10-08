@@ -2,6 +2,8 @@
 
 The reader needs to understand the choice and avoid repeating a costly mistake. Keep the smallest explanation that preserves those facts. These examples illustrate content selection; they do not prescribe a project's technical design.
 
+When the user explicitly requests interface, algorithm, or UI design details, keep the relevant detail in the owning Agent Note. Do not create a companion document under `docs/` or elsewhere. Review process records remain local under `.tmp/reviews/`; retain their durable conclusions without the transcript.
+
 ## Local observation versus project requirement
 
 **Omit:** “On September 16, the local CLI was version 0.154.0. Generated types were inspected in a temporary directory with this command…” The date, machine state, and inspection procedure describe the investigation.

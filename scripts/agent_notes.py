@@ -185,6 +185,21 @@ def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=False)
 
 
+def validate_document_paths(root: Path, errors: list[str]) -> None:
+    """Reject misplaced documents and versioned local process artifacts."""
+    tracked = git(root, "ls-files", "--cached", "-z", "--", "docs/", ".tmp/")
+    untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z", "--", "docs/")
+    for result in (tracked, untracked):
+        if result.returncode:
+            errors.append(f"cannot check document paths: {result.stderr.strip()}")
+            return
+    for path in sorted(set(tracked.stdout.split("\0") + untracked.stdout.split("\0")) - {""}):
+        if path.startswith("docs/"):
+            errors.append(f"{path}: project designs and proposals belong in .agents/notes/; docs/ is not allowed")
+        else:
+            errors.append(f"{path}: local artifacts must not be versioned; keep review records untracked in .tmp/reviews/")
+
+
 def baseline_manifest(root: Path, ref: str | None, has_archive: bool) -> dict[str, str]:
     """Read committed seals, allowing an empty archive before the first Git commit."""
     if ref is not None and not ref.strip():
@@ -247,6 +262,7 @@ def validate_archive(root: Path, artifacts: dict[str, bytes], ref: str | None,
 def check(root: Path, ref: str | None = None, seal: bool = False) -> list[str]:
     """Run structural checks and optionally append immutable archive seals."""
     errors = []
+    validate_document_paths(root, errors)
     notes, artifacts = inventory(root, errors)
     documents = [root / ".agents/notes/README.md", *(source for source, _ in notes)]
     for source in documents:

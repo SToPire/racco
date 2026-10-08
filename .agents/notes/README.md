@@ -2,7 +2,9 @@
 
 ## Purpose
 
-An Agent Note is a concise project-level record of a proposal or decision: why the problem matters, what was chosen, what alternatives lost, and what the choice costs. Keep the rationale and obligations that can guide a future engineering decision. Code, interface documentation, and task reports own implementation detail and execution evidence.
+An Agent Note is a concise project-level record of a proposal or decision: why the problem matters, what was chosen, what alternatives lost, and what the choice costs. Keep the rationale and obligations that can guide a future engineering decision. All project designs, proposals, requirements, and architecture records live here, including requested design details; do not create companion documents under `docs/` or elsewhere. Code and tests own implementation detail that does not affect the recorded choice.
+
+Review and audit process records, findings, dialogue, and execution logs must never enter version control. Keep any such local files under the ignored `.tmp/reviews/` directory. Fold durable conclusions into the owning note without preserving the review transcript or linking to local review artifacts as project authority. Review skills and implementation checks remain versioned tools, not process records.
 
 ## Layout and naming
 
@@ -98,7 +100,7 @@ Every note opens its body with `## Problem`. Required headings are:
 | `implemented` | `Decision`, `Alternatives considered`, `Consequences` |
 | `rejected` | `Proposal`, `Alternatives considered`; retain the proposal's other sections |
 
-Use the required sections without extra subsections by default. Add a technical section only when it is necessary to explain a consequential choice or obligation. Proposed notes describe the intended approach and observable outcomes, not an implementation plan. Implemented notes cannot use `Proposal`, `Plan`, `Migration plan`, or `Acceptance criteria` as second-level headings. An optional verification section records a material limitation or durable guarantee and links to its evidence, rather than listing checks and their output.
+Use the required sections without extra subsections by default. Add a technical section when it is necessary to explain a consequential choice or obligation, or to contain design detail requested by the user. Proposed notes describe the intended approach and observable outcomes; requested design detail stays in that same note. Implemented notes cannot use `Proposal`, `Plan`, `Migration plan`, or `Acceptance criteria` as second-level headings. An optional verification section records a material limitation or durable guarantee and links to its evidence, rather than listing checks and their output.
 
 Alternatives are mandatory and must be genuine. Describe each candidate and why it lost in a bold-led paragraph or a `Why not …?` subsection. Do not invent historical deliberation to fill the section; establish the evidence or explicitly report the gap. A new proposal can compare keeping current behavior with changing it. This fresh-repository mechanism has no legacy-format exemption.
 
@@ -108,7 +110,7 @@ For each candidate fact, ask whether omitting it would obscure the choice, its t
 
 Omit the author's machine state: inspection dates, installed binary versions, home or temporary paths, shell output, account state, and one-off environment limitations. Keep a version, platform, or deployment constraint only when the project explicitly adopts it and it affects the decision. Cite the owning requirement; do not infer a support promise from a local observation. The filename's first-proposed date remains required metadata.
 
-Keep file-by-file change plans, call traces, API and database inventories, algorithms, UI interaction specifications, work sequencing, and test matrices in their owning code or documentation. Exact technical detail belongs in a note only when the choice depends on it, such as a field's compatibility or ownership semantics. Link existing owners for supporting detail. Do not create a companion plan or appendix solely to preserve text that does not belong in the record.
+Keep call traces, routine implementation inventories, work sequencing, and test matrices out of the record unless they explain a consequential choice or fulfill an explicit request for design detail. Describe requested interfaces, algorithms, or UI interactions in the owning note, retaining the relevant alternatives and trade-offs. Link code, tests, or another owning note for supporting detail. Do not relocate omitted text into a companion plan, appendix, or `docs/` document.
 
 Each required section normally needs one short paragraph or a small list. Acceptance criteria state a few observable project outcomes; risks state material trade-offs or unresolved constraints. Avoid repeating scope in several sections. Before expanding a record, identify the choice, trade-off, or obligation the extra prose explains. Preserve necessary negative guarantees and compatibility obligations; length alone is neither a correctness check nor a retention criterion.
 
@@ -125,6 +127,6 @@ python3 scripts/agent_notes.py check
 python3 scripts/agent_notes.py seal
 ```
 
-Use `seal` only after the permitted archive move and metadata update; it validates all prior seals before appending new ones. `check` is read-only. The checker validates tree structure, header and section grammar, line endings, and archive integrity. Meaning, code agreement, and link validity require review; use existing project link checks with archived sources excluded where available.
+Use `seal` only after the permitted archive move and metadata update; it validates all prior seals before appending new ones. `check` is read-only. The checker validates tree structure, header and section grammar, line endings, and archive integrity. It also rejects versioned `docs/` and `.tmp/` files and unignored, untracked `docs/` files, including designs that have not been staged yet. These path checks do not classify prose: meaning, code agreement, link validity, and the exclusion of review process records require review; use existing project link checks with archived sources excluded where available.
 
 Local archive checks compare against committed HEAD. CI supplies a trusted pre-change commit through `AGENT_NOTES_BASE_REF` or `--base-ref`; the ref must exist locally. Fetch it when checkout history is shallow. An invalid explicit ref fails. Never repair a CI failure by changing existing seals or running write commands in CI.

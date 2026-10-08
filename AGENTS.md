@@ -30,6 +30,8 @@ Racco currently targets Linux desktops only. The production process is a systemd
 
 Every non-trivial change adds or updates an [Agent Note](.agents/notes/README.md) in the same PR; purely mechanical or local edits without a decision change are exempt. Use [agent-notes-write](.agents/skills/agent-notes-write/SKILL.md) to record proposals and decisions. Every new note includes a scoped supersession check through [agent-notes-maintain](.agents/skills/agent-notes-maintain/SKILL.md).
 
+All project designs, proposals, requirements, and architecture records live in `.agents/notes/`. Include requested design detail in the owning note; do not create companion documents under `docs/` or elsewhere. Review and audit process records, findings, dialogue, and execution logs must never enter version control. Keep any such local files under the ignored `.tmp/reviews/` directory, and fold durable conclusions into the owning note without preserving the review transcript.
+
 Keep implemented records current with code in the same change. Review decision/implementation agreement with [agent-notes-review](.agents/skills/agent-notes-review/SKILL.md). Archived notes are frozen historical snapshots, never current authority.
 
 Run `python3 scripts/agent_notes.py check` before submitting changes to the Notes tree. Repair inbound links whenever a note moves or is deleted. CI archive checks use a trusted pre-change commit through `AGENT_NOTES_BASE_REF`.
