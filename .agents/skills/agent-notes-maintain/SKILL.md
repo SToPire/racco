@@ -1,6 +1,6 @@
 ---
 name: agent-notes-maintain
-description: Audit and maintain Agent Notes when new decisions supersede old records or a scoped cleanup is requested. Classify partial and full replacement, consolidate rationale, reject obsolete proposals, and preserve immutable archived notes.
+description: Audit and maintain Agent Notes when decisions supersede old records or a scoped cleanup finds misplaced or duplicate designs. Consolidate designs into their owning notes, classify replacement, reject obsolete proposals, and preserve immutable archived notes.
 ---
 
 # Maintain Agent Notes
@@ -13,11 +13,13 @@ A new note requires a local audit of notes about the same decision, mechanism, p
 
 For a read-only audit, report proposed dispositions. When maintenance is authorized or required by the note being written, apply the scoped dispositions and link repairs. Do not expand a local supersession check into unrelated corpus cleanup.
 
+Project designs belong in their owning `.agents/notes/` record. When the requested cleanup includes an external or duplicate design, merge its meaningful design content into that owner and repair inbound links before removing the duplicate. Review process records are not candidates for a new or archived Note: retain only resulting durable decisions in the owner. Report the audit in the conversation; local findings or logs belong only in ignored, untracked `.tmp/reviews/` files.
+
 ## Keep active records at decision scope
 
-An overlong active note may still contain an important decision. When edits are authorized, remove local inspection history and incidental implementation inventories while preserving its rationale, trade-offs, and durable obligations. Link to an existing owner for necessary supporting detail. Do not archive a useful decision merely because its current prose is verbose, and do not modernize sealed history.
+An overlong active note may still contain an important decision. When edits are authorized, remove local inspection history and incidental implementation inventories while preserving its rationale, trade-offs, durable obligations, and design details explicitly requested by the user. Requested interfaces, algorithms, and UI interactions stay in the owning Note; do not shorten the Note by moving them into a companion document. Link code, tests, or an independently owned Agent Note for supporting evidence. Do not archive a useful decision merely because its current prose is verbose, and do not modernize sealed history.
 
-Consolidation preserves unique decision knowledge, not every sentence of the old record. Carry forward verification guarantees and material evidence gaps without copying test matrices, machine-specific observations, or execution plans into the new owner. A detail belongs when losing it would change a future choice or permit an incorrect implementation.
+Consolidation preserves unique decision knowledge, not every sentence of the old record. Carry forward verification guarantees, material evidence gaps, and requested design detail; omit routine test matrices, machine-specific observations, and execution logs. A detail belongs when losing it would change a future choice, permit an incorrect implementation, or fail the user's design request.
 
 ## Classify records
 
@@ -42,5 +44,7 @@ Once sealed, the note cannot be edited, moved, reformatted, or deleted. Renewed 
 ## Verify and report
 
 For active lifecycle moves, rewrite the content for the destination state and run the checker. Inspect incoming references repository-wide, including outside the Notes tree. Run any existing project link checks with archived sources excluded.
+
+Inspect all document outputs and, before an authorized commit, the staged paths and contents. No companion design or review process record may remain in the deliverable; local audit files must remain ignored and untracked. A passing Notes checker does not establish the semantic ownership of every document.
 
 Report retained, archived, consolidated, rejected, and deleted notes, with a brief future-value reason for each borderline choice. State which links and checks were actually reviewed. Archive hash verification does not establish the validity of historical outgoing links.

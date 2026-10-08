@@ -1,6 +1,6 @@
 ---
 name: agent-notes-write
-description: Write concise, durable Agent Notes for project-level proposals and engineering decisions. Use when recording rationale, alternatives, and trade-offs, rewriting a completed proposal, or trimming an active note that reads like an investigation log or implementation plan.
+description: Create and update project designs, technical proposals, requirements, and engineering decisions as Agent Notes. Use for design or implementation-plan requests even when the user does not name Agent Notes, and for recording rationale, refining requested design details, or rewriting completed proposals.
 ---
 
 # Write Agent Notes
@@ -12,6 +12,7 @@ Record the reasons and trade-offs that future maintainers need. This workflow as
 1. Read the requested change, current implementation, relevant tests, and existing active notes. Search by mechanism, symbols, and rejected alternatives. Follow an archived citation only when needed as historical evidence; do not use it as current authority.
 2. Decide whether this change needs a note under the project's non-trivial-change rule. An existing owner can be updated when the decision remains the same. A reversal needs a new note and explicit links to the prior decision.
 3. Choose the lifecycle and one class using the project README. Substantial future or partly implemented work is proposed. A completed decision starts directly in implemented; completing a proposal moves and rewrites it. Preserve the first-proposed date.
+4. Before creating a draft or scaffold, select its single owning path under `.agents/notes/<lifecycle>/<class>/`. The design and its Agent Note are the same document. Generic co-authoring workflows, templates, and existing repository examples do not authorize another destination; do not create a `docs/` draft to move later or a short Note that merely links to a separate design.
 
 ## Select what belongs
 
@@ -23,7 +24,7 @@ Keep the chosen approach, ownership, user-visible scope, consequential guarantee
 
 Use the required sections without extra subsections by default. Each normally needs one short paragraph or a small list. Acceptance criteria name a few observable project outcomes; risks name material trade-offs or unresolved constraints. Avoid repeating the same scope across sections. Extra length must explain a consequential choice, trade-off, or obligation, or fulfill the user's request for design detail. Keep that detail in the same note. See [scope examples](references/decision-scope.md) when selecting from detailed research or an overlong draft.
 
-Review and audit process records, findings, dialogue, and execution logs must never enter version control. Keep any such local files only under the ignored `.tmp/reviews/` directory. Fold durable conclusions into the owning note without preserving the transcript or citing local review artifacts as project authority.
+Review and audit process records, findings, dialogue, and execution logs must never enter version control. Report them in the conversation; if a local file is needed, use only `.tmp/reviews/` and verify that the path is ignored and untracked. Fold durable conclusions into the owning note without preserving the transcript or citing local review artifacts as project authority. Renaming review findings as an Agent Note does not make them versionable.
 
 ## Write and reconcile
 
@@ -36,6 +37,8 @@ Describe implemented decisions in the present tense. Preserve benefits, costs, a
 Every new note includes a scoped supersession audit using the installed `agent-notes-maintain` workflow. Search the same mechanism and process affected by the decision. Resolve known full or partial overlaps in this change; do not defer them to a future cleanup. A proposal-to-implementation move includes the body rewrite and inbound-link repair.
 
 ## Verify and report
+
+Inspect the task's new and changed document paths before finishing. Confirm each design has one owning Note, no companion design elsewhere, and no review process record in the deliverable. Before an authorized commit, also inspect `git diff --cached --name-only` and the staged document contents; the path checker cannot recognize review prose disguised as another document.
 
 Review the note's claims, headings, code, and links. Keep one physical line per paragraph and exactly one trailing newline. Then run from the repository root:
 

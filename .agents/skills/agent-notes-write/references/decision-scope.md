@@ -14,11 +14,13 @@ When the user explicitly requests interface, algorithm, or UI design details, ke
 
 ## Implementation inventory versus architectural choice
 
-**Omit:** a route-to-hook-to-hub call trace, a list of proposed files, complete JSON requests, database columns, event-handler ordering, and a numbered implementation sequence.
+**Omit unless needed for the requested design:** a route-to-hook-to-hub call trace, a list of proposed files, complete JSON requests, database columns, event-handler ordering, and a numbered implementation sequence.
 
 **Keep:** “The server owns command validation and execution, sharing the existing session exclusion and retry guarantees. Clients cannot choose arbitrary provider methods or native session identifiers.” Ownership and guarantees explain the approach; the implementation chooses the specific handlers and storage layout.
 
 Exact technical details can matter. If the decision is which field establishes request identity, naming that field and its duplicate-request semantics is necessary. That does not require reproducing the full request schema.
+
+**Keep when requested:** a UI layout, navigation states, or interface contract that lets the user assess an implementation proposal. Put it directly in the proposed Note. A design file under `docs/designs/` plus a Note linking to it creates two owners and is not an acceptable way to shorten the Note.
 
 ## Acceptance outcome versus verification inventory
 
