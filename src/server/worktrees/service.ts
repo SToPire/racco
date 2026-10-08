@@ -55,6 +55,12 @@ export class WorktreeService {
     return this.#toCatalog(project, derived);
   }
 
+  /** Membership checks do not scan every worktree for dirty files. */
+  async includesPath(project: ManagedProject, path: string): Promise<boolean> {
+    const derived = await this.#cache.get(project.path);
+    return derived.worktrees.some((entry) => entry.path === path);
+  }
+
   /** Re-reads from Git, ignoring anything cached. */
   async refresh(project: ManagedProject): Promise<WorktreeCatalog> {
     const derived = await this.#cache.refresh(project.path);

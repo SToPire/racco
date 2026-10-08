@@ -351,6 +351,16 @@ export function App() {
             setDockPanel((current) => (current === panel ? undefined : panel))
           }
           onResize={setDockWidth}
+          onOpenWorktreeFile={(path, file) => {
+            setSelectedWorktreePath(path);
+            setDockPanel("files");
+            fileRequestSequence.current += 1;
+            setFileRequest({
+              path: file,
+              worktreePath: path,
+              requestId: fileRequestSequence.current,
+            });
+          }}
           sessions={sessions}
           onImport={(provider, nativeId, path) =>
             racco.importSession(

@@ -8,10 +8,11 @@ import type {
 import { UiIcon } from "./UiIcon";
 import { FileIcon } from "./files/FileIcon";
 import { ProjectFiles } from "./files/ProjectFiles";
+import { ProjectChanges } from "./ProjectChanges";
 import { ProjectSessions } from "./ProjectSessions";
 import type { FileOpenRequest } from "../file-navigation";
 
-export type DockPanel = "files" | "sessions";
+export type DockPanel = "files" | "sessions" | "changes";
 
 type Props = {
   active?: DockPanel;
@@ -26,6 +27,7 @@ type Props = {
   onFileOpened: (requestId: number) => void;
   onToggle: (panel: DockPanel) => void;
   onResize: (width: number) => void;
+  onOpenWorktreeFile: (path: string, file: string) => void;
   sessions: SessionSummary[];
   onImport: (
     provider: Provider,
@@ -51,17 +53,20 @@ export function ProjectDock({
   onFileOpened,
   onToggle,
   onResize,
+  onOpenWorktreeFile,
   sessions,
   onImport,
   onDeleteNative,
   onOpen,
 }: Props) {
   const open = active !== undefined;
-  const label = active === "sessions" ? "会话" : "文件";
+  const label =
+    active === "sessions" ? "会话" : active === "changes" ? "Git 修改" : "文件";
   const dock = useRef<HTMLElement>(null);
   const [maximumWidth, setMaximumWidth] = useState(360);
   const drag = useRef<{ x: number; width: number } | undefined>(undefined);
   const filesLauncher = useRef<HTMLButtonElement>(null);
+  const changesLauncher = useRef<HTMLButtonElement>(null);
   const sessionsLauncher = useRef<HTMLButtonElement>(null);
   const worktreeSelector = useRef<HTMLSelectElement>(null);
   const previousPanel = useRef(active);
@@ -69,7 +74,9 @@ export function ProjectDock({
     if (previousPanel.current && !active)
       (previousPanel.current === "files"
         ? filesLauncher
-        : sessionsLauncher
+        : previousPanel.current === "changes"
+          ? changesLauncher
+          : sessionsLauncher
       ).current?.focus();
     else if (previousPanel.current !== active && active)
       worktreeSelector.current?.focus();
@@ -250,6 +257,31 @@ export function ProjectDock({
         </div>
         <div
           className="project-dock-expanded"
+          id="changes-dock-panel"
+          hidden={active !== "changes"}
+        >
+          {worktree ? (
+            <ProjectChanges
+              key={worktree.path}
+              worktree={worktree}
+              enabled={active === "changes"}
+              controls={active === "changes" ? controls : null}
+              onOpenFile={onOpenWorktreeFile}
+            />
+          ) : (
+            <>
+              <header className="file-dock-tabs-row">
+                <span className="dock-panel-title">Git 修改</span>
+                {active === "changes" && controls}
+              </header>
+              <div className="file-preview-empty">
+                <p>请选择要查看 Git 修改的 Worktree。</p>
+              </div>
+            </>
+          )}
+        </div>
+        <div
+          className="project-dock-expanded"
           id="sessions-dock-panel"
           hidden={active !== "sessions"}
         >
@@ -288,6 +320,18 @@ export function ProjectDock({
       <nav className="project-dock-rail" aria-label="项目工具">
         <button
           className="project-dock-launcher"
+          ref={sessionsLauncher}
+          aria-controls="sessions-dock-panel"
+          aria-label="展开会话侧栏"
+          aria-expanded={active === "sessions"}
+          onClick={() => onToggle("sessions")}
+          type="button"
+          title="项目会话"
+        >
+          <UiIcon name="message" />
+        </button>
+        <button
+          className="project-dock-launcher"
           ref={filesLauncher}
           aria-controls="files-dock-panel"
           aria-label="展开文件侧栏"
@@ -300,15 +344,15 @@ export function ProjectDock({
         </button>
         <button
           className="project-dock-launcher"
-          ref={sessionsLauncher}
-          aria-controls="sessions-dock-panel"
-          aria-label="展开会话侧栏"
-          aria-expanded={active === "sessions"}
-          onClick={() => onToggle("sessions")}
+          ref={changesLauncher}
+          aria-controls="changes-dock-panel"
+          aria-label="展开 Git 修改侧栏"
+          aria-expanded={active === "changes"}
+          onClick={() => onToggle("changes")}
           type="button"
-          title="项目会话"
+          title="Git 修改"
         >
-          <UiIcon name="message" />
+          <UiIcon name="branch" />
         </button>
       </nav>
     </aside>

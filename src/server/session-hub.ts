@@ -391,8 +391,7 @@ export class SessionHub {
     // must not make every worktree unreadable.
     for (const project of this.repository.listProjects()) {
       try {
-        const catalog = await this.#worktrees.catalog(project);
-        if (catalog.worktrees.some((entry) => entry.path === path)) return true;
+        if (await this.#worktrees.includesPath(project, path)) return true;
       } catch {
         // The project's worktrees are unknown right now; keep checking the rest.
       }

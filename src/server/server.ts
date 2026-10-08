@@ -15,6 +15,7 @@ import {
 } from "../shared/protocol.js";
 import type { RaccoConfig } from "./config.js";
 import { projectFileRoutes } from "./project-files/routes.js";
+import { gitChangeRoutes } from "./git-changes/routes.js";
 import { directoryRoutes } from "./directories/routes.js";
 import { SessionHub } from "./session-hub.js";
 import { WorktreeDirtyError } from "./worktrees/manager.js";
@@ -72,6 +73,9 @@ export async function buildServer(
     throw error;
   }
   await app.register(projectFileRoutes, {
+    worktreeIsAvailable: (path: string) => hub.worktreePathIsReadable(path),
+  });
+  await app.register(gitChangeRoutes, {
     worktreeIsAvailable: (path: string) => hub.worktreePathIsReadable(path),
   });
   const drivers = options.createDrivers(app.log, images);
