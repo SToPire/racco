@@ -8,7 +8,8 @@ import type {
   GitChanges,
   GitChangeGroup,
 } from "../../shared/git-changes.js";
-import { gitRead, GitReadError, strictText } from "./git.js";
+import { gitRead, GitReadError, strictText, gitRoot } from "./git.js";
+import { gitReads } from "./coordinator.js";
 
 const MAX_TEXT = 2 * 1024 * 1024;
 type Entry = GitChangeEntry & { blobs: string[] };
@@ -128,15 +129,7 @@ async function fingerprint(path: string): Promise<string> {
 }
 
 async function snapshot(path: string): Promise<Snapshot> {
-  const root = await realpath(path);
-  const top = strictText(
-    await gitRead(root, ["rev-parse", "--show-toplevel"]),
-  ).replace(/\n$/, "");
-  if ((await realpath(top)) !== root)
-    throw new GitReadError(
-      "所选目录不是 Git 工作区根目录，请导入仓库根目录。",
-      422,
-    );
+  const root = await gitRoot(path);
   const index = strictText(
     await gitRead(root, [
       "rev-parse",
@@ -412,17 +405,22 @@ async function diff(
   });
 }
 
-/** Coalesce lists and refuse a second active read instead of an unbounded queue. */
+/** List consumers share work; history and current changes share the same gate. */
 export class GitChangesReader {
-  readonly #active = new Map<string, Promise<unknown>>();
   readonly #lists = new Map<string, Promise<GitChanges>>();
 
-  list(path: string): Promise<GitChanges> {
-    const current = this.#lists.get(path);
-    if (current) return current;
-    const task = this.#run(path, () => list(path));
-    this.#lists.set(path, task);
-    void task.finally(() => this.#lists.delete(path)).catch(() => {});
+  list(path: string, signal?: AbortSignal): Promise<GitChanges> {
+    if (!signal) {
+      const current = this.#lists.get(path);
+      if (current) return current;
+    }
+    const task = gitReads
+      .run(path, "changes", () => list(path), signal)
+      .then((value) => ({ ...value, path }));
+    if (!signal) {
+      this.#lists.set(path, task);
+      void task.finally(() => this.#lists.delete(path)).catch(() => {});
+    }
     return task;
   }
 
@@ -430,18 +428,8 @@ export class GitChangesReader {
     path: string,
     file: string,
     group: GitChangeGroup,
+    signal?: AbortSignal,
   ): Promise<GitChangeDiff> {
-    return this.#run(path, () => diff(path, file, group));
-  }
-
-  #run<T>(path: string, operation: () => Promise<T>): Promise<T> {
-    if (this.#active.has(path))
-      return Promise.reject(
-        new GitReadError("Git 读取繁忙，请稍后重试。", 409),
-      );
-    const task = operation();
-    this.#active.set(path, task);
-    void task.finally(() => this.#active.delete(path)).catch(() => {});
-    return task;
+    return gitReads.run(path, null, () => diff(path, file, group), signal);
   }
 }

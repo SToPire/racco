@@ -132,6 +132,11 @@ test("session dock follows the selected project and can import Claude on a narro
       exact: true,
     })
     .click();
+  // Closing a dock while import is pending deliberately suppresses navigation.
+  // This scenario closes the panel after the import has opened its session.
+  await expect(
+    page.locator(".session-view:not([hidden]) .session-title-line h1"),
+  ).toHaveText("claude Beta history");
   await expect(dock).not.toContainText("Alpha history");
   await dock.getByRole("button", { name: "折叠会话侧栏" }).click();
   await expect(

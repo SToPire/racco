@@ -8,7 +8,7 @@ import type {
 import { UiIcon } from "./UiIcon";
 import { FileIcon } from "./files/FileIcon";
 import { ProjectFiles } from "./files/ProjectFiles";
-import { ProjectChanges } from "./ProjectChanges";
+import { ProjectGit } from "./ProjectGit";
 import { ProjectSessions } from "./ProjectSessions";
 import type { FileOpenRequest } from "../file-navigation";
 
@@ -256,12 +256,12 @@ export function ProjectDock({
           )}
         </div>
         <div
-          className="project-dock-expanded"
+          className="project-dock-expanded git-dock-expanded"
           id="changes-dock-panel"
           hidden={active !== "changes"}
         >
           {worktree ? (
-            <ProjectChanges
+            <ProjectGit
               key={worktree.path}
               worktree={worktree}
               enabled={active === "changes"}

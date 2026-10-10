@@ -4,34 +4,8 @@ import {
   type GitChangeGroup,
 } from "../shared/git-changes";
 
-export class GitApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
-
-async function resource(
-  name: string,
-  query: URLSearchParams,
-  signal: AbortSignal,
-): Promise<unknown> {
-  const response = await fetch(`/api/worktrees/${name}?${query}`, { signal });
-  const data = (await response.json()) as unknown;
-  if (!response.ok) {
-    const message =
-      typeof data === "object" &&
-      data !== null &&
-      "message" in data &&
-      typeof data.message === "string"
-        ? data.message
-        : "无法读取 Git 修改。";
-    throw new GitApiError(message, response.status);
-  }
-  return data;
-}
+import { gitResource as resource } from "./git-request";
+export { GitApiError } from "./git-request";
 
 export async function listGitChanges(path: string, signal: AbortSignal) {
   const data = GitChangesSchema.parse(
