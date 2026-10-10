@@ -1,11 +1,13 @@
 import type { InteractionRequest, SessionSummary } from "../shared/protocol";
 import type { TimelineRow } from "./store";
+import { receiveRequestClock, type RequestClock } from "./request-clock";
 
 export type SessionContent = {
   session: SessionSummary;
   rows: TimelineRow[];
   interactions: InteractionRequest[];
   loaded: boolean;
+  requestClock: RequestClock | null;
 };
 export type SessionCache = Map<string, SessionContent>;
 export const SESSION_CACHE_LIMIT = 8;
@@ -26,12 +28,43 @@ export function visitSession(
     rows: [],
     interactions: [],
     loaded: false,
+    requestClock: null,
   };
   next.delete(session.sessionId);
   next.set(session.sessionId, content);
   while (next.size > SESSION_CACHE_LIMIT)
     next.delete(next.keys().next().value!);
   return next;
+}
+
+export function receiveSessionSummary(
+  content: SessionContent,
+  session: SessionSummary,
+  receivedAt: number,
+): SessionContent {
+  return {
+    ...content,
+    session,
+    requestClock: receiveRequestClock(
+      content.requestClock,
+      session.activeRequest,
+      receivedAt,
+    ),
+  };
+}
+
+export function staleSessionClocks(current: SessionCache): SessionCache {
+  return new Map(
+    [...current].map(([id, content]) => [
+      id,
+      content.requestClock === null || content.requestClock.stale
+        ? content
+        : {
+            ...content,
+            requestClock: { ...content.requestClock, stale: true },
+          },
+    ]),
+  );
 }
 
 export function updateSessionContent(

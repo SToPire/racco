@@ -41,6 +41,7 @@ test("lists the main agent and nested subagents inside one session switcher", ()
         selectedModelSettings: null,
         contextUsage: null,
         compacting: false,
+        activeRequest: null,
       }}
       subagents={[
         subagent("parent", "Turing", "/root/reviewer"),

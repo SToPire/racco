@@ -56,11 +56,13 @@ import { WorktreeAccess } from "./worktrees/access.js";
 import { gitCommonDir } from "./worktrees/git.js";
 
 type RuntimeSession = {
-  summary: SessionSummary;
+  summary: Omit<SessionSummary, "activeRequest">;
   events: TimelineEvent[];
   subscribers: Set<WebSocket>;
   revision: number;
   activeTurn?: {
+    id: string;
+    startedAt: number;
     abortController: AbortController;
     terminalState?: "idle" | "interrupted" | "error";
   };
@@ -474,7 +476,7 @@ export class SessionHub {
   listSessions(): SessionSummary[] {
     return this.repository
       .list()
-      .map((managed) => ({ ...this.#runtimeFor(managed).summary }));
+      .map((managed) => this.#sessionSummary(this.#runtimeFor(managed)));
   }
 
   async snapshot(ref: SessionRef): Promise<SessionSnapshotMessage | undefined> {
@@ -758,7 +760,7 @@ export class SessionHub {
                 "Session is already managed by a different project",
               );
             }
-            return toSessionSummary(existing);
+            return this.#sessionSummary(this.#runtimeFor(existing));
           }
 
           const driver = this.#requireDriver(input.provider);
@@ -778,7 +780,7 @@ export class SessionHub {
           runtime.events = snapshot.events;
           runtime.revision += 1;
           this.#broadcastSessionSummary(runtime);
-          return { ...runtime.summary };
+          return this.#sessionSummary(runtime);
         },
       ),
     );
@@ -1012,6 +1014,8 @@ export class SessionHub {
 
       const abortController = new AbortController();
       const activeTurn: NonNullable<RuntimeSession["activeTurn"]> = {
+        id: randomUUID(),
+        startedAt: performance.now(),
         abortController,
       };
       runtime.activeTurn = activeTurn;
@@ -1335,13 +1339,30 @@ export class SessionHub {
       .map((pending) => pending.request);
   }
 
+  #sessionSummary(runtime: RuntimeSession): SessionSummary {
+    const turn = runtime.activeTurn;
+    return {
+      ...runtime.summary,
+      activeRequest:
+        turn === undefined
+          ? null
+          : {
+              id: turn.id,
+              elapsedMs: Math.max(
+                0,
+                Math.floor(performance.now() - turn.startedAt),
+              ),
+            },
+    };
+  }
+
   #snapshotMessage(
     sessionId: string,
     runtime: RuntimeSession,
   ): SessionSnapshotMessage {
     return {
       type: "session.snapshot",
-      session: { ...runtime.summary },
+      session: this.#sessionSummary(runtime),
       events: [...runtime.events],
       pendingInteractions: this.#pendingForSession(sessionId),
     };
@@ -1384,7 +1405,7 @@ export class SessionHub {
   #broadcastSessionSummary(runtime: RuntimeSession): void {
     this.#broadcastToClients({
       type: "session.upserted",
-      session: { ...runtime.summary },
+      session: this.#sessionSummary(runtime),
     });
   }
 

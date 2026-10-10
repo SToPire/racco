@@ -35,6 +35,8 @@ import { useConversationScroll } from "../hooks/useConversationScroll";
 import type { TrajectoryEntry } from "../trajectory";
 import { FileReferenceScope } from "../FileNavigationContext";
 import { sessionStateLabel } from "../session-presentation";
+import type { RequestClock } from "../request-clock";
+import { RequestTimer } from "./RequestTimer";
 
 type SessionViewProps = {
   active: boolean;
@@ -44,6 +46,7 @@ type SessionViewProps = {
   interactions: InteractionRequest[];
   connection: SocketStatus;
   sending: boolean;
+  requestClock: RequestClock | null;
   error?: string;
   onBack: () => void;
   onSend: (
@@ -65,6 +68,7 @@ export function SessionView({
   interactions,
   connection,
   sending,
+  requestClock,
   error,
   onBack,
   onSend,
@@ -382,11 +386,28 @@ export function SessionView({
               ))}
             </div>
           )}
-          {turnActive && (
-            <button className="stop-button" onClick={onInterrupt} type="button">
-              <span aria-hidden="true" />
-              停止生成
-            </button>
+          {(turnActive || requestClock !== null) && (
+            <div className="request-controls">
+              {requestClock !== null && (
+                <RequestTimer
+                  clock={requestClock}
+                  active={active}
+                  connection={connection}
+                  waiting={session.state === "waiting_interaction"}
+                  showMainAgent={selectedSubagent !== undefined}
+                />
+              )}
+              {turnActive && (
+                <button
+                  className="stop-button"
+                  onClick={onInterrupt}
+                  type="button"
+                >
+                  <span aria-hidden="true" />
+                  停止生成
+                </button>
+              )}
+            </div>
           )}
           <Composer
             scope={session.sessionId}

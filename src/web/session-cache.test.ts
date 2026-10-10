@@ -6,6 +6,8 @@ import {
   SESSION_CACHE_LIMIT,
   updateSessionContent,
   visitSession,
+  receiveSessionSummary,
+  staleSessionClocks,
   type SessionCache,
 } from "./session-cache.js";
 
@@ -21,6 +23,7 @@ function session(id: string): SessionSummary {
     selectedModelSettings: null,
     contextUsage: null,
     compacting: false,
+    activeRequest: null,
     updatedAt: "2026-09-22T00:00:00.000Z",
   };
 }
@@ -46,6 +49,28 @@ test("returning to a cached session preserves its content and evicts the least r
     ),
     cache,
   );
+});
+
+test("cached request clocks keep their receipt anchor across navigation and await a new sample after disconnect", () => {
+  const running = {
+    ...session("running"),
+    activeRequest: { id: "turn", elapsedMs: 12000 },
+  };
+  let cache = visitSession(new Map(), running);
+  cache = updateSessionContent(cache, "running", (content) =>
+    receiveSessionSummary(content, running, 500),
+  );
+  const clock = cache.get("running")!.requestClock;
+  cache = visitSession(cache, session("other"));
+  cache = visitSession(cache, running);
+  assert.equal(cache.get("running")!.requestClock, clock);
+  cache = staleSessionClocks(cache);
+  assert.equal(cache.get("running")!.requestClock?.stale, true);
+  assert.equal(cache.get("running")!.requestClock?.sampleElapsedMs, 12000);
+  cache = updateSessionContent(cache, "running", (content) =>
+    receiveSessionSummary(content, { ...running, activeRequest: null }, 10000),
+  );
+  assert.equal(cache.get("running")!.requestClock, null);
 });
 
 test("removing a project discards its cached messages and questions without touching other projects", () => {

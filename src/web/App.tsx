@@ -289,6 +289,7 @@ export function App() {
               selectedToolId={selectedToolId}
               sending={sending}
               session={view.session}
+              requestClock={view.requestClock}
             />
           ))}
           {activeRef === undefined && (

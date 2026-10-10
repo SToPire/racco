@@ -49,6 +49,7 @@ for (const provider of ["codex", "claude"] as const) {
         onSend={async () => true}
         rows={rows}
         sending={false}
+        requestClock={null}
         session={{
           sessionId: "session-1",
           projectId: "project-1",
@@ -61,6 +62,7 @@ for (const provider of ["codex", "claude"] as const) {
           selectedModelSettings: null,
           contextUsage: null,
           compacting: false,
+          activeRequest: null,
         }}
       />,
     );

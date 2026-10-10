@@ -44,6 +44,8 @@ import {
   visitSession,
   updateSessionContent,
   forgetSessionContent,
+  receiveSessionSummary,
+  staleSessionClocks,
   type SessionCache,
 } from "../session-cache";
 
@@ -123,33 +125,61 @@ export function useRacco({
   const connectedBefore = useRef(false);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
+  const connected = useRef(false);
+  const connectionEpoch = useRef(0);
+  // A slow HTTP catalog must not overwrite newer streamed state or revive a
+  // completed request's clock. Each in-flight read tracks intervening changes.
+  const sessionReads = useRef(new Set<Set<string>>());
   /** Pre-delete snapshot to detect double navigation (REST success + WS broadcast). */
   const navigatingFromDelete = useRef(false);
 
   const loadHome = useCallback(async () => {
+    const epoch = connectionEpoch.current;
+    const changed = new Set<string>();
+    sessionReads.current.add(changed);
     setLoading(true);
     setHomeError(undefined);
     try {
-      const [nextHealth, nextSessions, nextProjects] = await Promise.all([
+      const [nextHealth, catalog, nextProjects] = await Promise.all([
         getHealth(),
-        listSessions(),
+        listSessions().then((sessions) => ({
+          sessions,
+          receivedAt: performance.now(),
+        })),
         listProjects(),
       ]);
       setHealth(nextHealth);
-      setSessions(nextSessions);
-      setSessionCache(
-        (current) =>
-          new Map(
-            [...current].flatMap(([id, content]) => {
-              const session = nextSessions.find(
-                (entry) => entry.sessionId === id,
-              );
-              return session === undefined
-                ? []
-                : [[id, { ...content, session }] as const];
-            }),
-          ),
-      );
+      const nextSessions = catalog.sessions;
+      if (epoch === connectionEpoch.current) {
+        setSessions((current) =>
+          current
+            .filter((session) => changed.has(session.sessionId))
+            .reduce(
+              upsertSession,
+              nextSessions.filter((session) => !changed.has(session.sessionId)),
+            ),
+        );
+        setSessionCache(
+          (current) =>
+            new Map(
+              [...current].flatMap(([id, content]) => {
+                if (changed.has(id)) return [[id, content] as const];
+                const session = nextSessions.find(
+                  (entry) => entry.sessionId === id,
+                );
+                if (session === undefined) return [];
+                const next = receiveSessionSummary(
+                  content,
+                  session,
+                  catalog.receivedAt,
+                );
+                if (!connected.current && next.requestClock !== null)
+                  next.requestClock.stale = true;
+                return [[id, next] as const];
+              }),
+            ),
+        );
+      }
       setProjects(nextProjects);
       const results = await loadAllWorktrees(nextProjects);
       setWorktrees((current) => {
@@ -179,6 +209,7 @@ export function useRacco({
     } catch (error) {
       setHomeError(error instanceof Error ? error.message : String(error));
     } finally {
+      sessionReads.current.delete(changed);
       setLoading(false);
     }
   }, []);
@@ -195,6 +226,9 @@ export function useRacco({
   useEffect(
     () =>
       socket.onStatus((status) => {
+        connected.current = status === "open";
+        if (status === "closed") connectionEpoch.current++;
+        if (status !== "open") setSessionCache(staleSessionClocks);
         setConnection(status);
         if (status === "closed" && pendingSend.current !== undefined) {
           setSessionError(
@@ -238,6 +272,23 @@ export function useRacco({
   useEffect(
     () =>
       socket.onMessage((message: ServerMessage) => {
+        const receivedAt = performance.now();
+        if (
+          message.type === "session.upserted" ||
+          message.type === "session.snapshot"
+        ) {
+          for (const changed of sessionReads.current)
+            changed.add(message.session.sessionId);
+        } else if (message.type === "session.removed") {
+          for (const changed of sessionReads.current)
+            changed.add(message.sessionId);
+        } else if (message.type === "project.deleted") {
+          for (const session of sessionsRef.current) {
+            if (session.projectId === message.projectId)
+              for (const changed of sessionReads.current)
+                changed.add(session.sessionId);
+          }
+        }
         if (message.type === "ack") return;
         if (message.type === "error") {
           if (
@@ -310,7 +361,8 @@ export function useRacco({
             updateSessionContent(
               current,
               message.session.sessionId,
-              (content) => ({ ...content, session: message.session }),
+              (content) =>
+                receiveSessionSummary(content, message.session, receivedAt),
             ),
           );
           return;
@@ -325,8 +377,7 @@ export function useRacco({
                 : current,
               message.session.sessionId,
               (content) => ({
-                ...content,
-                session: message.session,
+                ...receiveSessionSummary(content, message.session, receivedAt),
                 rows: buildTimeline(message.events),
                 interactions: message.pendingInteractions,
                 loaded: true,

@@ -74,6 +74,7 @@ export type SessionSummary = SessionRef & {
   selectedModelSettings: ModelSettings | null;
   contextUsage: ContextUsage | null;
   compacting: boolean;
+  activeRequest: { id: string; elapsedMs: number } | null;
 };
 
 export type AssistantPhase = "commentary" | "final_answer";

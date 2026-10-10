@@ -63,6 +63,7 @@ function renderAgent(overrides: Partial<SubagentTimelineRow> = {}) {
         selectedModelSettings: null,
         contextUsage: null,
         compacting: false,
+        activeRequest: null,
       }}
       onSelect={() => undefined}
     />,

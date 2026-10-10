@@ -96,6 +96,7 @@ export function toSessionSummary(session: ManagedSession): SessionSummary {
     selectedModelSettings: session.selectedModelSettings,
     contextUsage: null,
     compacting: false,
+    activeRequest: null,
   };
 }
 

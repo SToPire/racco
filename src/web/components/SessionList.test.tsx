@@ -83,6 +83,7 @@ const sessions: SessionSummary[] = [
     selectedModelSettings: null,
     contextUsage: null,
     compacting: false,
+    activeRequest: null,
   },
 ];
 

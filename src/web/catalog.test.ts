@@ -19,6 +19,7 @@ function session(
     selectedModelSettings: null,
     contextUsage: null,
     compacting: false,
+    activeRequest: null,
   };
 }
 

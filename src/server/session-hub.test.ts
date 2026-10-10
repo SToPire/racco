@@ -12,9 +12,17 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { memoryRepository } from "../../test/state.js";
 import { WebSocket } from "ws";
-import type { ServerMessage, TimelineEvent } from "../shared/protocol.js";
+import type {
+  Provider,
+  ServerMessage,
+  TimelineEvent,
+} from "../shared/protocol.js";
 import { buildTimeline } from "../web/store.js";
-import type { AgentDriver, SessionSnapshot } from "./drivers/driver.js";
+import type {
+  AgentDriver,
+  DriverContext,
+  SessionSnapshot,
+} from "./drivers/driver.js";
 import { SessionHub } from "./session-hub.js";
 import type { SessionRepository } from "./state/session-repository.js";
 
@@ -35,7 +43,7 @@ function fixtureProjectId(repository: SessionRepository, cwd: string): string {
   return repository.importProject({ name: "fixture", path: cwd }).projectId;
 }
 
-async function modelTestHub() {
+async function modelTestHub(provider: Provider = "codex") {
   const cwd = await fixtureCwd();
   const repository = memoryRepository();
   const projectId = fixtureProjectId(repository, cwd);
@@ -45,7 +53,7 @@ async function modelTestHub() {
   let allocations = 0;
   let ready = true;
   const driver: AgentDriver = {
-    provider: "codex",
+    provider,
     get ready() {
       return ready;
     },
@@ -94,6 +102,151 @@ async function modelTestHub() {
     },
     socket: recordingSocket(),
   };
+}
+
+for (const provider of ["codex", "claude"] as const) {
+  test(`${provider} shares a monotonic current-request clock through output, questions, recovery and terminal cleanup`, async (t) => {
+    let now = 1000;
+    t.mock.method(performance, "now", () => now);
+    const f = await modelTestHub(provider);
+    let context!: DriverContext;
+    let finish!: () => void;
+    let fail!: (error: Error) => void;
+    f.driver.runTurn = async (input) => {
+      context = input.context;
+      await new Promise<void>((resolve, reject) => {
+        finish = resolve;
+        fail = reject;
+        input.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const messages: ServerMessage[] = [];
+    const client = recordingSocket(messages);
+    f.hub.registerClient(client);
+    try {
+      const created = await f.hub.createSession(
+        client,
+        provider,
+        f.projectId,
+        f.cwd,
+        "timer-create",
+        [{ type: "text", text: "first" }],
+        fixtureModelSettings,
+      );
+      const first = created.snapshot.session.activeRequest;
+      assert(first);
+      assert.equal(first.elapsedMs, 0);
+      assert.equal(
+        created.snapshot.events.some(
+          (event) => event.type === "assistant.message",
+        ),
+        false,
+      );
+
+      now = 12500;
+      const expected = { id: first.id, elapsedMs: 11500 };
+      const broadcasts = messages.length;
+      assert.deepEqual(f.hub.listSessions()[0].activeRequest, expected);
+      assert.deepEqual(
+        (await f.hub.subscribe(recordingSocket(), created.ref))?.session
+          .activeRequest,
+        expected,
+      );
+      assert.deepEqual(
+        (
+          await f.hub.importSession({
+            provider,
+            providerSessionId: "native-1",
+            projectId: f.projectId,
+            path: f.cwd,
+          })
+        ).activeRequest,
+        expected,
+      );
+      assert.equal(messages.length, broadcasts);
+
+      context.emit({
+        type: "assistant.message",
+        id: "stream",
+        text: "working",
+        partial: true,
+      });
+      context.emit({
+        type: "tool.started",
+        id: "tool",
+        tool: "test",
+        input: {},
+      });
+      now = 24000;
+      const answer = context.requestInteraction({
+        title: "Choose",
+        questions: [{ id: "q", text: "Which?", multiple: false }],
+      });
+      const waiting = await f.hub.snapshot(created.ref);
+      assert.equal(waiting?.session.state, "waiting_interaction");
+      assert.deepEqual(waiting?.session.activeRequest, {
+        id: first.id,
+        elapsedMs: 23000,
+      });
+      now = 30000;
+      f.hub.resolveInteraction(waiting!.pendingInteractions[0].id, {
+        decision: "answer",
+        answers: { q: ["one"] },
+      });
+      await answer;
+      assert.deepEqual(f.hub.listSessions()[0].activeRequest, {
+        id: first.id,
+        elapsedMs: 29000,
+      });
+      context.setState("idle");
+      assert.equal(f.hub.listSessions()[0].activeRequest?.id, first.id);
+      finish();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(f.hub.listSessions()[0].state, "idle");
+      assert.equal(f.hub.listSessions()[0].activeRequest, null);
+      const terminal = messages
+        .filter((message) => message.type === "session.upserted")
+        .at(-1);
+      assert.equal(terminal?.session.activeRequest, null);
+
+      now = 40000;
+      await f.hub.startTurn(
+        created.ref,
+        [{ type: "text", text: "second" }],
+        "second",
+        fixtureModelSettings,
+      );
+      const second = f.hub.listSessions()[0].activeRequest;
+      assert(second);
+      assert.notEqual(second.id, first.id);
+      assert.equal(second.elapsedMs, 0);
+      f.hub.interrupt(created.ref);
+      assert.equal(f.hub.listSessions()[0].activeRequest?.id, second.id);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(f.hub.listSessions()[0].state, "interrupted");
+      assert.equal(f.hub.listSessions()[0].activeRequest, null);
+
+      await f.hub.startTurn(
+        created.ref,
+        [{ type: "text", text: "third" }],
+        "third",
+        fixtureModelSettings,
+      );
+      fail(new Error("provider failed"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(f.hub.listSessions()[0].state, "error");
+      assert.equal(f.hub.listSessions()[0].activeRequest, null);
+      context.emit({
+        type: "subagent.started",
+        id: "background",
+        agentId: "background",
+      });
+      assert.equal(f.hub.listSessions()[0].activeRequest, null);
+    } finally {
+      finish?.();
+      await f.hub.close();
+    }
+  });
 }
 
 async function imageContent(): Promise<UserInput> {
@@ -1012,9 +1165,14 @@ test("persists an active turn as interrupted during graceful shutdown", async ()
     fixtureModelSettings,
   );
 
+  assert(created.snapshot.session.activeRequest);
   await hub.close();
 
   assert.equal(repository.get(created.ref.sessionId)?.state, "interrupted");
+  const restarted = new SessionHub([driver], repository, cwd, async () => {});
+  await restarted.initialize();
+  assert.equal(restarted.listSessions()[0].activeRequest, null);
+  await restarted.close();
   database.close();
 });
 
@@ -1303,6 +1461,7 @@ test("compaction keeps a shared busy flag until completion without database writ
     assert.equal(hub.listSessions()[0]?.compacting, true);
     const otherSnapshot = await hub.subscribe(recordingSocket(), ref);
     assert.equal(otherSnapshot?.session.compacting, true);
+    assert.equal(otherSnapshot?.session.activeRequest, null);
     assert.deepEqual(f.repository.get(ref.sessionId), beforeCompact);
     notify("child", { type: "compaction.finished" });
     assert.equal(hub.listSessions()[0]?.compacting, true);
