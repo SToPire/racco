@@ -13,9 +13,9 @@ import { UiIcon } from "./UiIcon";
 
 const labels: Record<GitChangeGroup, string> = {
   conflict: "冲突",
-  unstaged: "未暂存",
+  unstaged: "Unstaged",
   staged: "已暂存",
-  untracked: "未跟踪",
+  untracked: "Untracked",
 };
 const groups: GitChangeGroup[] = [
   "conflict",
@@ -162,6 +162,9 @@ export function ProjectChanges({
 
   const error = listError ?? detailError;
   const busy = listBusy || detailBusy;
+  const branch =
+    listing?.branch ??
+    (listing?.head ? `Detached ${listing.head.slice(0, 8)}` : "Git 修改");
 
   const visibleDetail =
     detail &&
@@ -203,26 +206,30 @@ export function ProjectChanges({
       </header>
       <div className="git-changes-body">
         <div className="git-changes-summary">
-          <strong>
-            {listing?.branch ??
-              (listing?.head
-                ? `Detached ${listing.head.slice(0, 8)}`
-                : "Git 修改")}
-          </strong>
-          <code title={worktree.path}>{worktree.path}</code>
-          <span role="status">
-            {error
-              ? `读取失败，结果可能已过期：${error}`
-              : busy
-                ? "更新中…"
-                : listing
-                  ? `${listing.entries.length} 项修改 · ${new Date(listing.readAt).toLocaleTimeString()}`
-                  : "打开后读取当前未提交修改。"}
-          </span>
-          {error && listing && (
-            <small>
-              上次成功读取：{new Date(listing.readAt).toLocaleTimeString()}
-            </small>
+          <div className="git-changes-summary-row">
+            <strong title={branch}>{branch}</strong>
+            <code title={worktree.path}>{worktree.path}</code>
+            <span
+              role={error ? undefined : "status"}
+              title={
+                listing
+                  ? `上次成功读取：${new Date(listing.readAt).toLocaleTimeString()}`
+                  : undefined
+              }
+            >
+              {busy ? (
+                "更新中…"
+              ) : listing ? (
+                <time dateTime={listing.readAt}>
+                  {new Date(listing.readAt).toLocaleTimeString()}
+                </time>
+              ) : (
+                "未读取"
+              )}
+            </span>
+          </div>
+          {error && (
+            <span role="status">读取失败，结果可能已过期：{error}</span>
           )}
         </div>
         <div className="git-change-list" aria-label="Git 修改文件">

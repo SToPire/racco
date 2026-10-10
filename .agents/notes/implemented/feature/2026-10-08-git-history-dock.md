@@ -13,7 +13,7 @@ Status: implemented
 ```text
 Source Control                 [Worktree ▾] [刷新修改]
 当前修改
-  未暂存 / 已暂存 / 未跟踪 / 冲突
+  Unstaged / 已暂存 / Untracked / 冲突
   文件列表与差异                 ↕ 上方阅读区域
 ───────────────────────────────────────────────
 ▾ 提交历史                  [当前分支 ▾] [刷新历史]

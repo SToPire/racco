@@ -752,15 +752,35 @@
 .git-changes-summary {
   display: grid;
   gap: 6px;
-  padding: 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   font-size: var(--font-size-sm);
 }
-.git-changes-summary code {
-  overflow-wrap: anywhere;
+.git-changes-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.git-changes-summary-row strong {
+  min-width: 0;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-changes-summary-row code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-muted);
 }
-.git-changes-summary [role="status"] {
+.git-changes-summary-row > span {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.git-changes-summary > [role="status"] {
   overflow-wrap: anywhere;
 }
 .git-change-list,

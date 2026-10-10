@@ -81,7 +81,7 @@ for (const viewport of [
     await page.goto("/");
     await page.getByRole("button", { name: "展开 Git 修改侧栏" }).click();
     const dirty = page.getByRole("button", {
-      name: "未暂存 README.md",
+      name: "Unstaged README.md",
       exact: true,
     });
     await expect(dirty).toBeVisible();
@@ -290,7 +290,7 @@ test("commit diffs use committed content and preserve current-change selection",
   await page.goto("/");
   await page.getByRole("button", { name: "展开 Git 修改侧栏" }).click();
   const dirty = page.getByRole("button", {
-    name: "未暂存 history.txt",
+    name: "Unstaged history.txt",
     exact: true,
   });
   await dirty.click();

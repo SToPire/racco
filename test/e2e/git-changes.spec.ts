@@ -26,7 +26,7 @@ test("Git dock separates baselines, refreshes same-status content manually and o
     "+staged beta",
   );
   await page
-    .getByRole("button", { name: "未暂存 other.txt", exact: true })
+    .getByRole("button", { name: "Unstaged other.txt", exact: true })
     .click();
   await expect(page.locator(".git-change-detail .file-diff")).toContainText(
     "+current beta",
@@ -69,7 +69,7 @@ test("transient Git read failures retain the old list and diff with explicit sta
   await page.goto("/");
   await page.getByRole("button", { name: "展开 Git 修改侧栏" }).click();
   await page
-    .getByRole("button", { name: "未暂存 README.md", exact: true })
+    .getByRole("button", { name: "Unstaged README.md", exact: true })
     .click();
   await expect(page.locator(".git-change-detail .file-diff")).toContainText(
     "+changed README",
@@ -85,7 +85,7 @@ test("transient Git read failures retain the old list and diff with explicit sta
     "结果可能已过期",
   );
   await expect(
-    page.getByRole("button", { name: "未暂存 README.md", exact: true }),
+    page.getByRole("button", { name: "Unstaged README.md", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".git-change-detail .file-diff")).toContainText(
     "+changed README",
@@ -112,7 +112,7 @@ test("collapsed Git dock stops requests and Escape restores launcher focus", asy
   const launcher = page.getByRole("button", { name: "展开 Git 修改侧栏" });
   await launcher.click();
   await expect(
-    page.getByRole("button", { name: "未跟踪 new.txt", exact: true }),
+    page.getByRole("button", { name: "Untracked new.txt", exact: true }),
   ).toBeVisible();
   const entered = reads;
   await page.waitForTimeout(3400);
@@ -123,7 +123,7 @@ test("collapsed Git dock stops requests and Escape restores launcher focus", asy
   await page.waitForTimeout(150);
   expect(reads).toBe(entered);
   await page
-    .getByRole("button", { name: "未跟踪 new.txt", exact: true })
+    .getByRole("button", { name: "Untracked new.txt", exact: true })
     .click();
   await expect(page.locator(".git-change-detail .file-diff")).toContainText(
     "new file",
@@ -171,7 +171,7 @@ test("unselected Git details remain empty and mobile launchers scroll inside the
   await changes.click();
   await expect(changes).toHaveAttribute("aria-expanded", "true");
   await expect(
-    page.getByRole("button", { name: "未跟踪 new.txt", exact: true }),
+    page.getByRole("button", { name: "Untracked new.txt", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".git-change-detail")).toBeEmpty();
   expect(
@@ -206,7 +206,7 @@ test("reopening during a pending detail read can recover with manual refresh aft
   const launcher = page.getByRole("button", { name: "展开 Git 修改侧栏" });
   await launcher.click();
   await page
-    .getByRole("button", { name: "未跟踪 new.txt", exact: true })
+    .getByRole("button", { name: "Untracked new.txt", exact: true })
     .click();
   await expect.poll(() => detailStarted).toBe(true);
   await launcher.click();
@@ -287,7 +287,9 @@ test("a file chosen during a failing list refresh still gets one detail read", a
   });
   await page.goto("/");
   await page.getByRole("button", { name: "展开 Git 修改侧栏" }).click();
-  await page.getByRole("button", { name: "未跟踪 a.txt", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Untracked a.txt", exact: true })
+    .click();
   await expect(page.locator(".git-change-detail .file-diff")).toContainText(
     "file A",
   );
@@ -296,7 +298,9 @@ test("a file chosen during a failing list refresh still gets one detail read", a
     .getByRole("button", { name: "刷新 Git 修改", exact: true })
     .click();
   await expect.poll(() => waiting).toBe(true);
-  await page.getByRole("button", { name: "未跟踪 b.txt", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Untracked b.txt", exact: true })
+    .click();
   expect(bReads).toBe(0);
   release!();
   await expect(page.locator(".git-changes-summary")).toContainText(
