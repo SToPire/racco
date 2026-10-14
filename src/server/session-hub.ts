@@ -55,6 +55,7 @@ import { WorktreeService } from "./worktrees/service.js";
 import { WorktreeAccess } from "./worktrees/access.js";
 import { gitCommonDir } from "./worktrees/git.js";
 import { SessionTimeline } from "./session-timeline.js";
+import { resolveProjectRoot } from "./worktrees/derive.js";
 
 type RuntimeSession = {
   summary: Omit<SessionSummary, "activeRequest">;
@@ -347,14 +348,17 @@ export class SessionHub {
     // concurrent imports cannot both claim the same Git common directory.
     const registration = this.#projectImports.then(async () => {
       if (this.#closed) throw new Error("Racco closed");
-      const owner = await this.#projectOwningRepository(canonicalPath);
-      if (owner !== undefined && owner.path !== canonicalPath) {
-        throw new Error(`该仓库已注册为项目「${owner.name}」（${owner.path}）`);
+      const projectPath = await resolveProjectRoot(canonicalPath);
+      const owner = await this.#projectOwningRepository(projectPath);
+      if (owner !== undefined && owner.path !== projectPath) {
+        throw new Error(
+          `Repository is already registered as project "${owner.name}" (${owner.path})`,
+        );
       }
       if (this.#closed) throw new Error("Racco closed");
       const project = this.repository.importProject({
-        name: basename(canonicalPath),
-        path: canonicalPath,
+        name: basename(projectPath),
+        path: projectPath,
       });
       const entry = toProjectEntry(project, true);
       this.#broadcastToClients({ type: "project.upserted", project: entry });

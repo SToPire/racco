@@ -1,7 +1,8 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, parse } from "node:path";
 import { GitCommandError, GitUnavailableError, runGit } from "./git.js";
-import { parseWorktreeList } from "./porcelain.js";
+import { parseWorktreeList, type ParsedWorktree } from "./porcelain.js";
+import { resolveProjectDirectory } from "../project-path.js";
 
 export type WorktreeKind = "primary" | "linked";
 
@@ -42,7 +43,7 @@ export class WorktreeCatalogUnavailableError extends Error {
     readonly projectPath: string,
     readonly reason: string,
   ) {
-    super(`无法读取项目 ${projectPath} 的 Worktree 列表：${reason}`);
+    super(`Cannot read worktrees for project ${projectPath}: ${reason}`);
     this.name = "WorktreeCatalogUnavailableError";
   }
 }
@@ -64,39 +65,86 @@ async function directoryIsAvailable(path: string): Promise<boolean> {
   }
 }
 
-/**
- * Whether `path` is the main working tree of its repository, as opposed to a
- * linked worktree or a plain directory.
- *
- * The check is `rev-parse --git-dir` rather than "is a Git repository", because
- * running `worktree add` from inside a linked worktree also succeeds: only the
- * admin directory distinguishes them. `--path-format=absolute` is required —
- * without it Git answers a relative `.git`, which cannot be compared against the
- * project path.
- *
- * `false` is only ever Git's answer. Being unable to ask propagates, so a missing
- * `git` cannot be reported to the user as "this project is not a main working
- * tree".
- */
-export async function isMainWorkingTree(path: string): Promise<boolean> {
-  const canonicalPath = await realpathOrSelf(path);
-  let stdout: string;
-  try {
-    stdout = await runGit(
-      ["rev-parse", "--path-format=absolute", "--git-dir"],
-      {
-        cwd: canonicalPath,
-      },
-    );
-  } catch (error) {
-    // Git ran and answered: a plain directory is simply not a main working
-    // tree. Being unable to run Git at all is a different answer and propagates.
-    if (error instanceof GitUnavailableError) throw error;
-    return false;
+async function readGitWorktrees(path: string): Promise<ParsedWorktree[]> {
+  const stdout = await runGit(["worktree", "list", "--porcelain"], {
+    cwd: path,
+  });
+  const parsed = parseWorktreeList(stdout);
+  if (parsed.kind !== "ok") {
+    const reason =
+      parsed.kind === "empty"
+        ? "git worktree list returned an empty result"
+        : `Cannot parse git worktree list output: ${parsed.line}`;
+    throw new WorktreeCatalogUnavailableError(path, reason);
   }
-  const gitDir = stdout.trim();
-  if (gitDir === "") return false;
-  return (await realpathOrSelf(gitDir)) === `${canonicalPath}/.git`;
+  return parsed.worktrees;
+}
+
+async function workingTreeIdentity(path: string) {
+  const identity = await runGit(
+    [
+      "rev-parse",
+      "--path-format=absolute",
+      "--show-toplevel",
+      "--git-dir",
+      "--git-common-dir",
+    ],
+    { cwd: path },
+  );
+  const [root, gitDirectory, commonDirectory] = identity.trim().split("\n");
+  if (!root || !gitDirectory || !commonDirectory)
+    throw new Error(`Invalid Git worktree identity for ${path}`);
+  const common = await realpath(commonDirectory);
+  return {
+    root: await realpath(root),
+    common,
+    main: (await realpath(gitDirectory)) === common,
+  };
+}
+
+/** A linked root imports its main worktree; subdirectories and bare repos fail. */
+export async function resolveProjectRoot(
+  path: string,
+  entries?: ParsedWorktree[],
+): Promise<string> {
+  try {
+    entries ??= await readGitWorktrees(path);
+  } catch (error) {
+    if (
+      error instanceof GitCommandError &&
+      /not a git repository \(or any /i.test(error.stderr)
+    )
+      return path;
+    throw error;
+  }
+  if (entries[0].bare)
+    throw new Error("Bare Git repositories cannot be imported as projects");
+  const identity = await workingTreeIdentity(path);
+  if (identity.root !== (await realpath(path)))
+    throw new Error(`Select a Git worktree root directory: ${identity.root}`);
+  if (identity.main) return identity.root;
+  const mainRoot = await resolveProjectDirectory(entries[0].path);
+  if (!mainRoot)
+    throw new Error(`Main worktree is unavailable: ${entries[0].path}`);
+  const mainIdentity = await workingTreeIdentity(mainRoot);
+  if (
+    !mainIdentity.main ||
+    mainIdentity.root !== mainRoot ||
+    mainIdentity.common !== identity.common
+  )
+    throw new Error(`Cannot resolve main worktree for ${path}: ${mainRoot}`);
+  return mainRoot;
+}
+
+/** Git's main root is the only directory from which Racco creates worktrees. */
+export async function isMainWorkingTree(path: string): Promise<boolean> {
+  try {
+    const identity = await workingTreeIdentity(path);
+    return identity.main && identity.root === (await realpath(path));
+  } catch (error) {
+    if (error instanceof GitCommandError) return false;
+    throw error;
+  }
 }
 
 /**
@@ -129,14 +177,12 @@ export async function primaryOnlyCatalog(
 }
 
 /**
- * Derives a project's worktrees from Git. The primary worktree is the project
- * itself and is synthesized — never matched by path string against Git's output,
- * so a path that differs only by symlink or trailing slash cannot turn the
- * project directory into a deletable linked entry.
+ * Derives a project's worktrees from Git after checking that the project is
+ * actually its main root. The primary row is synthesized only after that check;
+ * invalid registrations cannot turn Git's real main worktree into a linked row.
  *
- * Returns a degraded catalog instead of throwing when the listing fails but a
- * previous view can be kept by the caller; throws only for the empty case, which
- * callers must not treat as an answer.
+ * Returns a degraded catalog when Git is unavailable. Invalid listings and
+ * non-main project roots fail explicitly rather than inventing worktree roles.
  */
 export async function deriveWorktrees(options: {
   projectPath: string;
@@ -150,17 +196,16 @@ export async function deriveWorktrees(options: {
     // read: only the primary entry can be reported.
     return primaryOnlyCatalog(
       projectPath,
-      `项目目录不可用：${projectPath}`,
+      `Project directory is unavailable: ${projectPath}`,
       options.displayPath,
     );
   }
 
-  let stdout: string;
+  let entries: ParsedWorktree[];
   try {
-    stdout = await runGit(["worktree", "list", "--porcelain"], {
-      cwd: projectPath,
-    });
+    entries = await readGitWorktrees(projectPath);
   } catch (error) {
+    if (error instanceof WorktreeCatalogUnavailableError) throw error;
     if (error instanceof GitUnavailableError) {
       return primaryOnlyCatalog(
         projectPath,
@@ -171,10 +216,9 @@ export async function deriveWorktrees(options: {
     if (error instanceof GitCommandError) {
       // `not a git repository` is a normal answer: a plain directory imports
       // fine and simply has no linked worktrees.
-      const notARepository = /not a git repository/i.test(error.stderr);
       return primaryOnlyCatalog(
         projectPath,
-        notARepository ? null : error.message,
+        /not a git repository/i.test(error.stderr) ? null : error.message,
         options.displayPath,
       );
     }
@@ -185,18 +229,16 @@ export async function deriveWorktrees(options: {
     );
   }
 
-  const parsed = parseWorktreeList(stdout);
-  if (parsed.kind === "empty" || parsed.kind === "malformed") {
-    const reason =
-      parsed.kind === "empty"
-        ? "git worktree list 返回空结果"
-        : `无法解析 git worktree list 的输出：${parsed.line}`;
-    throw new WorktreeCatalogUnavailableError(projectPath, reason);
-  }
+  const mainRoot = await resolveProjectRoot(projectPath, entries);
+  if (mainRoot !== (await realpath(projectPath)))
+    throw new Error(`Project must be the main worktree root: ${mainRoot}`);
 
   const linked = await Promise.all(
-    parsed.worktrees.map(
-      async (entry): Promise<DerivedWorktree | undefined> => {
+    // Git's first entry is its main worktree, even when its path spells a
+    // separate admin directory. Its role must never become linked/removable.
+    entries
+      .slice(1)
+      .map(async (entry): Promise<DerivedWorktree | undefined> => {
         const canonicalPrimary = await realpathOrSelf(projectPath);
         const canonicalEntry = await realpathOrSelf(entry.path);
         // Defense in depth: Git refuses to remove a main working tree, but an
@@ -215,8 +257,7 @@ export async function deriveWorktrees(options: {
           prunable: entry.prunable,
           removable: true,
         };
-      },
-    ),
+      }),
   );
 
   return {

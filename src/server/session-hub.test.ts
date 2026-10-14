@@ -6,7 +6,14 @@ import {
   fixtureModelSettings,
 } from "../../test/model-catalog.js";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -1320,23 +1327,57 @@ test("serializes concurrent repository ownership checks before project registrat
   const childProcess = (await import("node:child_process")).default;
   const filesystem = (await import("node:fs/promises")).default;
   const { syncBuiltinESMExports } = await import("node:module");
+  const { runGit } = await import("./worktrees/git.js");
+  const { resolveProjectRoot } = await import("./worktrees/derive.js");
   const fixture = await fixtureDirectory(t);
-  const main = join(fixture, "repo");
-  const nested = join(main, "src");
+  const main = join(fixture, "one");
+  const second = join(fixture, "two");
+  const admin = join(fixture, "admin");
   const existing = join(fixture, "existing");
-  await mkdir(nested, { recursive: true });
-  await mkdir(existing);
+  await runGit(["init", "-q", `--separate-git-dir=${admin}`, main]);
+  await mkdir(second);
+  await writeFile(join(second, ".git"), `gitdir: ${admin}\n`);
+  await runGit(["init", "-q", existing]);
+  // Both are valid main roots, yet Git reports the same administrative identity.
+  await resolveProjectRoot(main);
+  await resolveProjectRoot(second);
+  const gitReplies = new Map<string, string>();
+  for (const cwd of [main, second, existing]) {
+    for (const command of [
+      ["worktree", "list", "--porcelain"],
+      [
+        "rev-parse",
+        "--path-format=absolute",
+        "--show-toplevel",
+        "--git-dir",
+        "--git-common-dir",
+      ],
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ]) {
+      gitReplies.set(
+        JSON.stringify([cwd, command]),
+        await runGit(command, { cwd }),
+      );
+    }
+  }
+  const canonicalPaths = new Map(
+    await Promise.all(
+      [main, second, admin, existing].map(
+        async (path) => [path, await realpath(path)] as const,
+      ),
+    ),
+  );
   const repository = memoryRepository();
   repository.importProject({ name: "existing", path: existing });
   const hub = new SessionHub([], repository, fixture, async () => {});
 
   // Gate Git callbacks after canonicalization. Both contenders in the broken
   // implementation observe the same project list before either can insert.
-  let resolveCanonicalized!: () => void;
+  let markCanonicalized!: () => void;
   const canonicalized = new Promise<void>((resolve) => {
-    resolveCanonicalized = resolve;
+    markCanonicalized = resolve;
   });
-  const remaining = new Set([main, nested]);
+  const remaining = new Set([main, second]);
   const stat = filesystem.stat;
   const statMock = t.mock.method(
     filesystem,
@@ -1344,9 +1385,16 @@ test("serializes concurrent repository ownership checks before project registrat
     async (...args: Parameters<typeof stat>) => {
       const result = await stat(...args);
       remaining.delete(String(args[0]));
-      if (remaining.size === 0) resolveCanonicalized();
+      if (remaining.size === 0) markCanonicalized();
       return result;
     },
+  );
+  const readRealpath = filesystem.realpath;
+  const realpathMock = t.mock.method(
+    filesystem,
+    "realpath",
+    async (...args: Parameters<typeof readRealpath>) =>
+      canonicalPaths.get(String(args[0])) ?? readRealpath(...args),
   );
   const replies: Array<() => void> = [];
   const gitMock = t.mock.method(
@@ -1360,12 +1408,9 @@ test("serializes concurrent repository ownership checks before project registrat
         (error: null, stdout: string, stderr: string) => void,
       ];
       assert.equal(file, "git");
-      assert(command.includes("--git-common-dir"));
-      const common =
-        options.cwd === main || options.cwd === nested
-          ? join(main, ".git")
-          : join(existing, ".git");
-      replies.push(() => callback(null, `${common}\n`, ""));
+      const stdout = gitReplies.get(JSON.stringify([options.cwd, command]));
+      assert.notEqual(stdout, undefined, "unexpected Git query");
+      replies.push(() => callback(null, stdout!, ""));
       return new childProcess.ChildProcess();
     },
   );
@@ -1389,7 +1434,7 @@ test("serializes concurrent repository ownership checks before project registrat
   try {
     const importing = Promise.allSettled([
       hub.importProject(main),
-      hub.importProject(nested),
+      hub.importProject(second),
     ]);
     await canonicalized;
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -1398,13 +1443,14 @@ test("serializes concurrent repository ownership checks before project registrat
     const rejected = results.filter((result) => result.status === "rejected");
     assert.equal(accepted.length, 1);
     assert.equal(rejected.length, 1);
-    assert.match(String(rejected[0].reason), /已注册为项目/);
+    assert.match(String(rejected[0].reason), /already registered as project/);
     assert.equal(repository.listProjects().length, 2);
     // A rejected registration cannot poison subsequent imports.
     const repeated = await complete(hub.importProject(accepted[0].value.path));
     assert.equal(repeated.projectId, accepted[0].value.projectId);
   } finally {
     statMock.mock.restore();
+    realpathMock.mock.restore();
     gitMock.mock.restore();
     syncBuiltinESMExports();
     await hub.close();

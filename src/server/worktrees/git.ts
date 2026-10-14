@@ -32,7 +32,7 @@ export class GitCommandError extends Error {
  */
 export class GitUnavailableError extends Error {
   constructor(cause: unknown) {
-    super("找不到可执行的 git，无法读取 Worktree");
+    super("git is unavailable; cannot read worktrees");
     this.name = "GitUnavailableError";
     this.cause = cause;
   }
