@@ -7,7 +7,8 @@ import {
   imageDragOver,
 } from "./ImageAttachments";
 import type { UserInput } from "../../shared/user-input";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useRef, useState } from "react";
+import { useAutosizeTextarea } from "../hooks/useAutosizeTextarea";
 import type { ModelSettings } from "../../shared/protocol";
 import { submitOnEnter } from "../composer-keyboard";
 import {
@@ -38,6 +39,8 @@ export function Composer({
   compacting = false,
 }: ComposerProps) {
   const [text, setText] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  useAutosizeTextarea(input, text);
   const images = useImageDraft(scope);
   const unsupported =
     selection.catalog?.models.find(
@@ -83,6 +86,7 @@ export function Composer({
         unsupported={unsupported}
       />
       <textarea
+        ref={input}
         aria-label="发送给 Racco"
         disabled={editingDisabled}
         onKeyDown={submitOnEnter}
