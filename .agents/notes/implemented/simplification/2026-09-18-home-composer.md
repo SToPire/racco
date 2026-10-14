@@ -12,6 +12,8 @@ Status: implemented
 
 同范围审查保留[模型选择](../feature/2026-09-17-composer-model-selector.md)的配置与提交约束；[产品标识](../feature/2026-09-18-racco-product-identity.md)只更新首页展示位置，品牌决策继续有效。没有记录被完整替代。
 
+草稿保留限于输入组件持续挂载的范围；进入已有会话后返回首页、切换项目或工作目录的图片清空等边界由[组件持有草稿](2026-10-14-component-owned-drafts.md)明确，不承诺跨卸载恢复。
+
 ## Alternatives considered
 
 **保留欢迎页，只删除说明文字：** 用户仍需多次操作才能开始输入，不能消除入口冗余。

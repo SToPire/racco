@@ -14,6 +14,8 @@ Status: implemented
 
 完整历史的传输压缩与暂不采用分页的取舍由[WebSocket 压缩决策](../simplification/2026-09-27-full-history-with-websocket-compression.md)持有。
 
+[组件持有草稿](../simplification/2026-10-14-component-owned-drafts.md)明确接受视图淘汰后的未发送内容丢失，不为草稿扩大缓存或建立独立保存机制。
+
 本记录补充[Worktree 管理](../architecture/2026-09-20-git-worktree-management.md)的导航行为，以及[首页输入页](../simplification/2026-09-18-home-composer.md)的页面内草稿保留；两者继续持有工作目录归属和浏览器历史语义。[无逐轮记录](../simplification/2026-09-17-session-state-without-turn-ledger.md)继续有效：显示缓存不是执行账本，Provider 仍是历史的事实来源，不新增自动命令重放。同范围没有需要完整替代或归档的记录。
 
 ## Alternatives considered
