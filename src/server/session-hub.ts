@@ -481,6 +481,7 @@ export class SessionHub {
   }
 
   async snapshot(ref: SessionRef): Promise<SessionSnapshotMessage | undefined> {
+    if (this.#closed) return undefined;
     let managed = this.repository.get(ref.sessionId);
     if (managed === undefined) return undefined;
     const runtime = this.#runtimeFor(managed);
@@ -514,6 +515,7 @@ export class SessionHub {
     const revisionBeforeRead = runtime.revision;
     try {
       const snapshot = await driver.readSession(providerHandle(managed));
+      if (!this.#isCurrentRuntime(ref.sessionId, runtime)) return undefined;
       managed = this.repository.updateMetadata(managed.sessionId, {
         title: snapshot.metadata.title,
         providerUpdatedAt: snapshot.metadata.updatedAt,
@@ -535,6 +537,9 @@ export class SessionHub {
         );
       }
     } catch (error) {
+      // Removal wins over both successful and failed asynchronous reads. An
+      // obsolete runtime must not return a snapshot or update deleted metadata.
+      if (!this.#isCurrentRuntime(ref.sessionId, runtime)) return undefined;
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof ProviderSessionNotFoundError) {
         managed = this.repository.markProviderMissing(managed.sessionId);
@@ -554,11 +559,17 @@ export class SessionHub {
     const request = Symbol();
     this.#pendingSubscriptions.set(socket, request);
     try {
-      const snapshot = await this.snapshot(ref);
+      const pendingSnapshot = this.snapshot(ref);
+      const runtime = this.#sessions.get(ref.sessionId);
+      const snapshot = await pendingSnapshot;
+      if (
+        snapshot === undefined ||
+        !this.#isCurrentRuntime(ref.sessionId, runtime)
+      )
+        return undefined;
       // Provider reads can finish out of order. Only the last navigation may
       // own the socket; older snapshots can still refresh the client's cache.
       if (
-        snapshot !== undefined &&
         this.#pendingSubscriptions.get(socket) === request &&
         socket.readyState === WebSocket.OPEN
       ) {
@@ -1389,6 +1400,18 @@ export class SessionHub {
         },
       ],
     };
+  }
+
+  #isCurrentRuntime(
+    sessionId: string,
+    runtime: RuntimeSession | undefined,
+  ): boolean {
+    return (
+      !this.#closed &&
+      runtime !== undefined &&
+      this.#sessions.get(sessionId) === runtime &&
+      this.repository.get(sessionId) !== undefined
+    );
   }
 
   #rejectInteractions(sessionId: string, error: Error): void {
