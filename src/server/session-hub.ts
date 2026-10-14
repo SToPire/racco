@@ -1162,16 +1162,17 @@ export class SessionHub {
   resolveInteraction(id: string, response: InteractionResponse): boolean {
     const pending = this.#interactions.get(id);
     if (pending === undefined) return false;
-    this.#interactions.delete(id);
+    this.#closeInteraction(id, pending);
     const runtime = this.#sessions.get(pending.sessionId);
     if (runtime !== undefined) {
-      this.#broadcast(runtime, {
-        type: "interaction.resolved",
-        session: { sessionId: pending.sessionId },
-        interactionId: id,
-      });
       if (runtime.activeTurn !== undefined) {
-        this.#setLiveState(pending.sessionId, runtime, "running");
+        this.#setLiveState(
+          pending.sessionId,
+          runtime,
+          this.#pendingForSession(pending.sessionId).length > 0
+            ? "waiting_interaction"
+            : "running",
+        );
       }
     }
     pending.resolve(response);
@@ -1393,9 +1394,21 @@ export class SessionHub {
   #rejectInteractions(sessionId: string, error: Error): void {
     for (const [id, pending] of this.#interactions) {
       if (pending.sessionId === sessionId) {
-        this.#interactions.delete(id);
+        this.#closeInteraction(id, pending);
         pending.reject(error);
       }
+    }
+  }
+
+  #closeInteraction(id: string, pending: PendingInteraction): void {
+    this.#interactions.delete(id);
+    const runtime = this.#sessions.get(pending.sessionId);
+    if (runtime !== undefined) {
+      this.#broadcast(runtime, {
+        type: "interaction.resolved",
+        session: { sessionId: pending.sessionId },
+        interactionId: id,
+      });
     }
   }
 
