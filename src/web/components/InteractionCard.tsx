@@ -13,14 +13,16 @@ export function InteractionCard({
   interaction,
   onResolve,
 }: InteractionCardProps) {
-  const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  const [selections, setSelections] = useState<Record<string, string[]>>({});
+  const [otherText, setOtherText] = useState<Record<string, string>>({});
 
   function setSingle(id: string, value: string) {
-    setAnswers((current) => ({ ...current, [id]: [value] }));
+    setSelections((current) => ({ ...current, [id]: [value] }));
+    setOtherText((current) => ({ ...current, [id]: "" }));
   }
 
   function toggleMultiple(id: string, value: string, checked: boolean) {
-    setAnswers((current) => {
+    setSelections((current) => {
       const selected = new Set(current[id] ?? []);
       if (checked) selected.add(value);
       else selected.delete(value);
@@ -30,6 +32,16 @@ export function InteractionCard({
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    const answers = Object.fromEntries(
+      interaction.questions.flatMap(({ id }) => {
+        if (selections[id] === undefined && otherText[id] === undefined)
+          return [];
+        const text = otherText[id] ?? "";
+        return [
+          [id, [...(selections[id] ?? []), ...(text === "" ? [] : [text])]],
+        ];
+      }),
+    );
     onResolve(interaction.id, { decision: "answer", answers });
   }
 
@@ -42,7 +54,7 @@ export function InteractionCard({
           {question.options?.map((option) => (
             <label className="question-option" key={option.label}>
               <input
-                checked={(answers[question.id] ?? []).includes(option.label)}
+                checked={(selections[question.id] ?? []).includes(option.label)}
                 name={question.id}
                 onChange={(event) =>
                   question.multiple
@@ -65,8 +77,21 @@ export function InteractionCard({
           {(question.options === undefined || question.allowOther) && (
             <input
               aria-label={`${question.text} 的文本回答`}
-              onChange={(event) => setSingle(question.id, event.target.value)}
-              placeholder="输入回答"
+              value={otherText[question.id] ?? ""}
+              onChange={(event) => {
+                setOtherText((current) => ({
+                  ...current,
+                  [question.id]: event.target.value,
+                }));
+                if (!question.multiple)
+                  setSelections((current) => ({
+                    ...current,
+                    [question.id]: [],
+                  }));
+              }}
+              placeholder={
+                question.options === undefined ? "输入回答" : "其他回答（可选）"
+              }
               type={question.secret ? "password" : "text"}
             />
           )}
