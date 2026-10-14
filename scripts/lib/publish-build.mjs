@@ -1,19 +1,18 @@
 import { rename, rm } from "node:fs/promises";
-/** Publish a complete directory; retain the previous output if promotion fails. */
-export async function publishBuild(stage, output) {
-  const backup = stage + "-previous";
-  let previous = false;
-  try {
-    await rename(output, backup);
-    previous = true;
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  try {
-    await rename(stage, output);
-  } catch (error) {
-    if (previous) await rename(backup, output);
-    throw error;
-  }
-  if (previous) await rm(backup, { recursive: true, force: true });
+import { run } from "./process.mjs";
+
+/** Deployment stops the reader before publication; failures require manual repair. */
+export async function publishBuild(
+  stage,
+  output,
+  { deploy = false, signal } = {},
+) {
+  signal?.throwIfAborted();
+  if (deploy)
+    await run("systemctl", ["--user", "stop", "raccod.service"], { signal });
+  signal?.throwIfAborted();
+  await rm(output, { recursive: true, force: true });
+  await rename(stage, output);
+  if (deploy)
+    await run("systemctl", ["--user", "start", "raccod.service"], { signal });
 }

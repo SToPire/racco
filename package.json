@@ -10,6 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.json --noEmit",
     "build": "node scripts/build.mjs",
+    "deploy": "node scripts/build.mjs --deploy",
     "build:web": "node scripts/build.mjs --target check --part web",
     "build:server": "node scripts/build.mjs --target check --part server",
     "daemon:restart": "systemctl --user restart raccod.service",

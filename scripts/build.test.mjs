@@ -53,16 +53,48 @@ test("publishing replaces stale outputs instead of merging generated directories
   assert.equal(await readFile(join(output, "current.js"), "utf8"), "new");
 });
 
-test("failed build publication restores the preceding output", async (t) => {
+test("deployment stops before publication and starts only after success", async (t) => {
   const { mkdir } = await import("node:fs/promises");
   const { publishBuild } = await import("./lib/publish-build.mjs");
-  const directory = await mkdtemp(join(tmpdir(), "racco-rollback-"));
+  const directory = await mkdtemp(join(tmpdir(), "racco-deploy-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const output = join(directory, "output");
-  await mkdir(output);
-  await writeFile(join(output, "current.js"), "working");
-  await assert.rejects(publishBuild(join(directory, "missing-stage"), output), {
-    code: "ENOENT",
+  const stage = join(directory, "stage");
+  const log = join(directory, "service.log");
+  await writeFile(
+    join(directory, "systemctl"),
+    '#!/bin/sh\nif [ "$TEST_STOP_FAIL" = 1 ]; then exit 17; fi\ncat "$TEST_OUTPUT/current.js" >> "$TEST_LOG"\necho "$*" >> "$TEST_LOG"\n',
+    { mode: 0o700 },
+  );
+  const previous = { ...process.env };
+  process.env.PATH = `${directory}:${process.env.PATH}`;
+  process.env.TEST_OUTPUT = output;
+  process.env.TEST_LOG = log;
+  t.after(() => {
+    process.env = previous;
   });
-  assert.equal(await readFile(join(output, "current.js"), "utf8"), "working");
+  await mkdir(output);
+  await mkdir(stage);
+  await writeFile(join(output, "current.js"), "old\n");
+  await writeFile(join(stage, "current.js"), "new\n");
+  process.env.TEST_STOP_FAIL = "1";
+  await assert.rejects(publishBuild(stage, output, { deploy: true }), /17/);
+  assert.equal(await readFile(join(output, "current.js"), "utf8"), "old\n");
+  delete process.env.TEST_STOP_FAIL;
+  await publishBuild(stage, output, { deploy: true });
+  assert.equal(
+    await readFile(log, "utf8"),
+    "old\n--user stop raccod.service\nnew\n--user start raccod.service\n",
+  );
+  await writeFile(log, "");
+  await assert.rejects(
+    publishBuild(join(directory, "missing-stage"), output, { deploy: true }),
+    {
+      code: "ENOENT",
+    },
+  );
+  assert.equal(
+    await readFile(log, "utf8"),
+    "new\n--user stop raccod.service\n",
+  );
 });

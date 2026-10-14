@@ -7,6 +7,7 @@ export async function buildOutput({
   target = "production",
   part = "all",
   signal,
+  deploy = false,
 } = {}) {
   const outputs = {
     production: "dist",
@@ -20,6 +21,8 @@ export async function buildOutput({
     throw new Error("Invalid build target or part");
   if (target === "production" && part !== "all")
     throw new Error("Production builds must include both server and web");
+  if (deploy && target !== "production")
+    throw new Error("Deployment requires a production build");
   const out = join(root, outputs[target]);
   await mkdir(join(root, ".tmp"), { recursive: true });
   const stage = await mkdtemp(join(root, ".tmp/build-stage-"));
@@ -63,7 +66,7 @@ export async function buildOutput({
     );
     await mkdir(join(out, ".."), { recursive: true });
     signal?.throwIfAborted();
-    await publishBuild(stage, out);
+    await publishBuild(stage, out, { deploy, signal });
     console.log(
       JSON.stringify({ type: "build.complete", output: out, ...info }),
     );

@@ -9,6 +9,7 @@ export async function build({
   target = "production",
   part = "all",
   signal,
+  deploy = false,
 } = {}) {
   if (
     !["production", "check", "preview"].includes(target) ||
@@ -17,9 +18,11 @@ export async function build({
     throw new Error("Invalid build target or part");
   if (target === "production" && part !== "all")
     throw new Error("Production builds must include both server and web");
+  if (deploy && target !== "production")
+    throw new Error("Deployment requires a production build");
   return withFileLock(
     join(root, ".tmp/locks", `build-${target}.lock`),
-    () => buildOutput({ target, part, signal }),
+    () => buildOutput({ target, part, signal, deploy }),
     signal,
   );
 }
@@ -30,6 +33,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       options: {
         target: { type: "string", default: "production" },
         part: { type: "string", default: "all" },
+        deploy: { type: "boolean", default: false },
       },
     });
     await build({ ...values, signal: cancellation.signal });
