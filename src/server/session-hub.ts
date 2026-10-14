@@ -54,10 +54,11 @@ import {
 import { WorktreeService } from "./worktrees/service.js";
 import { WorktreeAccess } from "./worktrees/access.js";
 import { gitCommonDir } from "./worktrees/git.js";
+import { SessionTimeline } from "./session-timeline.js";
 
 type RuntimeSession = {
   summary: Omit<SessionSummary, "activeRequest">;
-  events: TimelineEvent[];
+  events: SessionTimeline;
   subscribers: Set<WebSocket>;
   revision: number;
   activeTurn?: {
@@ -522,7 +523,7 @@ export class SessionHub {
         runtime.activeTurn === undefined
       ) {
         this.#refreshRuntime(runtime, managed);
-        runtime.events = snapshot.events;
+        runtime.events = new SessionTimeline(snapshot.events);
         runtime.revision += 1;
       } else {
         this.#refreshRuntime(runtime, managed);
@@ -777,7 +778,7 @@ export class SessionHub {
             updatedAt: snapshot.metadata.updatedAt,
           });
           const runtime = this.#runtimeFor(managed);
-          runtime.events = snapshot.events;
+          runtime.events = new SessionTimeline(snapshot.events);
           runtime.revision += 1;
           this.#broadcastSessionSummary(runtime);
           return this.#sessionSummary(runtime);
@@ -1241,7 +1242,7 @@ export class SessionHub {
     if (runtime === undefined) {
       runtime = {
         summary: toSessionSummary(managed),
-        events: [],
+        events: new SessionTimeline(),
         subscribers: new Set(),
         revision: 0,
       };
@@ -1286,7 +1287,7 @@ export class SessionHub {
     sessionId: string,
     event: TimelineEvent,
   ): void {
-    runtime.events.push(event);
+    runtime.events.append(event);
     runtime.revision += 1;
     runtime.summary.updatedAt = new Date().toISOString();
     this.#broadcast(runtime, {
@@ -1363,7 +1364,7 @@ export class SessionHub {
     return {
       type: "session.snapshot",
       session: this.#sessionSummary(runtime),
-      events: [...runtime.events],
+      events: runtime.events.snapshot(),
       pendingInteractions: this.#pendingForSession(sessionId),
     };
   }
