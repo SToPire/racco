@@ -137,6 +137,7 @@ export class SessionHub {
   readonly #worktrees: WorktreeService;
   readonly #worktreeAccess = new WorktreeAccess();
   readonly #turnTasks = new Set<Promise<void>>();
+  #projectImports: Promise<void> = Promise.resolve();
   readonly #creating = new Map<
     string,
     { hash: string; task: Promise<ManagedSession> }
@@ -342,21 +343,28 @@ export class SessionHub {
         "Project must be an existing absolute directory other than /",
       );
     }
-    // One repository is registered once. The check is the Git *common* directory,
-    // not the path, so importing a subdirectory of an already-registered
-    // repository is refused with a pointer to the project that owns it, instead
-    // of splitting one repository across two projects.
-    const owner = await this.#projectOwningRepository(canonicalPath);
-    if (owner !== undefined && owner.path !== canonicalPath) {
-      throw new Error(`该仓库已注册为项目「${owner.name}」（${owner.path}）`);
-    }
-    const project = this.repository.importProject({
-      name: basename(canonicalPath),
-      path: canonicalPath,
+    // Registration is infrequent. Serialize its ownership read and insert so
+    // concurrent imports cannot both claim the same Git common directory.
+    const registration = this.#projectImports.then(async () => {
+      if (this.#closed) throw new Error("Racco closed");
+      const owner = await this.#projectOwningRepository(canonicalPath);
+      if (owner !== undefined && owner.path !== canonicalPath) {
+        throw new Error(`该仓库已注册为项目「${owner.name}」（${owner.path}）`);
+      }
+      if (this.#closed) throw new Error("Racco closed");
+      const project = this.repository.importProject({
+        name: basename(canonicalPath),
+        path: canonicalPath,
+      });
+      const entry = toProjectEntry(project, true);
+      this.#broadcastToClients({ type: "project.upserted", project: entry });
+      return entry;
     });
-    const entry = toProjectEntry(project, true);
-    this.#broadcastToClients({ type: "project.upserted", project: entry });
-    return entry;
+    this.#projectImports = registration.then(
+      () => undefined,
+      () => undefined,
+    );
+    return registration;
   }
 
   /**
@@ -1224,6 +1232,7 @@ export class SessionHub {
       [...this.#drivers.values()].map((driver) => driver.close()),
     );
     await Promise.allSettled([
+      this.#projectImports,
       ...this.#turnTasks,
       ...[...this.#creating.values()].map((entry) => entry.task),
     ]);
